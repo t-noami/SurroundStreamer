@@ -32,6 +32,9 @@ const meterState = document.getElementById('meter-state')
 const monitorEnabled = document.getElementById('monitor-enabled')
 const monitorDeviceList = document.getElementById('monitor-device-list')
 const monitorMode = document.getElementById('monitor-mode')
+const monitorPairGroup = document.getElementById('monitor-pair-group')
+const monitorSourcePair = document.getElementById('monitor-source-pair')
+const monitorLatency = document.getElementById('monitor-latency')
 const btnRefreshMonitorDevices = document.getElementById('btn-refresh-monitor-devices')
 
 const channelNames = ['FL', 'FR', 'FC', 'LFE', 'SL', 'SR', 'BL', 'BR']
@@ -282,6 +285,7 @@ function updateChannelControls(useDefaults = false) {
         : previous.has(index)
     input.addEventListener('change', () => {
       renderPeakMeters(selectedChannelIndexes().length || 1)
+      updateMonitorRoutingControls()
     })
 
     const text = document.createElement('span')
@@ -293,6 +297,7 @@ function updateChannelControls(useDefaults = false) {
   }
 
   renderPeakMeters(selectedChannelIndexes().length || defaults)
+  updateMonitorRoutingControls()
 }
 
 function selectedChannelIndexes() {
@@ -360,16 +365,52 @@ function updatePeakMeters(payload) {
 
 function selectedMonitorFormat() {
   const selectedChannels = selectedChannelIndexes()
+  const sourceChannels =
+    currentMonitorFormat?.channels || selectedChannels.length || defaultChannelCount()
   return {
     mode: monitorMode.value,
     deviceId: monitorDeviceList.value,
+    pairStart: Number(monitorSourcePair.value || 0),
+    latencyMs: Number(monitorLatency.value || 80),
     sampleRate: currentMonitorFormat?.sampleRate || Number(sampleRateSelect.value),
-    channels: currentMonitorFormat?.channels || selectedChannels.length || defaultChannelCount()
+    channels: sourceChannels
   }
 }
 
 function monitorModeLabel(mode = monitorMode.value) {
-  return mode === 'binaural' ? 'Web Audio HRTF' : 'Ch1/Ch2 stereo'
+  if (mode === 'binaural') return 'Web Audio HRTF'
+  if (mode === 'downmix') return 'Stereo downmix'
+  return `${monitorPairLabel(Number(monitorSourcePair.value || 0))} stereo pair`
+}
+
+function monitorPairLabel(pairStart) {
+  const channels =
+    currentMonitorFormat?.channels || selectedChannelIndexes().length || defaultChannelCount()
+  const left = pairStart
+  const right = Math.min(pairStart + 1, Math.max(0, channels - 1))
+  const leftName = channelNames[left] || `CH${left + 1}`
+  const rightName = channelNames[right] || `CH${right + 1}`
+  return left === right ? `${leftName} mono` : `${leftName}/${rightName}`
+}
+
+function updateMonitorRoutingControls() {
+  const previousPair = monitorSourcePair.value
+  const channels =
+    currentMonitorFormat?.channels || selectedChannelIndexes().length || defaultChannelCount()
+  monitorSourcePair.innerHTML = ''
+
+  for (let index = 0; index < Math.max(1, channels); index += 2) {
+    const opt = document.createElement('option')
+    opt.value = String(index)
+    opt.textContent = monitorPairLabel(index)
+    monitorSourcePair.appendChild(opt)
+  }
+
+  if (Array.from(monitorSourcePair.options).some((option) => option.value === previousPair)) {
+    monitorSourcePair.value = previousPair
+  }
+
+  monitorPairGroup.classList.toggle('hidden', monitorMode.value !== 'stereo-pair')
 }
 
 function applyMonitorSettings(reason = 'settings') {
@@ -400,13 +441,27 @@ function applyMonitorSettings(reason = 'settings') {
 async function startInitialMonitor(config, channels) {
   if (!config.monitorEnabled) return
 
+  const format = initialMonitorFormat(config, channels)
   await webAudioMonitor.start({
-    mode: config.monitorMode,
+    mode: format.mode,
     deviceId: config.monitorDeviceId,
-    sampleRate: config.sampleRate,
-    channels
+    pairStart: format.pairStart,
+    latencyMs: format.latencyMs,
+    sampleRate: format.sampleRate,
+    channels: format.channels
   })
   addLog(`Monitor output ready (${monitorModeLabel(config.monitorMode)}).`, 'system')
+}
+
+function initialMonitorFormat(config, streamChannels) {
+  const isDirectAppAudioMonitor = config.inputType === 'app-audio'
+  return {
+    mode: config.monitorMode || 'stereo-pair',
+    pairStart: config.monitorPairStart || 0,
+    latencyMs: config.monitorLatencyMs || 80,
+    sampleRate: isDirectAppAudioMonitor ? config.appAudioSampleRate || 48000 : config.sampleRate,
+    channels: isDirectAppAudioMonitor ? config.appAudioChannels || 2 : streamChannels
+  }
 }
 
 tabFile.addEventListener('click', () => {
@@ -428,7 +483,12 @@ btnRefreshDevices.addEventListener('click', refreshDevices)
 btnRefreshMonitorDevices.addEventListener('click', () => refreshMonitorDevices(true))
 monitorEnabled.addEventListener('change', () => applyMonitorSettings('enabled'))
 monitorDeviceList.addEventListener('change', () => applyMonitorSettings('device'))
-monitorMode.addEventListener('change', () => applyMonitorSettings('mode'))
+monitorMode.addEventListener('change', () => {
+  updateMonitorRoutingControls()
+  applyMonitorSettings('mode')
+})
+monitorSourcePair.addEventListener('change', () => applyMonitorSettings('source'))
+monitorLatency.addEventListener('change', () => applyMonitorSettings('latency'))
 btnRefreshAppAudio.addEventListener('click', () => {
   refreshAppAudioProcesses()
   refreshAppAudioOutputStreams()
@@ -495,6 +555,8 @@ btnStart.addEventListener('click', async () => {
     monitorEnabled: monitorEnabled.checked,
     monitorDeviceId: monitorEnabled.checked ? monitorDeviceList.value : '',
     monitorMode: monitorMode.value,
+    monitorPairStart: Number(monitorSourcePair.value || 0),
+    monitorLatencyMs: Number(monitorLatency.value || 80),
     icecastHost: document.getElementById('icecast-host').value,
     icecastPort: document.getElementById('icecast-port').value,
     mountPoint: document.getElementById('mount-point').value,
@@ -551,6 +613,9 @@ btnStart.addEventListener('click', async () => {
   if (result.success) {
     addLog('Stream started successfully!', 'system')
     setStreamingState(true)
+    if (monitorEnabled.checked && currentMonitorFormat) {
+      applyMonitorSettings('format')
+    }
   } else {
     addLog(`Failed to start stream: ${result.error}`, 'error')
     await window.api.setMonitorActive(false).catch(() => {})
@@ -584,6 +649,7 @@ window.api.onStreamStatus(({ isRunning }) => {
 
 window.api.onMonitorFormat((format) => {
   currentMonitorFormat = format
+  updateMonitorRoutingControls()
   addLog(`Monitor PCM: ${format.channels}ch @ ${format.sampleRate}Hz`, 'system')
   if (isStreaming && monitorEnabled.checked) {
     applyMonitorSettings('format')
@@ -604,6 +670,7 @@ window.api.onStreamMeter((payload) => {
 })
 
 updateChannelControls(true)
+updateMonitorRoutingControls()
 refreshDevices()
 refreshMonitorDevices()
 addLog('SurroundStreamer initialized.', 'system')

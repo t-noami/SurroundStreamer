@@ -18,6 +18,7 @@ class FFmpegManager extends EventEmitter {
     this.pendingPeaks = {}
     this.monitorFormat = null
     this.monitorForwarding = false
+    this.monitorPipeEnabled = false
   }
 
   async startStream(config) {
@@ -30,6 +31,7 @@ class FFmpegManager extends EventEmitter {
     this.ffmpegStderrBuffer = ''
     this.pendingPeaks = {}
     this.monitorFormat = this.getMonitorFormat(config)
+    this.monitorPipeEnabled = this.shouldUseFfmpegMonitor(config)
     this.monitorForwarding = !!config.monitorEnabled
 
     const args = this.buildArgs(config)
@@ -39,9 +41,14 @@ class FFmpegManager extends EventEmitter {
       message: `Starting FFmpeg: ${this.redactArgs(args).join(' ')}`
     })
 
-    const stdio = this.monitorFormat ? ['pipe', 'pipe', 'pipe', 'pipe'] : ['pipe', 'pipe', 'pipe']
+    const stdio = this.monitorPipeEnabled
+      ? ['pipe', 'pipe', 'pipe', 'pipe']
+      : ['pipe', 'pipe', 'pipe']
     this.process = spawn(ffmpegPath, args, { stdio })
     this.attachFfmpegEvents()
+    if (this.monitorFormat && !this.monitorPipeEnabled) {
+      this.emit('monitor-format', this.monitorFormat)
+    }
 
     try {
       if (config.inputType === 'app-audio') {
@@ -59,6 +66,7 @@ class FFmpegManager extends EventEmitter {
       this.status = 'idle'
       this.monitorFormat = null
       this.monitorForwarding = false
+      this.monitorPipeEnabled = false
       this.emit('monitor-stop')
       throw error
     }
@@ -76,7 +84,7 @@ class FFmpegManager extends EventEmitter {
       this.handleFfmpegStderr(data.toString())
     })
 
-    if (this.monitorFormat && this.process.stdio[3]) {
+    if (this.monitorPipeEnabled && this.monitorFormat && this.process.stdio[3]) {
       this.emit('monitor-format', this.monitorFormat)
       this.process.stdio[3].on('data', (data) => {
         const chunk = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)
@@ -104,6 +112,7 @@ class FFmpegManager extends EventEmitter {
       this.process = null
       this.status = 'idle'
       this.monitorForwarding = false
+      this.monitorPipeEnabled = false
       this.emit('status', this.getStatus())
       this.emit('monitor-stop')
     })
@@ -175,7 +184,25 @@ class FFmpegManager extends EventEmitter {
     })
     this.appAudioProcess = appAudioHelper.spawnPCMStream(pid, tapOptions)
 
-    this.appAudioProcess.stdout.pipe(this.process.stdin)
+    this.appAudioProcess.stdout.on('data', (data) => {
+      if (this.monitorForwarding) {
+        this.emit('monitor-audio', { chunk: this.toArrayBuffer(data) })
+      }
+
+      if (!this.process?.stdin || this.process.stdin.destroyed) {
+        return
+      }
+
+      const canContinue = this.process.stdin.write(data)
+      if (!canContinue) {
+        this.appAudioProcess.stdout.pause()
+        this.process.stdin.once('drain', () => {
+          if (this.appAudioProcess?.stdout) {
+            this.appAudioProcess.stdout.resume()
+          }
+        })
+      }
+    })
 
     this.appAudioProcess.stderr.on('data', (data) => {
       const message = data.toString().trim()
@@ -183,6 +210,13 @@ class FFmpegManager extends EventEmitter {
 
       const parsed = this.tryParseJSON(message)
       if (parsed?.event === 'format') {
+        const nextFormat = {
+          mode: config.monitorMode || 'stereo-pair',
+          sampleRate: parsed.sampleRate || this.getAppAudioSampleRate(config),
+          channels: parsed.channels || this.getAppAudioChannels(config)
+        }
+        this.monitorFormat = nextFormat
+        this.emit('monitor-format', nextFormat)
         this.emit('log', {
           type: 'system',
           message: `App audio tap format: ${parsed.channels}ch @ ${parsed.sampleRate}Hz, ${parsed.bitsPerChannel}-bit float`
@@ -246,12 +280,16 @@ class FFmpegManager extends EventEmitter {
       this.cleanupAppAudioProcess()
       this.process.kill('SIGTERM')
       this.monitorForwarding = false
+      this.monitorPipeEnabled = false
       this.emit('monitor-stop')
     })
   }
 
   setMonitorActive(isActive) {
     this.monitorForwarding = !!isActive
+    if (this.monitorForwarding && this.monitorFormat && !this.monitorPipeEnabled) {
+      this.emit('monitor-format', this.monitorFormat)
+    }
   }
 
   cleanupAppAudioProcess() {
@@ -289,7 +327,7 @@ class FFmpegManager extends EventEmitter {
     const outputChannels = this.getOutputChannels(config)
     const outputSampleRate = this.getOutputSampleRate(config)
     const outputLayout = this.channelLayoutFor(outputChannels)
-    const monitorEnabled = true
+    const monitorEnabled = this.shouldUseFfmpegMonitor(config)
 
     if (inputType === 'file') {
       if (loopFile) {
@@ -304,6 +342,7 @@ class FFmpegManager extends EventEmitter {
       const appAudioChannels = this.getAppAudioChannels(config)
       const appAudioSampleRate = this.getAppAudioSampleRate(config)
       const appAudioLayout = this.channelLayoutFor(appAudioChannels)
+      args.push('-fflags', 'nobuffer')
       args.push('-f', 'f32le')
       args.push('-ar', String(appAudioSampleRate))
       args.push('-ac', String(appAudioChannels))
@@ -352,6 +391,7 @@ class FFmpegManager extends EventEmitter {
       args.push('-ar', String(outputSampleRate))
       args.push('-ac', String(monitorChannels))
       args.push('-c:a', 'pcm_f32le')
+      args.push('-flush_packets', '1')
       args.push('-f', 'f32le')
       args.push('pipe:3')
     }
@@ -403,16 +443,29 @@ class FFmpegManager extends EventEmitter {
   }
 
   getMonitorChannels(_config, outputChannels = this.getOutputChannels(_config)) {
+    if (_config?.inputType === 'app-audio') {
+      return this.getAppAudioChannels(_config)
+    }
     return outputChannels
   }
 
   getMonitorFormat(config) {
-    const outputChannels = this.getOutputChannels(config)
+    const outputChannels =
+      config?.inputType === 'app-audio'
+        ? this.getAppAudioChannels(config)
+        : this.getOutputChannels(config)
     return {
-      mode: config.monitorMode || 'stereo',
-      sampleRate: this.getOutputSampleRate(config),
+      mode: config.monitorMode || 'stereo-pair',
+      sampleRate:
+        config?.inputType === 'app-audio'
+          ? this.getAppAudioSampleRate(config)
+          : this.getOutputSampleRate(config),
       channels: this.getMonitorChannels(config, outputChannels)
     }
+  }
+
+  shouldUseFfmpegMonitor(config) {
+    return config?.inputType !== 'app-audio'
   }
 
   getAppAudioTapOptions(config) {
@@ -503,6 +556,10 @@ class FFmpegManager extends EventEmitter {
 
   redactArgs(args) {
     return args.map((arg) => arg.replace(/(icecast:\/\/source:)[^@]+@/, '$1******@'))
+  }
+
+  toArrayBuffer(data) {
+    return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)
   }
 
   tryParseJSON(value) {

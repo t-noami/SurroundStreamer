@@ -17,35 +17,44 @@ export class WebAudioMonitor {
     this.destination = null
     this.outputElement = null
     this.deviceId = ''
-    this.mode = 'stereo'
+    this.mode = 'stereo-pair'
     this.channels = 2
-    this.workletReady = false
+    this.pairStart = 0
+    this.latencyMs = 80
   }
 
   async start(format) {
     await this.stop()
 
-    this.mode = format.mode || 'stereo'
+    this.mode = normalizeMonitorMode(format.mode)
     this.channels = Math.max(1, Number(format.channels || 2))
     this.deviceId = format.deviceId || ''
+    this.pairStart = clampInt(format.pairStart, 0, Math.max(0, this.channels - 1))
+    this.latencyMs = clampInt(format.latencyMs, 30, 500, 80)
 
     const sampleRate = Number(format.sampleRate || 48000)
-    this.context = new AudioContext({ sampleRate })
+    this.context = new AudioContext({ sampleRate, latencyHint: 'interactive' })
     await this.context.audioWorklet.addModule('./monitor-worklet.js')
 
     this.source = new AudioWorkletNode(this.context, 'pcm-monitor-source', {
       numberOfInputs: 0,
       numberOfOutputs: this.channels,
       outputChannelCount: Array.from({ length: this.channels }, () => 1),
-      processorOptions: { channels: this.channels }
+      processorOptions: { channels: this.channels, latencyMs: this.latencyMs }
     })
-    this.source.port.postMessage({ type: 'format', channels: this.channels })
+    this.source.port.postMessage({
+      type: 'format',
+      channels: this.channels,
+      latencyMs: this.latencyMs
+    })
 
     this.destination = this.context.createMediaStreamDestination()
     if (this.mode === 'binaural') {
       this.connectBinauralGraph()
+    } else if (this.mode === 'downmix') {
+      this.connectDownmixGraph()
     } else {
-      this.connectStereoGraph()
+      this.connectStereoPairGraph()
     }
 
     this.outputElement = new Audio()
@@ -97,11 +106,37 @@ export class WebAudioMonitor {
     this.destination = null
   }
 
-  connectStereoGraph() {
+  connectStereoPairGraph() {
     const merger = this.context.createChannelMerger(2)
-    this.source.connect(merger, 0, 0)
-    this.source.connect(merger, this.channels > 1 ? 1 : 0, 1)
+    const leftIndex = Math.min(this.pairStart, this.channels - 1)
+    const rightIndex = Math.min(leftIndex + 1, this.channels - 1)
+    this.source.connect(merger, leftIndex, 0)
+    this.source.connect(merger, rightIndex, 1)
     merger.connect(this.destination)
+  }
+
+  connectDownmixGraph() {
+    const merger = this.context.createChannelMerger(2)
+    const master = this.context.createGain()
+    master.gain.value = 0.85
+    merger.connect(master)
+    master.connect(this.destination)
+
+    for (let channel = 0; channel < this.channels; channel += 1) {
+      const { left, right } = downmixGains(channel, this.channels)
+      if (left > 0) {
+        const gain = this.context.createGain()
+        gain.gain.value = left
+        this.source.connect(gain, channel, 0)
+        gain.connect(merger, 0, 0)
+      }
+      if (right > 0) {
+        const gain = this.context.createGain()
+        gain.gain.value = right
+        this.source.connect(gain, channel, 0)
+        gain.connect(merger, 0, 1)
+      }
+    }
   }
 
   connectBinauralGraph() {
@@ -129,6 +164,38 @@ export class WebAudioMonitor {
   }
 }
 
+function normalizeMonitorMode(mode) {
+  if (mode === 'stereo') return 'stereo-pair'
+  return mode || 'stereo-pair'
+}
+
+function downmixGains(channel, totalChannels) {
+  if (totalChannels === 1) {
+    return { left: 1, right: 1 }
+  }
+
+  const center = 0.707
+  const surround = 0.6
+  const lfe = 0.25
+  const matrix = [
+    { left: 1, right: 0 },
+    { left: 0, right: 1 },
+    { left: center, right: center },
+    { left: lfe, right: lfe },
+    { left: surround, right: 0 },
+    { left: 0, right: surround },
+    { left: surround, right: 0 },
+    { left: 0, right: surround }
+  ]
+
+  return (
+    matrix[channel] || {
+      left: channel % 2 === 0 ? 0.45 : 0,
+      right: channel % 2 === 0 ? 0 : 0.45
+    }
+  )
+}
+
 function fallbackPosition(index, total) {
   const angle = (index / Math.max(1, total)) * Math.PI * 2 - Math.PI / 2
   return {
@@ -148,4 +215,10 @@ function setPannerPosition(panner, x, y, z) {
   }
 
   panner.setPosition(x, y, z)
+}
+
+function clampInt(value, min, max, fallback = min) {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return fallback
+  return Math.max(min, Math.min(max, Math.round(numeric)))
 }

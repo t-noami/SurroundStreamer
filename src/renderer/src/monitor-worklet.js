@@ -2,14 +2,17 @@ class PcmMonitorSourceProcessor extends AudioWorkletProcessor {
   constructor(options) {
     super()
     this.channels = Math.max(1, Number(options.processorOptions?.channels || 2))
+    this.latencyMs = clampNumber(options.processorOptions?.latencyMs, 30, 500, 80)
     this.queue = []
     this.bufferedFrames = 0
-    this.maxBufferedFrames = Math.floor(sampleRate * 1.5)
+    this.updateBufferLimits()
 
     this.port.onmessage = (event) => {
-      const { type, chunk, channels } = event.data || {}
+      const { type, chunk, channels, latencyMs } = event.data || {}
       if (type === 'format') {
         this.channels = Math.max(1, Number(channels || this.channels))
+        this.latencyMs = clampNumber(latencyMs, 30, 500, this.latencyMs)
+        this.updateBufferLimits()
         this.queue = []
         this.bufferedFrames = 0
         return
@@ -24,9 +27,30 @@ class PcmMonitorSourceProcessor extends AudioWorkletProcessor {
       this.queue.push({ samples, frames, frameOffset: 0 })
       this.bufferedFrames += frames
 
-      while (this.bufferedFrames > this.maxBufferedFrames && this.queue.length > 1) {
-        const dropped = this.queue.shift()
-        this.bufferedFrames -= dropped.frames - dropped.frameOffset
+      if (this.bufferedFrames > this.maxBufferedFrames) {
+        this.dropOldestFrames(this.bufferedFrames - this.targetBufferedFrames)
+      }
+    }
+  }
+
+  updateBufferLimits() {
+    this.targetBufferedFrames = Math.max(128, Math.floor((sampleRate * this.latencyMs) / 1000))
+    this.maxBufferedFrames = Math.max(256, this.targetBufferedFrames * 2)
+  }
+
+  dropOldestFrames(framesToDrop) {
+    let remaining = Math.max(0, Math.floor(framesToDrop))
+    while (remaining > 0 && this.queue.length > 0) {
+      const current = this.queue[0]
+      const available = current.frames - current.frameOffset
+      if (available <= remaining) {
+        this.queue.shift()
+        this.bufferedFrames -= available
+        remaining -= available
+      } else {
+        current.frameOffset += remaining
+        this.bufferedFrames -= remaining
+        remaining = 0
       }
     }
   }
@@ -57,6 +81,12 @@ class PcmMonitorSourceProcessor extends AudioWorkletProcessor {
 
     return true
   }
+}
+
+function clampNumber(value, min, max, fallback) {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return fallback
+  return Math.max(min, Math.min(max, numeric))
 }
 
 registerProcessor('pcm-monitor-source', PcmMonitorSourceProcessor)

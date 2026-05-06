@@ -117,8 +117,24 @@
             <div class="form-group">
               <label for="monitor-mode">Monitor Mode</label>
               <select id="monitor-mode">
-                <option value="stereo">Ch1/Ch2 Stereo</option>
+                <option value="stereo-pair">Stereo Pair</option>
+                <option value="downmix">Stereo Downmix</option>
                 <option value="binaural">Binaural HRTF</option>
+              </select>
+            </div>
+            <div class="form-group" id="monitor-pair-group">
+              <label for="monitor-source-pair">Monitor Source</label>
+              <select id="monitor-source-pair">
+                <option value="0">CH1 / CH2</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="monitor-latency">Monitor Buffer</label>
+              <select id="monitor-latency">
+                <option value="50">50 ms</option>
+                <option value="80" selected>80 ms</option>
+                <option value="120">120 ms</option>
+                <option value="200">200 ms</option>
               </select>
             </div>
           </div>
