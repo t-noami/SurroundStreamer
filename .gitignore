@@ -1,0 +1,17 @@
+node_modules
+dist
+out
+.build
+
+.DS_Store
+.eslintcache
+*.log*
+
+.env
+.env.*
+test_streamconfig.txt
+
+coverage
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

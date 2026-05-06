@@ -1,0 +1,90 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>SurroundStreamer — 5.1 Surround Streamer</title>
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+    />
+    <link href="./assets/main.css" type="text/css" rel="stylesheet" />
+  </head>
+
+  <body class="dark-theme">
+    <div id="app">
+      <header>
+        <div class="header-content">
+          <h1>SurroundStreamer</h1>
+          <div id="status-badge" class="badge idle">IDLE</div>
+        </div>
+      </header>
+
+      <main>
+        <section class="panel input-panel">
+          <h2>Input Source</h2>
+          <div class="tabs">
+            <button id="tab-file" class="tab-btn active">File</button>
+            <button id="tab-device" class="tab-btn">Device</button>
+          </div>
+
+          <div id="file-input-section" class="input-section">
+            <div class="file-selector">
+              <input type="text" id="file-path" readonly placeholder="No file selected" />
+              <button id="btn-browse" class="btn">Browse</button>
+            </div>
+            <label class="checkbox-row">
+              <input type="checkbox" id="loop-file" checked />
+              <span>Loop</span>
+            </label>
+          </div>
+
+          <div id="device-input-section" class="input-section hidden">
+            <select id="device-list" class="select-field">
+              <option value="">Scanning devices...</option>
+            </select>
+            <button id="btn-refresh-devices" class="btn-icon">🔄</button>
+          </div>
+        </section>
+
+        <section class="panel config-panel">
+          <h2>Icecast Settings</h2>
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="icecast-host">Host</label>
+              <input type="text" id="icecast-host" value="localhost" />
+            </div>
+            <div class="form-group">
+              <label for="icecast-port">Port</label>
+              <input type="number" id="icecast-port" value="8000" />
+            </div>
+            <div class="form-group">
+              <label for="mount-point">Mount Point</label>
+              <input type="text" id="mount-point" value="/surround.opus" />
+            </div>
+            <div class="form-group">
+              <label for="source-password">Password</label>
+              <input type="password" id="source-password" value="hackme" />
+            </div>
+          </div>
+        </section>
+
+        <section class="panel control-panel">
+          <div class="controls">
+            <button id="btn-start" class="btn-primary">START STREAM</button>
+            <button id="btn-stop" class="btn-secondary hidden">STOP STREAM</button>
+          </div>
+          <div id="stream-timer" class="timer">00:00:00</div>
+        </section>
+
+        <section class="panel log-panel">
+          <h2>Logs</h2>
+          <div id="log-output" class="log-container">
+            <div class="log-entry system">Ready to stream.</div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="./src/renderer.js"></script>
+  </body>
+</html>
