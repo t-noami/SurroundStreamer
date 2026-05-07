@@ -2,6 +2,8 @@
 
 Linux packaging is available through Electron Builder, but SurroundStreamer is currently a macOS-first audio app. The Core Audio capture helper is macOS-specific, so App Audio capture and Input Device capture need a Linux audio backend before this build can be treated as a fully functional Linux release.
 
+Linux downloads are currently marked as preparing in `README.md`. Do not publish Linux artifacts as official release downloads until the Linux audio backend and package behavior have been validated.
+
 ## Requirements
 
 - A recent Linux distribution

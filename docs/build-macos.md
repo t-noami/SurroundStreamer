@@ -65,6 +65,13 @@ Outputs:
 ```text
 dist/mac-arm64/SurroundStreamer.app
 dist/SurroundStreamer-0.1.0.dmg
+dist/SurroundStreamer-0.1.0-arm64-mac.zip
+```
+
+For public release downloads, use the DMG artifact:
+
+```text
+dist/SurroundStreamer-0.1.0.dmg
 ```
 
 ## Build Beta App
@@ -103,6 +110,18 @@ For a local unsigned/development build:
 codesign --verify --deep --strict --verbose=2 dist/mac-arm64/SurroundStreamer.app
 ```
 
+Verify the DMG before attaching it to a GitHub Release:
+
+```bash
+hdiutil verify dist/SurroundStreamer-0.1.0.dmg
+```
+
+Generate a checksum for release notes or support:
+
+```bash
+shasum -a 256 dist/SurroundStreamer-0.1.0.dmg
+```
+
 For beta builds:
 
 ```bash
@@ -113,4 +132,5 @@ codesign --verify --deep --strict --verbose=2 dist/beta/mac-arm64/SurroundStream
 
 - The macOS build includes the Core Audio helper used for App Audio capture and Input Device capture.
 - `test_streamconfig.txt` is intentionally excluded from packaged apps.
+- The release DMG name is generated from Electron Builder's `productName`, so it should remain `SurroundStreamer-<version>.dmg`.
 - The current Electron Builder config has notarization disabled.
