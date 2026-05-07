@@ -1,0 +1,71 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>About SurroundStreamer</title>
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+    />
+    <link href="./assets/main.css" type="text/css" rel="stylesheet" />
+  </head>
+
+  <body class="dark-theme about-window-body">
+    <main class="about-shell">
+      <section class="about-hero">
+        <img src="./brand/surroundstreamer_icon.png" alt="" class="about-icon" />
+        <img
+          src="./brand/SurroundStreamer_logo_header.png"
+          alt="SurroundStreamer"
+          class="about-logo"
+        />
+        <p id="about-version" class="about-version">Version</p>
+      </section>
+
+      <section class="about-card">
+        <div>
+          <h2>Developer</h2>
+          <dl class="about-definition-list">
+            <div>
+              <dt>Studio</dt>
+              <dd id="about-studio">Non-REM Studio</dd>
+            </div>
+            <div>
+              <dt>Contact</dt>
+              <dd id="about-contact">info@non-rem.com</dd>
+            </div>
+            <div>
+              <dt>GitHub</dt>
+              <dd id="about-github">https://github.com/t-noami/SurroundStreamer</dd>
+            </div>
+          </dl>
+        </div>
+      </section>
+
+      <section class="about-card">
+        <h2>Application License</h2>
+        <p class="about-license-title">MIT License</p>
+        <p id="about-copyright" class="about-copy">Copyright (c) 2026 Non-REM Studio</p>
+        <p class="about-copy">
+          Commercial use, private use, modification, distribution, and sublicensing are
+          permitted when copyright and license notices are preserved.
+        </p>
+      </section>
+
+      <section class="about-card">
+        <h2>Third-Party Notice</h2>
+        <p class="about-license-title">Neumann KU100 Near-Field HRIR</p>
+        <p class="about-copy">
+          Based on Spherical Near-Field (NF) HRIR Compilation of the Neumann KU100.
+        </p>
+        <p class="about-copy">
+          Author: Fabian Brinkmann et al.<br />
+          License: Creative Commons Attribution 4.0 International (CC BY 4.0)<br />
+          Source: https://zenodo.org/records/4297951
+        </p>
+      </section>
+    </main>
+
+    <script type="module" src="./src/about-window.js"></script>
+  </body>
+</html>

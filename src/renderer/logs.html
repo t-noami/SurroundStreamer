@@ -1,0 +1,27 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>SurroundStreamer Logs</title>
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+    />
+    <link href="./assets/main.css" type="text/css" rel="stylesheet" />
+  </head>
+
+  <body class="dark-theme log-window-body">
+    <div class="log-window-shell">
+      <header class="log-window-header">
+        <div>
+          <h1 class="log-window-title">Logs</h1>
+          <p class="log-window-subtitle">SurroundStreamer runtime log</p>
+        </div>
+        <div id="log-count" class="badge idle">0</div>
+      </header>
+      <div id="log-window-output" class="log-container log-window-container"></div>
+    </div>
+
+    <script type="module" src="./src/log-window.js"></script>
+  </body>
+</html>

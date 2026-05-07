@@ -18,6 +18,14 @@ const api = {
   probeAudio: (path) => ipcRenderer.invoke('media:probe-audio', path),
   ensureMicrophoneAccess: () => ipcRenderer.invoke('media:ensure-microphone-access'),
   openMicrophoneSettings: () => ipcRenderer.invoke('media:open-microphone-settings'),
+  getAppInfo: () => ipcRenderer.invoke('app:info'),
+  getLogs: () => ipcRenderer.invoke('logs:get'),
+  addLogEntry: (payload) => ipcRenderer.invoke('logs:add', payload),
+  onLogEntry: (callback) => {
+    const listener = (_event, payload) => callback(payload)
+    ipcRenderer.on('logs:entry', listener)
+    return () => ipcRenderer.removeListener('logs:entry', listener)
+  },
   onFfmpegLog: (callback) => {
     const listener = (_event, payload) => callback(payload)
     ipcRenderer.on('ffmpeg:log', listener)

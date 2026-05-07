@@ -4,8 +4,11 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { setupIpcHandlers } from './ipc-handlers'
 import ffmpegManager from './ffmpeg-manager'
+import logStore from './log-store'
 
 let mainWindow = null
+let logWindow = null
+let aboutWindow = null
 let shutdownInProgress = false
 let shutdownComplete = false
 
@@ -20,7 +23,7 @@ function setupApplicationMenu() {
     {
       label: appName,
       submenu: [
-        { role: 'about', label: `${appName}について` },
+        { label: `${appName}について`, click: () => createAboutWindow() },
         { type: 'separator' },
         { role: 'hide', label: `${appName}を隠す` },
         { role: 'hideOthers', label: 'ほかを隠す' },
@@ -44,6 +47,12 @@ function setupApplicationMenu() {
     {
       label: 'ウインドウ',
       submenu: [
+        {
+          label: 'ログを表示',
+          accelerator: 'CommandOrControl+L',
+          click: () => createLogWindow()
+        },
+        { type: 'separator' },
         { role: 'minimize', label: 'しまう' },
         { role: 'close', label: '閉じる' }
       ]
@@ -51,6 +60,16 @@ function setupApplicationMenu() {
   ]
 
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
+
+function sendLogEntryToWindows(entry) {
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.send('logs:entry', entry)
+  }
+}
+
+function setupLogBroadcast() {
+  logStore.on('entry', sendLogEntryToWindows)
 }
 
 function setupMediaPermissions() {
@@ -93,6 +112,15 @@ function setupMediaPermissions() {
     )
     return { success: true }
   })
+
+  ipcMain.handle('app:info', () => ({
+    name: 'SurroundStreamer',
+    version: app.getVersion(),
+    studio: 'Non-REM Studio',
+    contact: 'info@non-rem.com',
+    github: 'https://github.com/t-noami/SurroundStreamer',
+    copyright: 'Copyright (c) 2026 Non-REM Studio'
+  }))
 }
 
 function createWindow() {
@@ -113,6 +141,15 @@ function createWindow() {
     mainWindow.show()
   })
 
+  mainWindow.on('close', () => {
+    if (logWindow && !logWindow.isDestroyed()) {
+      logWindow.close()
+    }
+    if (aboutWindow && !aboutWindow.isDestroyed()) {
+      aboutWindow.close()
+    }
+  })
+
   mainWindow.on('closed', () => {
     mainWindow = null
   })
@@ -128,6 +165,93 @@ function createWindow() {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+  }
+}
+
+function createLogWindow() {
+  if (logWindow && !logWindow.isDestroyed()) {
+    logWindow.show()
+    logWindow.focus()
+    return
+  }
+
+  logWindow = new BrowserWindow({
+    width: 780,
+    height: 520,
+    minWidth: 560,
+    minHeight: 360,
+    title: 'SurroundStreamer Logs',
+    show: false,
+    autoHideMenuBar: true,
+    parent: mainWindow ?? undefined,
+    ...(process.platform === 'linux' ? { icon } : {}),
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false
+    }
+  })
+
+  logWindow.on('ready-to-show', () => {
+    logWindow.show()
+  })
+
+  logWindow.on('closed', () => {
+    logWindow = null
+  })
+
+  logWindow.webContents.setWindowOpenHandler((details) => {
+    shell.openExternal(details.url)
+    return { action: 'deny' }
+  })
+
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    logWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/logs.html`)
+  } else {
+    logWindow.loadFile(join(__dirname, '../renderer/logs.html'))
+  }
+}
+
+function createAboutWindow() {
+  if (aboutWindow && !aboutWindow.isDestroyed()) {
+    aboutWindow.show()
+    aboutWindow.focus()
+    return
+  }
+
+  aboutWindow = new BrowserWindow({
+    width: 600,
+    height: 640,
+    minWidth: 520,
+    minHeight: 560,
+    title: 'About SurroundStreamer',
+    show: false,
+    autoHideMenuBar: true,
+    parent: mainWindow ?? undefined,
+    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
+    ...(process.platform === 'linux' ? { icon } : {}),
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false
+    }
+  })
+
+  aboutWindow.on('ready-to-show', () => {
+    aboutWindow.show()
+  })
+
+  aboutWindow.on('closed', () => {
+    aboutWindow = null
+  })
+
+  aboutWindow.webContents.setWindowOpenHandler((details) => {
+    shell.openExternal(details.url)
+    return { action: 'deny' }
+  })
+
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    aboutWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/about.html`)
+  } else {
+    aboutWindow.loadFile(join(__dirname, '../renderer/about.html'))
   }
 }
 
@@ -150,6 +274,7 @@ app.whenReady().then(() => {
 
   setupMediaPermissions()
   setupIpcHandlers()
+  setupLogBroadcast()
   setupApplicationMenu()
 
   createWindow()

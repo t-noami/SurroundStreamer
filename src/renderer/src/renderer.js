@@ -133,13 +133,18 @@ let pendingPreviewStart = false
 let lastMonitorPeakUpdateAt = 0
 const webAudioMonitor = new WebAudioMonitor(addLog)
 
-function addLog(message, type = 'system') {
-  const entry = document.createElement('div')
-  entry.className = `log-entry ${type}`
-  const timestamp = new Date().toLocaleTimeString()
-  entry.textContent = `[${timestamp}] ${message}`
-  logOutput.appendChild(entry)
-  logOutput.scrollTop = logOutput.scrollHeight
+function addLog(message, type = 'system', options = {}) {
+  const timestamp = Date.now()
+  if (logOutput) {
+    const entry = document.createElement('div')
+    entry.className = `log-entry ${type}`
+    entry.textContent = `[${new Date(timestamp).toLocaleTimeString()}] ${message}`
+    logOutput.appendChild(entry)
+    logOutput.scrollTop = logOutput.scrollHeight
+  }
+  if (options.record !== false) {
+    window.api.addLogEntry({ timestamp, message, type }).catch(() => {})
+  }
 }
 
 function updateTimer() {
@@ -319,7 +324,7 @@ async function ensureMicrophoneAccess(reason = 'device input') {
   )
   if (result?.status === 'denied' || result?.status === 'restricted') {
     await window.api.openMicrophoneSettings?.()
-    addLog('Opened macOS Microphone privacy settings for SurroundStreamer-beta-0.1.0.', 'system')
+    addLog('Opened macOS Microphone privacy settings for SurroundStreamer.', 'system')
   }
   return false
 }
@@ -1499,7 +1504,7 @@ btnStop.addEventListener('click', async () => {
 })
 
 window.api.onFfmpegLog(({ message, type }) => {
-  if (message) addLog(message, type)
+  if (message) addLog(message, type, { record: false })
 })
 
 window.api.onStreamStatus(({ isRunning }) => {

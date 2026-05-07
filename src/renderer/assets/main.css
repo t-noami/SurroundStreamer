@@ -1,11 +1,11 @@
 :root {
-  --bg-color: #0a0a0f;
-  --panel-bg: rgba(255, 255, 255, 0.05);
+  --bg-color: #201266;
+  --panel-bg: rgba(11, 10, 30, 0.68);
   --text-color: #eee;
-  --text-muted: #888;
-  --accent-primary: #8a2be2;
-  --accent-secondary: #00ced1;
-  --accent-gradient: linear-gradient(135deg, #8a2be2, #00ced1);
+  --text-muted: #9a95b8;
+  --accent-primary: #9465ff;
+  --accent-secondary: #00e0c0;
+  --accent-gradient: linear-gradient(135deg, #9465ff, #00e0c0);
   --danger: #ff4757;
   --success: #2ed573;
   --border-radius: 8px;
@@ -25,7 +25,7 @@ body {
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  background-color: var(--bg-color);
+  background: var(--bg-color);
   color: var(--text-color);
   height: 100vh;
   overflow: hidden;
@@ -42,21 +42,40 @@ body {
 }
 
 header {
-  margin-bottom: 20px;
+  margin-bottom: 18px;
 }
 
 .header-content {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+.brand-mark {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.brand-logo {
+  display: block;
+  width: min(620px, 62vw);
+  height: auto;
+  max-height: 116px;
+  object-fit: contain;
+  object-position: left center;
+  filter: drop-shadow(0 10px 22px rgba(0, 224, 192, 0.18));
 }
 
 h1 {
-  font-size: 1.5rem;
-  font-weight: 700;
-  background: var(--accent-gradient);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
 .badge {
@@ -108,10 +127,11 @@ main {
   min-width: 0;
   max-width: 100%;
   background: var(--panel-bg);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(18px);
+  border: 1px solid rgba(148, 101, 255, 0.22);
   border-radius: var(--border-radius);
   padding: 15px;
+  box-shadow: 0 18px 52px rgba(0, 0, 0, 0.26);
 }
 
 .panel > * {
@@ -204,8 +224,8 @@ input[type='text'],
 input[type='number'],
 input[type='password'],
 select {
-  background: rgba(0, 0, 0, 0.3);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(4, 3, 18, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   color: #fff;
   padding: 8px 12px;
   border-radius: 4px;
@@ -221,17 +241,22 @@ input[type='range'] {
 }
 
 .btn {
-  background: #444;
+  background: rgba(255, 255, 255, 0.16);
   border: none;
   color: #fff;
   padding: 8px 15px;
   border-radius: 4px;
   cursor: pointer;
   font-size: 0.8rem;
+  transition:
+    background-color 80ms ease,
+    color 80ms ease,
+    box-shadow 80ms ease,
+    transform 80ms ease;
 }
 
 .btn-refresh {
-  background: #333;
+  background: rgba(255, 255, 255, 0.12);
   border: 1px solid rgba(255, 255, 255, 0.14);
   color: #fff;
   min-height: 34px;
@@ -239,6 +264,22 @@ input[type='range'] {
   border-radius: 4px;
   cursor: pointer;
   font-size: 0.78rem;
+  transition:
+    background-color 80ms ease,
+    border-color 80ms ease,
+    color 80ms ease,
+    box-shadow 80ms ease,
+    transform 80ms ease;
+}
+
+.btn:not(:disabled):active,
+.btn-refresh:not(:disabled):active,
+.btn-small:not(:disabled):active {
+  background: #00f5c8;
+  border-color: rgba(0, 245, 200, 0.85);
+  color: #080719;
+  box-shadow: 0 0 0 3px rgba(0, 245, 200, 0.18);
+  transform: translateY(1px);
 }
 
 .form-grid {
@@ -350,6 +391,141 @@ input[type='range'] {
   color: var(--accent-secondary);
 }
 
+.log-window-body {
+  height: 100vh;
+  overflow: hidden;
+}
+
+.log-window-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 18px;
+  min-width: 0;
+}
+
+.log-window-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.log-window-title {
+  position: static;
+  width: auto;
+  height: auto;
+  overflow: visible;
+  clip: auto;
+  white-space: normal;
+  color: #fff;
+  font-size: 1.25rem;
+  line-height: 1.2;
+}
+
+.log-window-subtitle {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.log-window-container {
+  max-height: none;
+  min-height: 0;
+}
+
+.about-window-body {
+  height: 100vh;
+  overflow: hidden;
+}
+
+.about-shell {
+  display: block;
+  height: 100%;
+  padding: 38px 22px 22px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.about-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  margin-bottom: 18px;
+}
+
+.about-icon {
+  width: 112px;
+  height: 112px;
+  border-radius: 24px;
+  margin-bottom: 14px;
+  box-shadow: 0 20px 44px rgba(0, 0, 0, 0.26);
+}
+
+.about-logo {
+  width: min(360px, 82vw);
+  height: auto;
+  margin-bottom: 6px;
+}
+
+.about-version {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.about-card {
+  padding: 16px;
+  margin-bottom: 12px;
+  background: rgba(7, 6, 22, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--border-radius);
+}
+
+.about-card h2 {
+  margin-bottom: 10px;
+}
+
+.about-definition-list {
+  display: grid;
+  gap: 9px;
+}
+
+.about-definition-list div {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.about-definition-list dt {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.about-definition-list dd {
+  color: #fff;
+  font-size: 0.86rem;
+  overflow-wrap: anywhere;
+}
+
+.about-license-title {
+  color: #fff;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.about-copy {
+  color: #c7c2dd;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.about-copy + .about-copy {
+  margin-top: 8px;
+}
+
 .hidden {
   display: none !important;
 }
@@ -398,6 +574,11 @@ input[type='range'] {
   border-radius: 4px;
   cursor: pointer;
   font-size: 0.75rem;
+  transition:
+    background-color 80ms ease,
+    color 80ms ease,
+    box-shadow 80ms ease,
+    transform 80ms ease;
 }
 
 .channel-selector {
@@ -476,6 +657,23 @@ input[type='range'] {
 }
 
 @media (max-width: 900px) {
+  #app {
+    padding: 14px;
+  }
+
+  header {
+    margin-bottom: 14px;
+  }
+
+  .brand-logo {
+    width: min(430px, 72vw);
+    max-height: 86px;
+  }
+
+  .badge {
+    flex: 0 0 auto;
+  }
+
   main {
     grid-template-columns: 1fr;
   }

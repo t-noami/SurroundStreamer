@@ -14,7 +14,14 @@
     <div id="app">
       <header>
         <div class="header-content">
-          <h1>SurroundStreamer</h1>
+          <div class="brand-mark">
+            <img
+              src="./brand/SurroundStreamer_logo_header.png"
+              alt="SurroundStreamer"
+              class="brand-logo"
+            />
+            <h1>SurroundStreamer</h1>
+          </div>
           <div id="status-badge" class="badge idle">IDLE</div>
         </div>
       </header>
@@ -194,13 +201,6 @@
             <button id="btn-stop" class="btn-secondary hidden">STOP STREAM</button>
           </div>
           <div id="stream-timer" class="timer">00:00:00</div>
-        </section>
-
-        <section class="panel log-panel">
-          <h2>Logs</h2>
-          <div id="log-output" class="log-container">
-            <div class="log-entry system">Ready to stream.</div>
-          </div>
         </section>
       </main>
     </div>

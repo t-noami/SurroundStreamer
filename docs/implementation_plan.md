@@ -1,849 +1,332 @@
-# SurroundStreamer — macOS 5.1サラウンド Icecast配信アプリ
+# SurroundStreamer Implementation Plan
 
-macOSから **Ogg Opus 5.1** を **Icecast** サーバーへ配信するためのデスクトップGUIアプリケーションを開発する。
-FFmpegをバックエンドに持ち、Electronで操作UIを提供する構成。
+Last updated: 2026-05-08
 
----
+## Project Summary
 
-## 2026-05-07 現状スナップショット
+SurroundStreamer is a macOS Electron application for streaming Ogg Opus audio to Icecast.
+The current practical target is macOS Apple Silicon because the audio capture implementation depends on Core Audio process taps and a native Core Audio helper.
 
-この章は旧future development memoの内容と、直近の実装変更を統合した現在基準の計画である。
-後続の古い章は設計履歴として残す。
+The current public-facing release line is `v0.1.0`.
 
-### 正規版昇格メモ
+## Repository State
 
-2026-05-07時点のbeta実装を正規版 `SurroundStreamer.app` としてビルドする方針にした。
-標準版はApp Audio / Input Device / Fileを入力ソースとして持ち、Ogg Opusの実用範囲をMonoから7.1までに制限する。
-7.1.2 / 7.1.4などの実験的な多チャンネル構成は研究版扱いとし、標準UIの主導線から外す。
+- Application license: MIT License.
+- Third-party HRIR data: KU100 near-field HRIR extraction, CC BY 4.0.
+- Main documentation: `README.md`.
+- Build documents:
+  - `docs/build-macos.md`
+  - `docs/build-windows.md`
+  - `docs/build-linux.md`
+- Release notes:
+  - `docs/releases/v0.1.0.md`
+  - `docs/releases/v0.1.0-beta.1.md`
+- Release status:
+  - The current beta implementation is promoted to the regular `0.1.0` build line.
+  - Regular macOS release artifact target: `dist/surround-streamer-0.1.0.dmg`.
+  - Previous beta GitHub Release exists as a draft prerelease for `v0.1.0-beta.1`.
+- Removed from Git tracking:
+  - `legacy/`
+  - `SurroundWebPlayer/`
+- Private local-only file:
+  - `test_streamconfig.txt`
 
-主な正規版仕様:
-
-- 入力ソース順は `App Audio`, `Input Device`, `File`。
-- デフォルト設定は48 kHz、128 kbps stereo-equivalent、マルチチャンネルソースでは5.1テンプレートを優先する。
-- App AudioはCore Audio Process Tapでアプリ出力を取得し、Output Stream選択は `App Output Capture Source` として表示する。
-- Input DeviceはCore Audio helperでFloat32 PCMを取得し、FFmpegへpipe入力する。Monitor OutputはInput Device選択中は無効化する。
-- File入力は配信前preview monitorに対応し、WebAudio側の初期チャンネル数/サンプルレートをFFmpeg出力に合わせる。
-- Monitor OutputのバイノーラルはKU100 Near-field HRIR 1.0mを使うConvolverNode処理へ変更した。
-- アプリ終了時はFFmpeg、App Audio helper、Input Device helper、preview monitorを明示的に停止する。
-- 第三者データの帰属表示は `README.md` の Third-Party Notices に統合する。
-
-### 実装済みの主な変更
-
-- App Audio入力は `Preserve Surround` 前提に整理し、旧 `Stereo Mixdown` モードと `Tap Test` 操作はUI上の主導線から外した。
-- App Audioの対象アプリとOutput Device Streamは、再スキャン後も直前に選択したものが存在する場合は維持する。
-- App AudioタブからFile/Deviceへ移動した場合、プレビュー用Process TapとWeb Audio Monitorを強制停止し、別タブに戻ったときに古いアプリ音が残らないようにした。
-- File入力でも、配信開始前に選択ファイルをFFmpegで再生してMonitor Outputへ送れるようにした。
-- Device入力のMonitor Outputは実機で鳴らない問題が残っているため、現状はDeviceタブ選択中にMonitor Outputをグレーアウトして無効化する。
-- Monitor Outputには2chピークメーター、ボリュームフェーダー、20ms以上のバッファー選択を追加した。
-- Monitor VolumeはStereo Pair / Binaural HRTFなどのモニターモード処理後にかかるマスターゲインとして扱う。
-- ピークメーターの色は `-6 dB` 超で黄色、`-1 dB` 超で赤に切り替える。配信用メーターとモニター用メーターで同じ基準を使う。
-- Binaural HRTFはStream Channel Templateのチャンネルラベルを参照し、標準版ではKU100 Near-field HRIR 1.0mを使って5.1 / 7.1のスピーカー配置を処理する。
-- Binaural HRTFではLFEを定位対象から外し、バイノーラル全体ゲインを下げてクリップしにくくした。リミッターは入れない。
-- 標準版のStream Channel Templateは `Mono`, `Stereo`, `Stereo + C`, `5.1`, `7.1` を持つ。
-- 標準版のFileタブ最大チャンネル構成は `7.1`、つまり8chまで選択可能とする。
-- 5.1.2 / 7.1.2 / 7.1.4を含む現行betaは研究版として `dist/research/mac-arm64/SurroundStreamer-research-0.1.0-current-beta.app` に退避した。
-- Sample RateはOpus出力で扱える値へ自動整合し、44.1 kHz / 96 kHzソースは48 kHzへ寄せる。
-- Bitrate表示はチャンネル数に応じた実ビットレートではなく、比較しやすいステレオ換算値を主表示にする。
-- Betaアプリは現行版と分け、`SurroundStreamer-beta-0.1.0.app` として別appIdで作成する。
-
-### 現在の未解決事項
-
-- Device入力のMonitor Outputは正規版では無効化する。配信経路はCore Audio helper PCM captureへ切り替え済み。
-- App Audio Preserve Surroundのチャンネル順は、実際のCore Audio出力デバイス/streamと再生アプリの出力に依存するため、実機でのサラウンド順序確認が必要。
-- 8ch超、特に7.1.4chの配信互換性は研究版でのみ継続検証する。
-- Fileプレビューは配信前確認用であり、配信中のファイル差し替えや再生位置操作は未実装。
-- Icecast 403は接続先/認証/マウントのサーバー設定に依存する。アプリ側はパスワードのURLエンコードとFFmpeg stderr詳細表示を実装済み。
-
-## 統合ロードマップ
-
-### 優先タスク
-
-- [x] Monitor Outputの基本ルーティングを見直し、配信中でもMonitor Output設定を変えられる構成にする。
-- [x] Monitor Outputのレイテンシ選択を20msまで下げる。
-- [x] Monitor Outputに2chピークメーターとボリュームフェーダーを追加する。
-- [x] App AudioからFile/App Audioへ切り替えたとき、古いプレビュー音が残らないようにする。
-- [x] File入力でもMonitor Outputで選択ファイルを再生できるようにする。
-- [x] 配信開始後は設定系UIをロックし、Monitor Outputのみ変更可能にする。
-- [x] Device入力のMonitor Outputを正規版ではグレーアウトして無効化する。
-- [x] Icecast URLのsource passwordをURLエンコードし、FFmpeg stderr詳細をログに出す。
-- [x] Fileプレビューのチャンネル数/サンプルレート初期化を修正する。
-- [ ] 7.1.4chソースの入力検出、内部ルーティング、FFmpegマッピング、配信互換性を研究版で検証する。
-
-### 余力があれば実装
-
-- [ ] ステレオソース向けコンボリューションリバーブ機能を追加する。
-  プリセット候補はアリーナ、ホール、ライブハウス、クラブ、ホームシアター。
-- [ ] mp3ステレオ配信を、互換性重視の過渡期対応として入れるか検討する。
-
-### フォーマット調査メモ
-
-- Ogg Vorbisはマルチチャンネル配信自体は可能。
-- Vorbis仕様で標準的にチャンネル位置が定義されているのは8ch、つまり7.1chまで。
-- 7.1.4chは12chになるため、Vorbisではアプリケーション定義扱いになり、一般的なプレイヤー互換性は期待しにくい。
-- 5.1ch / 7.1chまでならVorbis配信は技術検証候補に入れてよい。
-- 7.1.4chの本命配信方式は、既存のOpus系ルートを優先して検証する。
-
-参考:
-
-- Vorbis I specification: https://www.xiph.org/vorbis/doc/Vorbis_I_spec.html
-- Vorbis channel coupling discussion: https://xiph.org/vorbis/doc/stereo.html
-- Ogg Vorbis documentation: https://xiph.org/vorbis/doc/
-
----
-
-## User Review Required
-
-> [!IMPORTANT]
-> **技術スタック選定: Electron vs Swift (ネイティブ)**
-> Electronを選定した理由は以下の通りです。判断に異論があればフィードバックください。
-> - FFmpegプロセスの管理に `child_process` / `fluent-ffmpeg` が最適
-> - UIの高速プロトタイピングが可能（HTML/CSS/JS）
-> - 将来的にWindows/Linuxへの展開余地がある
-> - Swiftネイティブの場合、CoreAudio直接操作は可能だがUI開発コストが大幅に増加する
-
-> [!IMPORTANT]
-> **FFmpegバイナリの同梱方針**
-> `ffmpeg-static` (npm) を使ってアプリバンドルにFFmpegバイナリを含めるか、ユーザーのシステムFFmpeg（Homebrew等）を利用するか。
-> - **同梱案（推奨）**: ユーザー環境に依存しない。ただしアプリサイズが +80MB程度増加
-> - **外部依存案**: アプリは軽量だが、ユーザーに `brew install ffmpeg` を要求する
-> 
-> 現時点では **同梱案** で進める想定です。
-
-> [!WARNING]
-> **libopus対応の確認が必要**
-> `ffmpeg-static` の macOS arm64 ビルドに `libopus` が含まれているか、ビルド時に検証が必要です。含まれていない場合はカスタムビルドまたはHomebrew FFmpegへのフォールバックが必要になります。
-
----
-
-## Open Questions
-
-1. **アプリ名は「SurroundStreamer」で確定でよいか？** ワークスペース名から仮採用しています。
-2. **Icecastサーバーは既にあるか、それともローカルテスト用にDockerでIcecastも立てるか？** 検証計画に影響します。
-3. **想定する入力ソースの優先度は？** 以下のうちどれを最優先で対応するか：
-   - ファイル入力（5.1 WAV / FLAC / マルチチャンネルファイル）
-   - リアルタイム入力（オーディオインターフェース / Aggregate Device）
-   - 両方同時に対応
-4. **ステレオ版の同時配信機能は初期バージョンから必要か？** それとも5.1配信単体を先行して後から追加するか。
-5. **UIの言語は日本語 / 英語 / 両対応？**
-
----
-
-## アーキテクチャ概要
-
-```mermaid
-graph TB
-    subgraph Electron App
-        UI[Renderer Process<br/>React/Vanilla JS UI]
-        Main[Main Process<br/>FFmpeg Manager]
-        IPC[IPC Bridge<br/>contextBridge]
-    end
-
-    subgraph Audio Input
-        File[5.1 WAV/FLAC File]
-        Device[Audio Interface<br/>6ch / Aggregate Device]
-    end
-
-    subgraph External
-        Icecast[Icecast Server<br/>:8000]
-        VLC[VLC Player<br/>5.1再生確認]
-    end
-
-    File --> Main
-    Device --> Main
-    UI <--> IPC <--> Main
-    Main -->|FFmpeg child_process<br/>Ogg Opus 5.1| Icecast
-    Icecast -->|HTTP Stream| VLC
-
-    style UI fill:#1a1a2e,stroke:#e94560,color:#eee
-    style Main fill:#1a1a2e,stroke:#0f3460,color:#eee
-    style Icecast fill:#16213e,stroke:#533483,color:#eee
-```
-
-### データフロー
+## Current Architecture
 
 ```text
-[入力ソース] → [FFmpeg (libopus enc)] → [Ogg Opus 5.1 stream] → [Icecast /surround.opus]
-                                       → [ダウンミックス → Ogg Opus stereo] → [Icecast /stereo.opus] (オプション)
+Renderer UI
+  -> preload IPC bridge
+  -> Electron main process
+  -> FFmpeg manager
+  -> FFmpeg process
+  -> Icecast Ogg Opus stream
 ```
 
----
+### Main Process
 
-## Proposed Changes
+Key modules:
 
-### Component 1: プロジェクト初期化・基盤
+- `src/main/index.js`
+  - Electron app lifecycle.
+  - Main window creation.
+  - Quit handling and process cleanup.
+- `src/main/ipc-handlers.js`
+  - Renderer/Main IPC registration.
+- `src/main/ffmpeg-manager.js`
+  - Builds FFmpeg arguments.
+  - Starts/stops streaming processes.
+  - Handles App Audio, Input Device, and File sources.
+  - Parses FFmpeg logs and meter data.
+- `src/main/app-audio-helper.js`
+  - Launches the native Core Audio helper for App Audio process taps.
+- `src/main/device-scanner.js`
+  - Lists input devices.
+- `src/main/monitor-scanner.js`
+  - Lists monitor output devices.
+- `src/main/media-prober.js`
+  - Reads media metadata for File source.
+- `src/main/ffmpeg-path.js`
+  - Resolves bundled/system FFmpeg path.
 
-#### [NEW] package.json
-- Electron + electron-builder によるプロジェクト構成
-- 依存: `electron`, `electron-builder`, `fluent-ffmpeg`, `ffmpeg-static`（またはカスタム管理）
-- Scripts: `dev`, `build`, `package`
+### Native Helper
 
-#### [NEW] electron-builder.yml
-- macOS向けビルド設定（dmg, zip）
-- FFmpegバイナリのextraResources設定
-- Apple Silicon (arm64) + Intel (x64) ユニバーサル対応
+Path:
 
-#### [NEW] .gitignore
-- node_modules, dist, build artifacts
-
----
-
-### Component 2: Main Process（バックエンド）
-
-#### [NEW] src/main/main.js
-- Electronアプリのエントリーポイント
-- BrowserWindowの生成
-- IPC handlerの登録
-- アプリライフサイクル管理（起動/終了時のクリーンアップ）
-
-#### [NEW] src/main/ffmpeg-manager.js
-FFmpegプロセスの管理を担当する中核モジュール。
-
-**責務:**
-- FFmpegバイナリパスの解決（バンドル内 or システム）
-- FFmpegプロセスの起動・停止・状態監視
-- コマンドライン引数の組み立て（入力ソース × エンコード設定 × 出力先）
-- stderr/stdoutのパース（進捗、エラー検出）
-- プロセス異常終了時の自動再起動（オプション）
-
-**主要メソッド:**
-```javascript
-class FFmpegManager {
-  // 配信開始
-  async startStream(config: StreamConfig): Promise<void>
-  // 配信停止
-  async stopStream(): Promise<void>
-  // 現在の状態取得
-  getStatus(): StreamStatus
-  // オーディオデバイス一覧取得
-  async listAudioDevices(): Promise<AudioDevice[]>
-  // FFmpegバージョン・コーデック確認
-  async checkCapabilities(): Promise<Capabilities>
-}
+```text
+native/audio-tap-helper/Sources/AudioTapHelper/main.m
 ```
 
-**StreamConfig型:**
-```typescript
-interface StreamConfig {
-  // 入力
-  inputType: 'file' | 'device'
-  inputPath: string              // ファイルパス or デバイス識別子
-  
-  // エンコード
-  channels: 6
-  channelLayout: '5.1'
-  codec: 'libopus'
-  bitrate: string                // '384k', '512k' etc.
-  sampleRate: 48000
-  mappingFamily: 1
-  vbr: 'on' | 'off' | 'constrained'
-  application: 'audio' | 'voip' | 'lowdelay'
-  frameDuration: 20 | 40 | 60
-  
-  // 出力（Icecast）
-  icecastHost: string
-  icecastPort: number
-  mountPoint: string             // '/surround.opus'
-  sourcePassword: string
-  
-  // オプション
-  enableStereoFallback: boolean
-  stereoMountPoint: string       // '/stereo.opus'
-  stereoBitrate: string          // '128k'
-}
-```
+Responsibilities:
 
-#### [NEW] src/main/device-scanner.js
-macOSのオーディオデバイスを列挙するモジュール。
+- List Core Audio process/app capture candidates.
+- List Core Audio output streams.
+- Create process taps for App Audio capture.
+- Capture Input Device PCM.
+- Stream Float32 PCM to the Electron main process.
 
-**方法:** `ffmpeg -f avfoundation -list_devices true -i ""` の出力をパースし、デバイス名・インデックス・チャンネル数を取得する。
-
-> [!NOTE]
-> AVFoundationの `-list_devices` は stderr に出力するため、stderrをキャプチャしてパースする必要がある。チャンネル数の詳細取得には追加で `ffprobe` を使う可能性あり。
-
-#### [NEW] src/main/icecast-monitor.js
-Icecastサーバーの状態監視モジュール。
-
-**方法:** `/status-json.xsl` エンドポイントをポーリングし、マウントポイントの状態・リスナー数・ストリーム情報を取得。
-
-```javascript
-class IcecastMonitor {
-  async getServerStatus(host, port, credentials?): Promise<ServerStatus>
-  startPolling(intervalMs: number): void
-  stopPolling(): void
-  // EventEmitter: 'status-update', 'mount-active', 'mount-inactive'
-}
-```
-
-#### [NEW] src/main/ipc-handlers.js
-Renderer ↔ Main 間のIPC通信ハンドラー定義。
-
-| チャンネル | 方向 | 用途 |
-|-----------|------|------|
-| `stream:start` | Renderer → Main | 配信開始 |
-| `stream:stop` | Renderer → Main | 配信停止 |
-| `stream:status` | Main → Renderer | 状態更新（push） |
-| `devices:list` | Renderer → Main | デバイス一覧取得 |
-| `icecast:status` | Main → Renderer | サーバー状態（push） |
-| `ffmpeg:log` | Main → Renderer | FFmpegログ転送 |
-| `config:save` | Renderer → Main | 設定保存 |
-| `config:load` | Renderer → Main | 設定読込 |
-
-#### [NEW] src/main/preload.js
-contextBridgeによるセキュアなAPI公開。`nodeIntegration: false`, `contextIsolation: true` を維持。
-
----
-
-### Component 3: Renderer Process（フロントエンドUI）
-
-#### [NEW] src/renderer/index.html
-アプリケーションのメインHTML。
-
-#### [NEW] src/renderer/index.css
-デザインシステム。ダークテーマベースのプロフェッショナルなオーディオアプリ風UI。
-
-**デザイン方針:**
-- ダークモード（`#0a0a0f` ベース）
-- アクセントカラー: パープル～シアンのグラデーション
-- グラスモーフィズムのパネル
-- リアルタイムレベルメーター風のインジケーター
-- 配信中/停止中の状態がひと目でわかるステータスインジケーター
-
-#### [NEW] src/renderer/app.js
-メインアプリケーションロジック。
-
-**UI構成（5つのセクション）:**
-
-1. **ヘッダー / ステータスバー**
-   - アプリ名・バージョン
-   - 配信状態インジケーター（🔴 LIVE / ⚫ IDLE）
-   - Icecast接続状態
-   - リスナー数
-
-2. **入力ソースパネル**
-   - ファイル入力 / デバイス入力の切替タブ
-   - ファイル選択（ドラッグ&ドロップ対応）
-   - オーディオデバイスドロップダウン（チャンネル数表示付き）
-   - 入力レベルメーター（6ch個別表示: FL FR FC LFE BL BR）
-
-3. **エンコード設定パネル**
-   - ビットレート選択（256k / 384k / 512k / 768k / カスタム）
-   - VBR設定
-   - アプリケーションモード
-   - フレーム長
-   - サンプルレート
-
-4. **Icecast接続パネル**
-   - ホスト / ポート / マウントポイント / パスワード
-   - ステレオ同時配信トグル（ステレオ用マウントポイント・ビットレート）
-   - 接続テストボタン
-
-5. **コントロール / ログパネル**
-   - 大きな配信開始/停止ボタン
-   - 配信経過時間
-   - FFmpegログ（リアルタイム表示、スクロール可能）
-   - エラー通知
-
-#### [NEW] src/renderer/components/level-meter.js
-6チャンネル個別のレベルメーターコンポーネント。Canvas描画。
-各チャンネル（FL, FR, FC, LFE, BL, BR）をラベル付きで縦バー表示。
-
-> [!NOTE]
-> リアルタイムレベル表示はFFmpegの `ebur128` フィルタまたは `astats` フィルタの出力をパースして実現する。ただしこれはPhase 2の拡張機能として、初期バージョンではオプション扱いとする可能性あり。
-
-#### [NEW] src/renderer/components/channel-test.js
-5.1テストトーン生成・再生機能。各チャンネルを個別にテストトーンで鳴らし、チャンネル配置を確認する。
-ユーザー提供情報にあったFFmpegの `sine` + `join` フィルタを使ったテスト信号をIcecastへ送出。
-
----
-
-### Component 4: 設定管理
-
-#### [NEW] src/main/config-store.js
-JSON形式の設定ファイルを `~/Library/Application Support/SurroundStreamer/config.json` に保存/読込。
-
-**保存する設定:**
-- 最後に使用したIcecast接続情報
-- エンコード設定プリセット
-- 入力デバイス設定
-- ウィンドウ位置・サイズ
-
----
-
-### Component 5: Icecast設定テンプレート
-
-#### [NEW] icecast/icecast-surround.xml
-ユーザーが参照できるIcecast設定テンプレート。5.1配信用のマウントポイント設定を含む。
-ユーザー提供情報のXML設定をベースにする。
-
-#### [NEW] icecast/docker-compose.yml
-ローカルテスト用のIcecast Dockerコンテナ定義（オプション）。
-
----
-
-## 開発フェーズ
-
-### Phase 1: MVP（最小動作版）
-- [ ] プロジェクト初期化（Electron + Vite）
-- [ ] FFmpeg Manager実装（ファイル入力 → Icecast出力）
-- [ ] 基本UIの実装（接続設定 + 開始/停止 + ログ表示）
-- [ ] macOSデバイス一覧取得
-- [ ] 5.1テストトーン送出機能
-
-### Phase 2: 実用版
-- [ ] リアルタイムデバイス入力対応
-- [ ] ステレオ同時配信
-- [ ] Icecastステータスモニタリング
-- [ ] 設定の永続化
-- [ ] 6chレベルメーター
-
-### Phase 3: パッケージング
-- [ ] electron-builderによるdmgビルド
-- [ ] FFmpegバイナリのバンドル
-- [ ] アプリアイコン・メタデータ
-- [ ] コード署名（オプション）
-
----
-
-## Verification Plan
-
-### Automated Tests
-
-#### FFmpeg Manager テスト
-```bash
-# libopus対応確認
-ffmpeg -codecs | grep opus
-
-# テストトーン → Icecast（ローカル）送出テスト
-ffmpeg -f lavfi -i "sine=frequency=440:sample_rate=48000" \
-  -f lavfi -i "sine=frequency=550:sample_rate=48000" \
-  -f lavfi -i "sine=frequency=660:sample_rate=48000" \
-  -f lavfi -i "sine=frequency=80:sample_rate=48000" \
-  -f lavfi -i "sine=frequency=770:sample_rate=48000" \
-  -f lavfi -i "sine=frequency=880:sample_rate=48000" \
-  -filter_complex "[0:a][1:a][2:a][3:a][4:a][5:a]join=inputs=6:channel_layout=5.1[a]" \
-  -map "[a]" -c:a libopus -b:a 384k -mapping_family 1 \
-  -f ogg -content_type audio/ogg \
-  icecast://source:hackme@localhost:8000/surround.opus
-```
-
-#### アプリ起動テスト
-```bash
-npm run dev
-# ブラウザツールで UI 動作確認
-```
-
-### Manual Verification
-
-1. **チャンネル配置確認**: 各チャンネル個別テストトーンをVLCで再生し、FL/FR/FC/LFE/BL/BRが正しい位置から出力されることを確認
-2. **Icecast管理画面**: `http://localhost:8000/admin/` で `/surround.opus` マウントがアクティブであることを確認
-3. **VLC再生**: `http://localhost:8000/surround.opus` をVLCのネットワークストリームで開き、5.1再生を確認
-4. **長時間安定性**: 30分以上の連続配信で切断・メモリリークがないことを確認
-5. **ステレオフォールバック**: 5.1 + ステレオの同時配信が両方のマウントで正常に動作することを確認
-
----
-
-## 技術的考慮事項
-
-### FFmpegコマンドライン生成の要点
+Build command:
 
 ```bash
-# 最小構成（ファイル入力）
-ffmpeg -re -i input_5.1.wav \
-  -ac 6 -channel_layout 5.1 \
-  -c:a libopus -b:a 384k -mapping_family 1 \
-  -f ogg -content_type audio/ogg \
-  icecast://source:PASSWORD@HOST:PORT/surround.opus
-
-# macOS デバイス入力
-ffmpeg -f avfoundation -i ":DEVICE_INDEX" \
-  -ac 6 -channel_layout 5.1 \
-  -c:a libopus -b:a 384k -mapping_family 1 -application audio \
-  -vbr on -frame_duration 20 \
-  -f ogg -content_type audio/ogg \
-  icecast://source:PASSWORD@HOST:PORT/surround.opus
+npm run build:audio-helper
 ```
 
-### macOS固有の注意点
+The helper requires a full Xcode macOS SDK that contains Core Audio process tap headers.
 
-- **Aggregate Device**: 6ch入力を得るには、Audio MIDI Setupで複数デバイスをAggregateする必要がある場合がある
-- **AVFoundation**: FFmpegは `-f avfoundation` でmacOSオーディオデバイスにアクセスする。デバイスインデックスは実行時に確認が必要
-- **サンドボックス**: Electron + コード署名時にマイク権限（`NSMicrophoneUsageDescription`）の宣言が必要
-- **Apple Silicon**: FFmpegバイナリがarm64ネイティブであることを確認（Rosetta経由は性能劣化の可能性）
+### Renderer
 
-### Opusエンコード設定の推奨値
+Key files:
 
-| パラメータ | 推奨値 | 備考 |
-|-----------|--------|------|
-| `-mapping_family` | `1` | 5.1サラウンド必須。LFE最適化含む |
-| `-b:a` | `384k` | 実用的。高品質なら `512k` |
-| `-vbr` | `on` | 品質優先 |
-| `-application` | `audio` | 音楽配信用 |
-| `-frame_duration` | `20` | レイテンシと効率のバランス |
-| `-ac` | `6` | 5.1 = 6チャンネル |
-| `-channel_layout` | `5.1` | FL FR FC LFE BL BR |
+- `src/renderer/index.html`
+- `src/renderer/src/renderer.js`
+- `src/renderer/src/monitor-audio.js`
+- `src/renderer/src/monitor-worklet.js`
+- `src/renderer/public/monitor-worklet.js`
+- `src/renderer/src/ku100-near-hrir.js`
+- `src/renderer/assets/main.css`
 
-### 現行実装の配信パラメータ
+Responsibilities:
 
-現時点のアプリでは、配信時のエンコード設定はほぼ固定値で、UIからは変更できない。
+- Source selection UI.
+- Encoding settings UI.
+- Icecast settings persistence.
+- Peak meter rendering.
+- Monitor Output Web Audio graph.
+- KU100 near-field HRTF monitor rendering.
 
-#### 現行のFFmpeg音声設定
+## Input Sources
+
+### App Audio
+
+Current behavior:
+
+- Primary source tab.
+- Captures audio from a selected macOS app using Core Audio process taps.
+- Uses `App Output Capture Source` to select the Core Audio output stream.
+- Preserves multichannel capture when the selected stream and source app provide it.
+- Stops stale preview/monitor processes when switching source tabs.
+
+Open verification:
+
+- Real-device channel order should be checked per output device and app.
+- App Audio capture is macOS-specific.
+
+### Input Device
+
+Current behavior:
+
+- Captures from a selected Core Audio input device through the native helper.
+- Streams Float32 PCM into FFmpeg.
+- Monitor Output controls are disabled while Input Device source is active.
+- Requires macOS microphone permission.
+
+Open verification:
+
+- Real-device streaming stability should be checked with physical and virtual devices.
+- Monitor Output for Input Device remains out of scope for the current standard build.
+
+### File
+
+Current behavior:
+
+- Uses selected audio file as source.
+- Supports loop playback.
+- Supports preview/monitor output once a playable file is selected.
+- Maximum standard channel template is 7.1.
+
+Open verification:
+
+- File source should be retested with mono, stereo, 5.1, and 7.1 samples before publishing a release.
+
+## Encoding Model
+
+Current defaults:
+
+- Format: Ogg Opus.
+- Sample rate: 48 kHz.
+- Bitrate display: stereo-equivalent bitrate.
+- Default bitrate: 128 kbps stereo-equivalent.
+- Standard channel templates:
+  - Mono
+  - Stereo
+  - Stereo + C
+  - 5.1
+  - 7.1
+
+Implementation notes:
+
+- 44.1 kHz and 96 kHz sources are normalized to Opus-compatible output behavior.
+- Actual bitrate is adjusted by selected channel count.
+- 7.1.2 and 7.1.4 are intentionally excluded from the standard build because common Ogg Opus player compatibility is not proven.
+
+## Monitor Output
+
+Current modes:
+
+- Stereo Pair
+- Stereo Downmix
+- KU100 Near-field HRTF
+
+Current behavior:
+
+- Monitor Output is available for App Audio and File sources.
+- Monitor Output is disabled for Input Device source.
+- Monitor Volume is applied after monitor mode processing and does not affect streamed audio.
+- Monitor meters display two-channel monitor output.
+- Meter color thresholds:
+  - above `-6 dB`: yellow
+  - above `-1 dB`: red
+
+KU100 HRIR notes:
+
+- Uses a reduced JavaScript extraction from the KU100 near-field 1.0 m circular SOFA dataset.
+- Third-party license: CC BY 4.0.
+- Attribution is listed in `README.md`.
+- LFE is not treated as a normal localized speaker in binaural rendering.
+
+## Packaging
+
+### macOS
+
+Primary supported build.
+
+Commands:
 
 ```bash
--ac 6
--channel_layout 5.1
--c:a libopus
--b:a 384k
--vbr on
--application audio
--mapping_family 1
--frame_duration 20
--f ogg
--content_type audio/ogg
+npm install
+npm run build:mac
 ```
 
-| 項目 | 現行値 | 備考 |
-|------|--------|------|
-| チャンネル数 | `6` | 5.1前提 |
-| チャンネルレイアウト | `5.1` | FL FR FC LFE BL BR |
-| コーデック | `libopus` | Ogg Opus配信用 |
-| ビットレート | `384k` | Rendererから固定値として渡している |
-| VBR | `on` | 品質優先 |
-| Opus application | `audio` | 音楽・一般音声向け |
-| Opus mapping family | `1` | 5.1サラウンドに必要 |
-| フレーム長 | `20` ms | レイテンシと効率のバランス |
-| コンテナ | `ogg` | IcecastへOgg Opusとして送出 |
-| Content-Type | `audio/ogg` | Icecast用HTTPヘッダ |
-| サンプリングレート | 未明示 | 入力依存。Opus 5.1配信用には `48000` 明示が望ましい |
+Important outputs:
 
-#### 現行コード上の固定箇所
+```text
+dist/mac-arm64/SurroundStreamer.app
+dist/surround-streamer-0.1.0.dmg
+```
 
-- `src/renderer/src/renderer.js`: `bitrate: '384k'` を固定で `stream:start` に渡している。
-- `src/main/ffmpeg-manager.js`: `-ac 6`, `-channel_layout 5.1`, `-c:a libopus`, `-vbr on`, `-application audio`, `-mapping_family 1`, `-frame_duration 20` を固定で組み立てている。
-- `-ar 48000` はまだ付与していない。
+Current release build status:
 
-#### 推奨する次の改善
+- Ad-hoc signed.
+- Not notarized.
+- Suitable for local distribution/testing, not yet notarized for public macOS distribution.
 
-- UIにビットレート選択を追加する: `256k / 384k / 512k / 768k / custom`
-- `-ar 48000` を明示し、Opus 5.1配信のサンプルレートを安定させる。
-- UIにVBR設定を追加する: `on / constrained / off`
-- 5.1配信の推奨初期値は `384k` または `512k`, `48000Hz`, `vbr on` とする。
+### Windows
 
----
+Documentation exists, but release support is not ready.
 
-## Audio Hijack的アプリ音声キャプチャ実装計画
+Blocked by:
 
-### 現行版の保全
+- No Windows audio capture backend.
+- App Audio likely needs WASAPI loopback or equivalent.
+- Input Device needs a Windows-specific capture path.
+- Monitor Output/device routing needs platform validation.
 
-Audio Hijack的な低レイヤ音声キャプチャを追加する前段階として、現行版は `legacy/SurroundStreamer-old-version/` に退避済み。
-この snapshot は、ファイル入力・デバイス入力・Icecast配信を中心とした旧版として保持する。
-
-### Phase A: Core Audio Process Tap PoC
-
-目的: QuickTime Playerなど、macOS上で音を出しているアプリケーションの出力音声を、仮想オーディオデバイスなしで直接捕捉できるか検証する。
-
-実装済み:
-
-- `native/audio-tap-helper/` に Objective-C CLI helper を追加
-- `AudioHardwareCreateProcessTap` を利用
-- `--list-processes` で Core Audio process object 一覧をJSON出力
-- `--create-tap --pid <pid>` で指定アプリに短時間の stereo process tap を作成
-- Electron main processから helper を起動する `src/main/app-audio-helper.js` を追加
-- Rendererに `App Audio` タブ、アプリ一覧、`Tap Test` ボタンを追加
-- macOS packaged app の `Contents/Resources/audio-tap-helper` に helper を同梱
-
-検証済み:
-
-- QuickTime Playerの process object を列挙できる
-- QuickTime Playerに対して Process Tap 作成が成功
-- 取得tap format例: `2ch`, `48000Hz`, `32-bit`
+### Linux
 
-### Phase B: PCMストリーム化
-
-次の実装目標:
+Documentation exists, but release support is not ready.
 
-1. Process Tapを含む private aggregate device を作成する。
-2. `AudioDeviceIOProc` または `AudioDeviceCreateIOProcID` でtap音声を読み出す。
-3. helper stdout または named pipe にPCMを流す。
-4. FFmpegへ `-f f32le -ar 48000 -ac 2 -i pipe:0` のように接続する。
-5. まずは stereo App Audio -> Ogg Opus Icecast 配信を成立させる。
+Blocked by:
 
-### Phase C: 5.1対応検証
+- No Linux audio capture backend.
+- App Audio likely needs PipeWire or PulseAudio monitor-source support.
+- Input Device needs a Linux-specific capture path.
+- AppImage/snap/deb need separate runtime validation.
 
-Process Tapの基本コンストラクタ `initStereoMixdownOfProcesses` は stereo mixdown になるため、5.1維持には別経路の検証が必要。
-
-検証候補:
-
-- `initWithProcesses:andDeviceUID:withStream:` を使い、出力デバイス stream format に追従する。
-- macOS側の出力デバイスを5.1構成にした状態で、tap formatが6chになるか確認する。
-- 取得PCMのchannel orderをFFmpegの `5.1` / Opus mapping family 1 に合わせる。
-- 6ch維持できない場合、App Audioモードはstereo配信として扱い、5.1はBlackHole/Loopback/Audio Device入力を推奨する。
-
-### Phase D: UI統合
-
-App Audio入力を正式な配信入力として扱うために追加する項目:
-
-- 対象アプリ選択
-- System Audio / App Audio の切替
-- Tap format表示: sample rate / channels / bit depth
-- Stereo App Audio配信と5.1配信の可否表示
-- Tap作成失敗時の詳細ログ
-- helper crash時のcleanup
-
-### 2026-05-05 実装進捗: App Audio PCMパイプ配信
-
-Audio Hijack的なアプリ音声奪取機能について、Phase Bの初期実装として以下を追加した。
-
-- `native/audio-tap-helper` に `--stream-pcm --pid <pid>` を追加
-  - macOS Core Audio Process Tapで指定PIDの出力音声を取得
-  - private aggregate device + IOProcでPCMを読み出し
-  - stdoutへ 32-bit float PCM を連続出力
-- Electron Main側でApp Audio入力をFFmpegへ接続
-  - `app-audio-helper.spawnPCMStream(pid)` でヘルパーを起動
-  - ヘルパーstdoutをFFmpeg stdinへpipe
-  - FFmpeg入力は現時点で `f32le / 48000Hz / 2ch`
-- Renderer側でApp Audio選択から配信開始できるよう変更
-  - 以前の「Tap Testのみ」制限を解除
-  - ログ上は `stereo mixdown` と明示
-- パッケージング確認
-  - `npm run build`
-  - `npm run build:unpack`
-  - `codesign --verify --deep --strict --verbose=2 dist/mac-arm64/SurroundStreamer.app`
-
-現時点の重要な制約:
-
-- App Audio配信はステレオミックスダウンであり、5.1保持ではない。
-- 5.1アプリ音声をそのまま奪うには、`CATapDescription initWithProcesses:andDeviceUID:withStream:` と対象出力デバイス/ストリーム指定の検証が必要。
-- この実行環境ではCore Audioの実音声出力プロセスが列挙されなかったため、PCM実データ取得の実機検証は未完了。
-
-### 2026-05-05 実装進捗: Preserve Surroundモード試作
-
-App Audio入力に、ステレオミックスダウンだけでなく出力デバイスstreamのフォーマットへ追従する `Preserve Surround` モードを追加した。
-
-追加内容:
-
-- `audio-tap-helper --list-output-streams`
-  - Core Audio出力デバイスを列挙
-  - 各デバイスのoutput stream index、sample rate、channel count、bit depthをJSON出力
-- `audio-tap-helper --create-tap / --stream-pcm` に `--device-uid <uid> --stream-index <index>` を追加
-  - 指定がある場合は `CATapDescription initWithProcesses:andDeviceUID:withStream:` を使用
-  - 指定がない場合は従来通り `initStereoMixdownOfProcesses`
-- UIにApp Audio modeを追加
-  - `Stereo Mixdown`
-  - `Preserve Surround`
-- UIに出力stream選択を追加
-  - Preserve Surroundでは選択streamの `channels` / `sampleRate` をFFmpeg入力へ渡す
-- FFmpeg App Audio入力を可変チャンネル化
-  - raw PCM: `f32le`
-  - sample rate: 選択streamに追従
-  - channel count: 選択streamに追従
-  - 3-8chはOpus `mapping_family 1`
-  - 8ch超は暫定で `mapping_family 255`
-
-検証状況:
-
-- `bash scripts/build-audio-tap-helper.sh` 成功
-- `npm run build` 成功
-- `npm run build:unpack` 成功
-- `codesign --verify --deep --strict --verbose=2 dist/mac-arm64/SurroundStreamer.app` 成功
-- この実行環境ではCore Audio出力デバイス/プロセスが空のため、実音声サラウンド取得は未検証
-
-実機検証条件:
-
-- HDMI、USBオーディオIF、BlackHole 16ch、Loopback等のマルチチャンネル出力デバイスを用意する
-- macOSの出力先をそのデバイスへ設定する
-- 再生アプリが2chではなくマルチチャンネルPCMをその出力先へ出していることを確認する
-- App Audioで対象アプリを選択し、Preserve Surroundで該当streamを選んでTap Test/配信開始する
-
-残課題:
-
-- 実際のchannel orderがFFmpeg/Opusの期待順と一致するか確認する
-- 8ch超のOpus配信互換性を検証する
-- Preserve Surround失敗時にStereo Mixdownへ手動/自動フォールバックするUIを追加する
-
-### 2026-05-05 実装進捗: 配信設定とピークメーター
-
-配信前段の制御として以下を追加した。
-
-- 配信ビットレート設定
-  - UIで 128k / 192k / 256k / 384k / 512k / 768k を選択
-  - `FFmpegManager` の `-b:a` に反映
-- サンプル周波数設定
-  - UIで 44.1kHz / 48kHz / 96kHz を選択
-  - FFmpeg出力側 `-ar` に反映
-- 配信に流すチャンネル指定
-  - UIで最大8chの入力チャンネルをON/OFF
-  - FFmpegの `pan` filterでエンコード前に不要チャンネルを落とす
-  - 選択チャンネル数に応じて `-ac` と `-channel_layout` を更新
-- 配信ピークメーター
-  - FFmpeg filter chainへ `astats=metadata=1` と `ametadata=print` を追加
-  - `lavfi.astats.<ch>.Peak_level` をMain processでパース
-  - IPC `stream:meter` でRendererへ転送
-  - RendererでチャンネルごとのピークバーとdB表示を更新
-
-実装上の意図:
-
-- チャンネル削減はOpusエンコード前の `pan` filterで行うため、不要チャンネルをエンコードしない。
-- メーターはエンコード直前のfilter chain上で見るため、実際に配信へ入るチャンネル構成に近い値を表示する。
-
-検証:
-
-- `npm run build` 成功
-- `npm run lint` 成功。ただし既存の `SurroundWebPlayer/app.js` と `legacy` 側のPrettier警告は残存
-- FFmpeg filter単体テストで `pan + astats + ametadata` の構文成立を確認
-- `npm run build:unpack` 成功
-- `codesign --verify --deep --strict --verbose=2 dist/mac-arm64/SurroundStreamer.app` 成功
-
-残課題:
-
-- 実配信時のピークメーター更新頻度とログ量を実音声で確認する
-- Preserve Surround時のチャンネル順序とUIラベルの一致を実機で確認する
-- 8ch超のチャンネル指定UIは未対応。現状UIは最大8chまで
-
-### 2026-05-05 実装進捗: 配信音声モニターアウト
-
-配信へ送る直前の音声を、別系統でローカル出力するモニターアウト機能を追加した。
-
-追加内容:
-
-- Monitor Output UIを追加
-  - モニター出力ON/OFF
-  - 出力デバイス指定
-  - モニターモード選択
-    - `Ch1/Ch2 Stereo`
-    - `Binaural HRTF`（Web Audio API `PannerNode` のHRTFで処理）
-- Web Audio出力デバイス列挙
-  - Renderer側で `navigator.mediaDevices.enumerateDevices()` の `audiooutput` を列挙
-  - 指定デバイスへの出力は `HTMLMediaElement.setSinkId()` を使用
-  - `selectAudioOutput()` が使える環境ではRefresh操作時に出力先選択を試行
-- FFmpeg分岐出力
-  - モニターON時は `-filter_complex` で配信用音声を `asplit=2`
-  - `[enc]` は従来通りIcecast/Ogg Opusへ送出
-  - `Ch1/Ch2 Stereo` では `[mon]` を `pan=stereo|c0=c0|c1=c1` で2ch化し、raw `f32le` として `pipe:3` へ出す
-  - `Binaural HRTF` では `[mon]` をマルチチャンネルraw `f32le` のまま `pipe:3` へ出す
-  - Main processは `pipe:3` のPCM chunkをIPC `monitor:audio` でRendererへ転送
+## Release Process
 
-HRTF / バイノーラル化について:
-
-- Web Audio API標準のHRTFはRenderer上のWeb Audioグラフで使うため、FFmpegからモニター用PCMをRendererへ分岐転送する方式で実装した。
-- `AudioWorkletNode` がraw PCMをチャンネル別mono出力へ展開し、各チャンネルを `PannerNode` へ接続する。
-- `PannerNode.panningModel = 'HRTF'` を使用し、5.1/7.1相当のチャンネル位置を仮想音源位置へ割り当てる。
-- LFEは定位対象として扱いにくいため、暫定的に低ゲイン中央成分として混ぜる。
+For regular macOS releases:
 
-検証:
+1. Ensure working tree is clean.
+2. Run:
 
-- FFmpeg filter単体テストで `asplit + astats/ametadata + pipe:3 f32le monitor` の構文成立を確認
-- `npm run build` 成功
-- `npm run lint` 成功。ただし既存の `SurroundWebPlayer/app.js` と `legacy` 側のPrettier警告は残存
-- `npm run build:unpack` 成功
-- `codesign --verify --deep --strict --verbose=2 dist/mac-arm64/SurroundStreamer.app` 成功
+   ```bash
+   npm run build:mac
+   ```
 
-残課題:
+3. Verify signing:
 
-- 実機でWeb Audio output device列挙、`setSinkId`、指定デバイスへの出力を確認する
-- 実機でHRTFモニターのレイテンシ、IPC転送負荷、長時間安定性を確認する
-- HRTFのチャンネル位置/ゲイン、特にCenter/LFE/Rearの聴感チューニングを行う
+   ```bash
+   codesign --verify --deep --strict --verbose=2 \
+     dist/mac-arm64/SurroundStreamer.app
+   ```
 
-### 2026-05-05 修正: AudioWorklet module load failure
+4. Verify the DMG exists:
 
-実機起動時に `Error starting monitor output: Unable to load a worklet's module.` が出たため、Worklet配布方式を修正した。
+   ```bash
+   ls -lh dist/surround-streamer-0.1.0.dmg
+   ```
 
-原因:
+5. Update release notes under `docs/releases/`.
+6. Commit and push.
+7. Tag the release, for example:
 
-- `new URL('./monitor-worklet.js', import.meta.url)` を使ったところ、ViteがWorkletコードを `data:` URLへインライン化した。
-- Electron/AudioWorklet側でその `data:` URLモジュールをロードできず、`audioWorklet.addModule()` が失敗した。
+   ```bash
+   git tag -a v0.1.0 -m "SurroundStreamer v0.1.0"
+   git push origin v0.1.0
+   ```
 
-修正:
+8. Create or update the GitHub Release.
 
-- Workletを `src/renderer/public/monitor-worklet.js` に配置し、ビルド後に `out/renderer/monitor-worklet.js` として実ファイル配布する。
-- Renderer側は `audioWorklet.addModule('./monitor-worklet.js')` で同一originの静的JSとして読み込む。
+Current release target:
 
-検証:
+- Tag: `v0.1.0`
+- Title: `SurroundStreamer v0.1.0`
+- Artifact: `dist/surround-streamer-0.1.0.dmg`
 
-- `npm run build` 成功
-- ビルド結果に `out/renderer/monitor-worklet.js` が存在することを確認
-- 出力JSが `data:text/javascript` を参照していないことを確認
-- `npm run lint` 成功。ただし既存の `SurroundWebPlayer` と `legacy` 側のPrettier警告は残存
-- `npm run build:unpack` 成功
-- `codesign --verify --deep --strict --verbose=2 dist/mac-arm64/SurroundStreamer.app` 成功
+## Roadmap
 
-### 2026-05-05 修正: 配信中のMonitor Output設定反映
+### Near Term
 
-配信中にMonitor Outputの設定を変更した場合、その場で反映されるように修正した。
+- Launch and smoke-test the DMG app on a clean macOS environment.
+- Verify App Audio streaming to Icecast.
+- Verify File source streaming to Icecast.
+- Verify Stream Playback Check with `https://non-rem.com/SurroundWebPlayer/`.
+- Verify quit cleanup for FFmpeg and helper processes.
+- Verify the macOS About panel includes MIT and KU100 CC BY 4.0 attribution.
+- Decide whether the first public release should remain ad-hoc signed or wait for notarization.
 
-修正内容:
+### Product Improvements
 
-- FFmpeg側のモニター分岐を常時マルチチャンネルPCM出力へ変更
-  - `pipe:3` は配信へ送るチャンネル構成と同じraw `f32le` を出す
-  - `Stereo` / `Binaural HRTF` の差分はRenderer側Web Audioグラフで処理する
-- Main processに `monitor:set-active` IPCを追加
-  - FFmpegの `pipe:3` は常にdrainする
-  - Rendererへの `monitor:audio` 転送だけON/OFFする
-  - これにより配信開始後にモニターON/OFFできる
-- Renderer側で配信中の変更イベントを監視
-  - Monitor Output ON/OFF
-  - 出力デバイス変更
-  - `Ch1/Ch2 Stereo` / `Binaural HRTF` 切替
-- 設定変更時はWeb Audio Monitorを再構成
-  - 出力デバイスは `setSinkId()` で反映
-  - モード変更時は `AudioWorkletNode` + `PannerNode` グラフを再生成
+- Add clearer unsupported-platform messaging if Windows/Linux builds are produced.
+- Improve real-device diagnostics for App Audio channel order.
+- Add optional MP3 stereo streaming if compatibility pressure justifies it.
+- Investigate Ogg Vorbis multichannel up to 7.1 as an optional path.
 
-制約:
+### Research Only
 
-- 配信に流すチャンネル指定そのものはFFmpeg filter graphを変える必要があるため、配信中の変更は現時点では対象外。
-- モニター設定変更時はWeb Audioグラフを短く再起動するため、一瞬の音切れは発生し得る。
+- 7.1.2 / 7.1.4 streaming compatibility.
+- KU100 far-field HRIR mode.
+- Full-sphere HRIR extraction for height-channel monitoring.
+- Platform-specific audio capture backends for Windows and Linux.
 
-検証:
+## Historical Notes
 
-- FFmpeg filter単体テストで `asplit + pipe:3 f32le monitor` の構文成立を確認
-- `npm run build` 成功
-- `npm run lint` 成功。ただし既存の `SurroundWebPlayer` と `legacy` 側のPrettier警告は残存
-- `npm run build:unpack` 成功
-- `codesign --verify --deep --strict --verbose=2 dist/mac-arm64/SurroundStreamer.app` 成功
+Older plans referenced:
 
-### 2026-05-05 修正: 配信開始後のUI横はみ出し
+- AVFoundation input-device capture through FFmpeg.
+- A `Tap Test` UI path.
+- `Stereo Mixdown` as an App Audio primary mode.
+- 7.1.2 / 7.1.4 as standard UI templates.
+- Keeping `legacy/SurroundStreamer-old-version/` in the repository.
+- Keeping `SurroundWebPlayer/` in the repository.
 
-配信開始後に画面内容が横方向へ広がり、ウィンドウ外へはみ出す問題を修正した。
-
-原因:
-
-- FFmpeg起動ログやmonitor/device名などの長い文字列が折り返されず、grid/flex itemの最小幅を押し広げていた。
-- CSS gridの `1fr` は内容のmin-content幅を尊重するため、長いログ行やselect表示が列幅を拡張していた。
-- `input-section` が横一列固定に近く、App AudioやMonitor周りのselect/buttonが狭いウィンドウで押し出されやすかった。
-
-修正:
-
-- `main` / `.form-grid` を `minmax(0, 1fr)` ベースに変更
-- `.panel` / `.form-group` / `.input-section` / `.file-selector` / meter周りに `min-width: 0` を追加
-- `.input-section` を `flex-wrap: wrap` にしてselect/buttonが折り返せるように変更
-- `.log-container` の横スクロールを抑制し、`.log-entry` を `overflow-wrap: anywhere` / `white-space: pre-wrap` で折り返すよう変更
-- channel selector / peak meterもmin-content幅で親を押し広げないよう調整
-
-検証:
-
-- `npm run build` 成功
-- `npm run lint` 成功。ただし既存の `SurroundWebPlayer` と `legacy` 側のPrettier警告は残存
-- `npm run build:unpack` 成功
-- `codesign --verify --deep --strict --verbose=2 dist/mac-arm64/SurroundStreamer.app` 成功
-
-### 2026-05-05 修正: UI panel clipping regression
-
-前回の横はみ出し対策後、panel内部のフォームが縦方向に切れて表示されるregressionを修正した。
-
-原因:
-
-- `.panel { overflow: hidden; }` により、panel内コンテンツがpanel高さを超えた場合に表示ごと切られていた。
-- `main` に `grid-template-rows: auto auto 1fr` を指定していたため、Monitor/Config/Control/Logsなど後続rowの高さ配分が不自然になっていた。
-
-修正:
-
-- `.panel` の `overflow: hidden` を削除
-- `main` は `grid-auto-rows: max-content` と `align-content: start` に変更
-- panel子要素には `min-width: 0` を維持して、横はみ出し対策は残す
-- logsは `max-height` 付きの内部スクロールにして、画面全体を押し広げないようにした
-
-検証:
-
-- `npm run build` 成功
-- `npm run lint` 成功。ただし既存の `SurroundWebPlayer` と `legacy` 側のPrettier警告は残存
-- `npm run build:unpack` 成功
-- `codesign --verify --deep --strict --verbose=2 dist/mac-arm64/SurroundStreamer.app` 成功
+Those items are no longer the current plan. The current standard path is the macOS `0.1.0` release line described above.

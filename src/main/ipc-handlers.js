@@ -3,10 +3,12 @@ import ffmpegManager from './ffmpeg-manager'
 import deviceScanner from './device-scanner'
 import appAudioHelper from './app-audio-helper'
 import mediaProber from './media-prober'
+import logStore from './log-store'
 
 export function setupIpcHandlers() {
   ffmpegManager.on('log', (payload) => {
-    eventSendAll('ffmpeg:log', payload)
+    const entry = logStore.append(payload)
+    if (entry) eventSendAll('ffmpeg:log', entry)
   })
 
   ffmpegManager.on('status', (status) => {
@@ -115,6 +117,14 @@ export function setupIpcHandlers() {
     if (!canceled) {
       return filePaths[0]
     }
+  })
+
+  ipcMain.handle('logs:get', () => {
+    return logStore.getEntries()
+  })
+
+  ipcMain.handle('logs:add', (_event, payload) => {
+    return logStore.append(payload)
   })
 }
 

@@ -96,7 +96,7 @@ Use Input Device when streaming from an audio interface, virtual input, or micro
 
 Monitor Output is currently disabled for Input Device source. Input-device monitoring still needs to be stabilized separately from the streaming path.
 
-On macOS, input-device streaming requires microphone permission. If streaming does not capture input audio, confirm that macOS Privacy settings allow microphone access for SurroundStreamer or SurroundStreamer beta.
+On macOS, input-device streaming requires microphone permission. If streaming does not capture input audio, confirm that macOS Privacy settings allow microphone access for SurroundStreamer.
 
 ### Encoding Settings
 

@@ -57,18 +57,19 @@ native/audio-tap-helper/.build/AudioTapHelper
 ## Build Regular App
 
 ```bash
-npm run build:mac:dir
+npm run build:mac
 ```
 
-Output:
+Outputs:
 
 ```text
 dist/mac-arm64/SurroundStreamer.app
+dist/surround-streamer-0.1.0.dmg
 ```
 
 ## Build Beta App
 
-Use this for ongoing test builds.
+Use this only for isolated beta test builds.
 
 ```bash
 npm run build:beta:mac
@@ -82,14 +83,16 @@ dist/beta/mac-arm64/SurroundStreamer-beta-0.1.0.app
 
 ## Optional Packaged macOS Artifact
 
+For a directory-only app build without creating a DMG:
+
 ```bash
-npm run build:mac
+npm run build:mac:dir
 ```
 
-This uses the default Electron Builder macOS target and writes artifacts under:
+This writes the unpacked app under:
 
 ```text
-dist/
+dist/mac-arm64/SurroundStreamer.app
 ```
 
 ## Verify App Signature
@@ -97,13 +100,13 @@ dist/
 For a local unsigned/development build:
 
 ```bash
-codesign --verify --deep --strict --verbose=2 dist/beta/mac-arm64/SurroundStreamer-beta-0.1.0.app
+codesign --verify --deep --strict --verbose=2 dist/mac-arm64/SurroundStreamer.app
 ```
 
-or:
+For beta builds:
 
 ```bash
-codesign --verify --deep --strict --verbose=2 dist/mac-arm64/SurroundStreamer.app
+codesign --verify --deep --strict --verbose=2 dist/beta/mac-arm64/SurroundStreamer-beta-0.1.0.app
 ```
 
 ## Notes
