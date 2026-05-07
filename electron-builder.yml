@@ -8,6 +8,7 @@ files:
   - '!src/**'
   - '!dist/**'
   - '!legacy/**'
+  - '!SurroundWebPlayer/**'
   - '!node_modules/.cache/**'
   - '!docs/manual-assets/capture.html'
   - '!electron.vite.config.{js,ts,mjs,cjs}'

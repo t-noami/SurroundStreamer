@@ -1,8 +1,0 @@
-services:
-  icecast:
-    image: mowenster/icecast2
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./icecast-surround.xml:/etc/icecast2/icecast.xml
-    restart: unless-stopped
