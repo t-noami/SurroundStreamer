@@ -151,6 +151,14 @@ Mount Pointは `/stream` のように先頭に `/` を付けてください。�
 
 配信を止めるには `STOP STREAM` を押します。アプリ左上の閉じるボタンでウィンドウを閉じた場合も、アプリ終了として扱い、裏で動いている配信プロセスを停止します。
 
+### Stream Playback Check
+
+配信先に音声が届いているか確認する場合は、以下のWebプレーヤーを使えます。
+
+https://non-rem.com/SurroundWebPlayer/
+
+IcecastのHost、Port、Mount Pointを入力して再生し、プレーヤー側でバッファ中のまま止まる場合は `Logs` とIcecast側のマウント状態を確認してください。
+
 ### Troubleshooting
 
 Icecastに接続できない場合:
