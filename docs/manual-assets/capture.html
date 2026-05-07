@@ -1,0 +1,279 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>SurroundStreamer Manual Capture</title>
+    <link href="../../src/renderer/assets/main.css" rel="stylesheet" />
+    <style>
+      body {
+        height: auto;
+        min-height: 100vh;
+        overflow: auto;
+      }
+
+      #app {
+        height: auto;
+        min-height: 100vh;
+        overflow: visible;
+      }
+
+      main {
+        overflow: visible;
+      }
+
+      .capture-note {
+        color: var(--text-muted);
+        font-size: 0.78rem;
+        margin-top: 8px;
+      }
+    </style>
+  </head>
+  <body class="dark-theme">
+    <div id="app">
+      <header>
+        <div class="header-content">
+          <h1>SurroundStreamer</h1>
+          <div id="status-badge" class="badge idle">IDLE</div>
+        </div>
+      </header>
+
+      <main>
+        <section class="panel input-panel">
+          <h2>Input Source</h2>
+          <div class="tabs">
+            <button id="tab-app-audio" class="tab-btn active">App Audio</button>
+            <button id="tab-device" class="tab-btn">Input Device</button>
+            <button id="tab-file" class="tab-btn">File</button>
+          </div>
+
+          <div id="file-input-section" class="input-section hidden">
+            <div class="file-selector">
+              <input type="text" id="file-path" readonly value="ExampleAudio/test_5_1.wav" />
+              <button id="btn-browse" class="btn">Browse</button>
+            </div>
+            <label class="checkbox-row">
+              <input type="checkbox" id="loop-file" checked />
+              <span>Loop</span>
+            </label>
+          </div>
+
+          <div id="device-input-section" class="input-section hidden">
+            <div class="input-field-group">
+              <label for="device-list">Input Device</label>
+              <select id="device-list" class="select-field">
+                <option>BlackHole 16ch (16ch, 48 kHz, loopback/virtual)</option>
+              </select>
+            </div>
+            <button id="btn-refresh-devices" class="btn-refresh">Refresh</button>
+          </div>
+
+          <div id="app-audio-input-section" class="input-section">
+            <div class="input-field-group">
+              <label for="app-audio-list">App</label>
+              <select id="app-audio-list" class="select-field">
+                <option>VLC [12345]</option>
+              </select>
+            </div>
+            <div class="input-field-group">
+              <label for="app-audio-output-stream">App Output Capture Source</label>
+              <select id="app-audio-output-stream" class="select-field">
+                <option>MacBook Pro Speakers app output / Stream 0: 6ch @ 48 kHz</option>
+              </select>
+            </div>
+            <button id="btn-refresh-app-audio" class="btn-refresh">Refresh</button>
+          </div>
+          <div class="capture-note">Use App Audio when capturing audio from another application.</div>
+        </section>
+
+        <section class="panel encode-panel">
+          <h2>Encoding Settings</h2>
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="bitrate-select"
+                >Bitrate (Stereo Equivalent) <span id="bitrate-actual-value">384 kbps actual</span
+              ></label>
+              <select id="bitrate-select">
+                <option selected>128 kbps</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="sample-rate-select">Sample Rate</label>
+              <select id="sample-rate-select">
+                <option selected>48 kHz</option>
+              </select>
+            </div>
+            <div class="form-group channel-template-group">
+              <label for="channel-template-select">Stream Channel Template</label>
+              <select id="channel-template-select">
+                <option selected>5.1</option>
+              </select>
+            </div>
+          </div>
+          <div class="channel-panel">
+            <div class="channel-panel-header">
+              <span>Stream Channels</span>
+              <button id="btn-select-default-channels" class="btn-small">Default</button>
+            </div>
+            <div id="channel-selector" class="channel-selector">
+              <label class="channel-toggle"><input type="checkbox" checked /><span>1 L</span></label>
+              <label class="channel-toggle"><input type="checkbox" checked /><span>2 R</span></label>
+              <label class="channel-toggle"><input type="checkbox" checked /><span>3 C</span></label>
+              <label class="channel-toggle"><input type="checkbox" checked /><span>4 LFE</span></label>
+              <label class="channel-toggle"><input type="checkbox" checked /><span>5 LS</span></label>
+              <label class="channel-toggle"><input type="checkbox" checked /><span>6 RS</span></label>
+            </div>
+          </div>
+          <div class="meter-panel">
+            <div class="channel-panel-header">
+              <span>Peak Meter</span>
+              <span id="meter-state">IDLE</span>
+            </div>
+            <div id="peak-meter-list" class="peak-meter-list">
+              <div class="peak-row"><div class="peak-label">CH1</div><div class="peak-track"><div class="peak-fill" style="width: 72%"></div></div><div class="peak-value">-16.8 dB</div></div>
+              <div class="peak-row"><div class="peak-label">CH2</div><div class="peak-track"><div class="peak-fill" style="width: 74%"></div></div><div class="peak-value">-15.4 dB</div></div>
+              <div class="peak-row"><div class="peak-label">CH3</div><div class="peak-track"><div class="peak-fill warn" style="width: 91%"></div></div><div class="peak-value">-5.4 dB</div></div>
+              <div class="peak-row"><div class="peak-label">CH4</div><div class="peak-track"><div class="peak-fill" style="width: 0%"></div></div><div class="peak-value">-inf</div></div>
+              <div class="peak-row"><div class="peak-label">CH5</div><div class="peak-track"><div class="peak-fill" style="width: 64%"></div></div><div class="peak-value">-21.4 dB</div></div>
+              <div class="peak-row"><div class="peak-label">CH6</div><div class="peak-track"><div class="peak-fill" style="width: 66%"></div></div><div class="peak-value">-20.1 dB</div></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel monitor-panel">
+          <h2>Monitor Output</h2>
+          <label class="checkbox-row monitor-enable-row">
+            <input type="checkbox" id="monitor-enabled" checked />
+            <span>Enable monitor output</span>
+          </label>
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="monitor-device-list">Output Device</label>
+              <select id="monitor-device-list">
+                <option selected>System Default</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="monitor-mode">Monitor Mode</label>
+              <select id="monitor-mode">
+                <option selected>KU100 Near-field HRTF</option>
+              </select>
+            </div>
+            <div class="form-group" id="monitor-buffer-group">
+              <label for="monitor-latency">Monitor Buffer</label>
+              <select id="monitor-latency">
+                <option selected>80 ms</option>
+              </select>
+            </div>
+            <div class="form-group" id="monitor-pair-group">
+              <label for="monitor-source-pair">Monitor Source</label>
+              <select id="monitor-source-pair">
+                <option selected>L/R</option>
+              </select>
+            </div>
+            <div class="form-group monitor-volume-group">
+              <label for="monitor-volume">Monitor Volume <span id="monitor-volume-value">85%</span></label>
+              <input type="range" id="monitor-volume" min="0" max="100" step="1" value="85" />
+            </div>
+          </div>
+          <div class="meter-panel monitor-meter-panel">
+            <div class="channel-panel-header">
+              <span>Monitor Peak</span>
+              <span id="monitor-meter-state">PREVIEW</span>
+            </div>
+            <div id="monitor-peak-meter-list" class="peak-meter-list monitor-peak-meter-list">
+              <div class="peak-row"><div class="peak-label">CH1</div><div class="peak-track"><div class="peak-fill" style="width: 73%"></div></div><div class="peak-value">-16.1 dB</div></div>
+              <div class="peak-row"><div class="peak-label">CH2</div><div class="peak-track"><div class="peak-fill" style="width: 72%"></div></div><div class="peak-value">-16.5 dB</div></div>
+            </div>
+          </div>
+          <button id="btn-refresh-monitor-devices" class="btn">Refresh Monitor Devices</button>
+        </section>
+
+        <section class="panel config-panel">
+          <h2>Icecast Settings</h2>
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="icecast-host">Host</label>
+              <input type="text" id="icecast-host" value="stream.local" />
+            </div>
+            <div class="form-group">
+              <label for="icecast-port">Port</label>
+              <input type="number" id="icecast-port" value="8000" />
+            </div>
+            <div class="form-group">
+              <label for="mount-point">Mount Point</label>
+              <input type="text" id="mount-point" value="/stream" />
+            </div>
+            <div class="form-group">
+              <label for="source-password">Password</label>
+              <input type="password" id="source-password" value="password" />
+            </div>
+          </div>
+        </section>
+
+        <section class="panel control-panel">
+          <div class="controls">
+            <button id="btn-start" class="btn-primary">START STREAM</button>
+            <button id="btn-stop" class="btn-secondary hidden">STOP STREAM</button>
+          </div>
+          <div id="stream-timer" class="timer">00:00:00</div>
+        </section>
+
+        <section class="panel log-panel">
+          <h2>Logs</h2>
+          <div id="log-output" class="log-container">
+            <div class="log-entry system">Ready to stream.</div>
+            <div class="log-entry system">SurroundStreamer initialized.</div>
+            <div class="log-entry system">Found app output capture sources.</div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      const state = new URLSearchParams(location.search).get('state') || 'app'
+      const inputPanel = document.querySelector('.input-panel')
+      const encodePanel = document.querySelector('.encode-panel')
+      const configPanel = document.querySelector('.config-panel')
+      const tabs = {
+        app: document.getElementById('tab-app-audio'),
+        device: document.getElementById('tab-device'),
+        file: document.getElementById('tab-file')
+      }
+      const sections = {
+        app: document.getElementById('app-audio-input-section'),
+        device: document.getElementById('device-input-section'),
+        file: document.getElementById('file-input-section')
+      }
+
+      for (const key of Object.keys(tabs)) {
+        tabs[key].classList.toggle('active', key === state)
+        sections[key].classList.toggle('hidden', key !== state)
+      }
+
+      if (state === 'file') {
+        document.querySelector('.capture-note').textContent =
+          'Use File for playback-based stream tests or file program distribution.'
+      }
+
+      if (state === 'device') {
+        document.querySelector('.monitor-panel').classList.add('disabled-panel')
+        document.getElementById('monitor-enabled').checked = false
+        document.getElementById('monitor-meter-state').textContent = 'IDLE'
+        document.querySelector('.capture-note').textContent =
+          'Input Device streaming is available, but monitor controls are disabled for this source.'
+      }
+
+      if (state === 'live') {
+        document.getElementById('status-badge').textContent = 'LIVE'
+        document.getElementById('status-badge').className = 'badge live'
+        document.getElementById('meter-state').textContent = 'LIVE'
+        document.getElementById('btn-start').classList.add('hidden')
+        document.getElementById('btn-stop').classList.remove('hidden')
+        document.getElementById('stream-timer').textContent = '00:02:18'
+        inputPanel.classList.add('disabled-panel')
+        encodePanel.classList.add('disabled-panel')
+        configPanel.classList.add('disabled-panel')
+      }
+    </script>
+  </body>
+</html>

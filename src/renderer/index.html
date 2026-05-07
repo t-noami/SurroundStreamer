@@ -23,12 +23,12 @@
         <section class="panel input-panel">
           <h2>Input Source</h2>
           <div class="tabs">
-            <button id="tab-file" class="tab-btn active">File</button>
-            <button id="tab-device" class="tab-btn">Device</button>
-            <button id="tab-app-audio" class="tab-btn">App Audio</button>
+            <button id="tab-app-audio" class="tab-btn active">App Audio</button>
+            <button id="tab-device" class="tab-btn">Input Device</button>
+            <button id="tab-file" class="tab-btn">File</button>
           </div>
 
-          <div id="file-input-section" class="input-section">
+          <div id="file-input-section" class="input-section hidden">
             <div class="file-selector">
               <input type="text" id="file-path" readonly placeholder="No file selected" />
               <button id="btn-browse" class="btn">Browse</button>
@@ -40,25 +40,29 @@
           </div>
 
           <div id="device-input-section" class="input-section hidden">
-            <select id="device-list" class="select-field">
-              <option value="">Scanning devices...</option>
-            </select>
-            <button id="btn-refresh-devices" class="btn-icon">🔄</button>
+            <div class="input-field-group">
+              <label for="device-list">Input Device</label>
+              <select id="device-list" class="select-field">
+                <option value="">Scanning devices...</option>
+              </select>
+            </div>
+            <button id="btn-refresh-devices" class="btn-refresh">Refresh</button>
           </div>
 
-          <div id="app-audio-input-section" class="input-section hidden">
-            <select id="app-audio-list" class="select-field">
-              <option value="">Scanning apps...</option>
-            </select>
-            <select id="app-audio-mode" class="select-field">
-              <option value="stereo">Stereo Mixdown</option>
-              <option value="preserve">Preserve Surround</option>
-            </select>
-            <select id="app-audio-output-stream" class="select-field">
-              <option value="">Scanning output streams...</option>
-            </select>
-            <button id="btn-refresh-app-audio" class="btn-icon">🔄</button>
-            <button id="btn-test-app-audio" class="btn">Tap Test</button>
+          <div id="app-audio-input-section" class="input-section">
+            <div class="input-field-group">
+              <label for="app-audio-list">App</label>
+              <select id="app-audio-list" class="select-field">
+                <option value="">Scanning apps...</option>
+              </select>
+            </div>
+            <div class="input-field-group">
+              <label for="app-audio-output-stream">App Output Capture Source</label>
+              <select id="app-audio-output-stream" class="select-field">
+                <option value="">Scanning app output capture sources...</option>
+              </select>
+            </div>
+            <button id="btn-refresh-app-audio" class="btn-refresh">Refresh</button>
           </div>
         </section>
 
@@ -66,14 +70,16 @@
           <h2>Encoding Settings</h2>
           <div class="form-grid">
             <div class="form-group">
-              <label for="bitrate-select">Bitrate</label>
+              <label for="bitrate-select"
+                >Bitrate (Stereo Equivalent) <span id="bitrate-actual-value"></span
+              ></label>
               <select id="bitrate-select">
-                <option value="128k">128 kbps</option>
-                <option value="192k">192 kbps</option>
-                <option value="256k">256 kbps</option>
-                <option value="384k" selected>384 kbps</option>
-                <option value="512k">512 kbps</option>
-                <option value="768k">768 kbps</option>
+                <option value="64">64 kbps</option>
+                <option value="96">96 kbps</option>
+                <option value="128" selected>128 kbps</option>
+                <option value="160">160 kbps</option>
+                <option value="192">192 kbps</option>
+                <option value="256">256 kbps</option>
               </select>
             </div>
             <div class="form-group">
@@ -83,6 +89,10 @@
                 <option value="48000" selected>48 kHz</option>
                 <option value="96000">96 kHz</option>
               </select>
+            </div>
+            <div class="form-group channel-template-group">
+              <label for="channel-template-select">Stream Channel Template</label>
+              <select id="channel-template-select"></select>
             </div>
           </div>
           <div class="channel-panel">
@@ -119,7 +129,18 @@
               <select id="monitor-mode">
                 <option value="stereo-pair">Stereo Pair</option>
                 <option value="downmix">Stereo Downmix</option>
-                <option value="binaural">Binaural HRTF</option>
+                <option value="binaural">KU100 Near-field HRTF</option>
+              </select>
+            </div>
+            <div class="form-group" id="monitor-buffer-group">
+              <label for="monitor-latency">Monitor Buffer</label>
+              <select id="monitor-latency">
+                <option value="20">20 ms</option>
+                <option value="30">30 ms</option>
+                <option value="50">50 ms</option>
+                <option value="80" selected>80 ms</option>
+                <option value="120">120 ms</option>
+                <option value="200">200 ms</option>
               </select>
             </div>
             <div class="form-group" id="monitor-pair-group">
@@ -128,15 +149,19 @@
                 <option value="0">CH1 / CH2</option>
               </select>
             </div>
-            <div class="form-group">
-              <label for="monitor-latency">Monitor Buffer</label>
-              <select id="monitor-latency">
-                <option value="50">50 ms</option>
-                <option value="80" selected>80 ms</option>
-                <option value="120">120 ms</option>
-                <option value="200">200 ms</option>
-              </select>
+            <div class="form-group monitor-volume-group">
+              <label for="monitor-volume"
+                >Monitor Volume <span id="monitor-volume-value">100%</span></label
+              >
+              <input type="range" id="monitor-volume" min="0" max="100" step="1" value="100" />
             </div>
+          </div>
+          <div class="meter-panel monitor-meter-panel">
+            <div class="channel-panel-header">
+              <span>Monitor Peak</span>
+              <span id="monitor-meter-state">IDLE</span>
+            </div>
+            <div id="monitor-peak-meter-list" class="peak-meter-list monitor-peak-meter-list"></div>
           </div>
           <button id="btn-refresh-monitor-devices" class="btn">Refresh Monitor Devices</button>
         </section>
@@ -146,7 +171,7 @@
           <div class="form-grid">
             <div class="form-group">
               <label for="icecast-host">Host</label>
-              <input type="text" id="icecast-host" value="localhost" />
+              <input type="text" id="icecast-host" value="" />
             </div>
             <div class="form-group">
               <label for="icecast-port">Port</label>
@@ -154,11 +179,11 @@
             </div>
             <div class="form-group">
               <label for="mount-point">Mount Point</label>
-              <input type="text" id="mount-point" value="/surround.opus" />
+              <input type="text" id="mount-point" value="/stream" />
             </div>
             <div class="form-group">
               <label for="source-password">Password</label>
-              <input type="password" id="source-password" value="hackme" />
+              <input type="password" id="source-password" value="" />
             </div>
           </div>
         </section>

@@ -160,6 +160,11 @@ static NSString *processName(pid_t pid, NSString *fallbackBundleID) {
   return [NSString stringWithFormat:@"PID %d", pid];
 }
 
+static BOOL isRegularApplication(pid_t pid) {
+  NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
+  return app && app.activationPolicy == NSApplicationActivationPolicyRegular;
+}
+
 static AudioObjectID translatePIDToProcessObject(pid_t pid, NSError **error) {
   AudioObjectPropertyAddress address = addressFor(kAudioHardwarePropertyTranslatePIDToProcessObject);
   AudioObjectID processObjectID = kAudioObjectUnknown;
@@ -206,6 +211,7 @@ static NSArray<NSDictionary *> *listProcesses(NSError **error) {
       @"pid": @(pid),
       @"bundleID": bundleID,
       @"name": processName(pid, bundleID),
+      @"isRegularApp": @(isRegularApplication(pid)),
       @"isRunningOutput": @(runningOutput != 0)
     }];
   }
@@ -222,7 +228,7 @@ static NSArray<NSDictionary *> *listProcesses(NSError **error) {
   return processes;
 }
 
-static NSArray<NSDictionary *> *listOutputStreams(NSError **error) {
+static NSArray<NSDictionary *> *listDeviceStreams(AudioObjectPropertyScope scope, NSError **error) {
   AudioObjectPropertyAddress devicesAddress = addressFor(kAudioHardwarePropertyDevices);
   UInt32 devicesDataSize = 0;
   if (!checkStatus(AudioObjectGetPropertyDataSize(kAudioObjectSystemObject, &devicesAddress, 0, NULL, &devicesDataSize),
@@ -258,7 +264,7 @@ static NSArray<NSDictionary *> *listOutputStreams(NSError **error) {
       continue;
     }
 
-    AudioObjectPropertyAddress streamsAddress = addressForScope(kAudioDevicePropertyStreams, kAudioDevicePropertyScopeOutput);
+    AudioObjectPropertyAddress streamsAddress = addressForScope(kAudioDevicePropertyStreams, scope);
     UInt32 streamsDataSize = 0;
     if (AudioObjectGetPropertyDataSize(deviceID, &streamsAddress, 0, NULL, &streamsDataSize) != noErr || streamsDataSize == 0) {
       continue;
@@ -301,6 +307,109 @@ static NSArray<NSDictionary *> *listOutputStreams(NSError **error) {
 
   free(deviceIDs);
   return devices;
+}
+
+static NSArray<NSDictionary *> *listOutputStreams(NSError **error) {
+  return listDeviceStreams(kAudioDevicePropertyScopeOutput, error);
+}
+
+static NSArray<NSDictionary *> *listInputStreams(NSError **error) {
+  return listDeviceStreams(kAudioDevicePropertyScopeInput, error);
+}
+
+static AudioObjectID findDeviceByUID(NSString *deviceUID, NSError **error) {
+  if (deviceUID.length == 0) {
+    if (error) {
+      *error = [NSError errorWithDomain:@"AudioTapHelper"
+                                   code:-7
+                               userInfo:@{NSLocalizedDescriptionKey: @"Input device UID was empty"}];
+    }
+    return kAudioObjectUnknown;
+  }
+
+  AudioObjectPropertyAddress devicesAddress = addressFor(kAudioHardwarePropertyDevices);
+  UInt32 devicesDataSize = 0;
+  if (!checkStatus(AudioObjectGetPropertyDataSize(kAudioObjectSystemObject, &devicesAddress, 0, NULL, &devicesDataSize),
+                   @"Failed to get audio device list size",
+                   error)) {
+    return kAudioObjectUnknown;
+  }
+
+  UInt32 deviceCount = devicesDataSize / sizeof(AudioObjectID);
+  AudioObjectID *deviceIDs = calloc(deviceCount, sizeof(AudioObjectID));
+  if (!deviceIDs) {
+    if (error) {
+      *error = [NSError errorWithDomain:@"AudioTapHelper"
+                                   code:-6
+                               userInfo:@{NSLocalizedDescriptionKey: @"Failed to allocate audio device list"}];
+    }
+    return kAudioObjectUnknown;
+  }
+
+  AudioObjectID result = kAudioObjectUnknown;
+  if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &devicesAddress, 0, NULL, &devicesDataSize, deviceIDs) == noErr) {
+    for (UInt32 index = 0; index < deviceCount; index++) {
+      NSString *candidateUID = getStringProperty(deviceIDs[index], kAudioDevicePropertyDeviceUID);
+      if ([candidateUID isEqualToString:deviceUID]) {
+        result = deviceIDs[index];
+        break;
+      }
+    }
+  }
+
+  free(deviceIDs);
+  if (result == kAudioObjectUnknown && error) {
+    *error = [NSError errorWithDomain:@"AudioTapHelper"
+                                 code:-8
+                             userInfo:@{NSLocalizedDescriptionKey: @"Input device was not found by UID"}];
+  }
+  return result;
+}
+
+static BOOL getDeviceStreamFormat(AudioObjectID deviceID, AudioObjectPropertyScope scope, NSInteger streamIndex, AudioStreamBasicDescription *format, NSError **error) {
+  AudioObjectPropertyAddress streamsAddress = addressForScope(kAudioDevicePropertyStreams, scope);
+  UInt32 streamsDataSize = 0;
+  if (!checkStatus(AudioObjectGetPropertyDataSize(deviceID, &streamsAddress, 0, NULL, &streamsDataSize),
+                   @"Failed to get input stream list size",
+                   error)) {
+    return NO;
+  }
+
+  UInt32 streamCount = streamsDataSize / sizeof(AudioObjectID);
+  if (streamCount == 0) {
+    if (error) {
+      *error = [NSError errorWithDomain:@"AudioTapHelper"
+                                   code:-9
+                               userInfo:@{NSLocalizedDescriptionKey: @"Input device has no input streams"}];
+    }
+    return NO;
+  }
+
+  AudioObjectID *streamIDs = calloc(streamCount, sizeof(AudioObjectID));
+  if (!streamIDs) {
+    if (error) {
+      *error = [NSError errorWithDomain:@"AudioTapHelper"
+                                   code:-6
+                               userInfo:@{NSLocalizedDescriptionKey: @"Failed to allocate input stream list"}];
+    }
+    return NO;
+  }
+
+  BOOL success = NO;
+  if (checkStatus(AudioObjectGetPropertyData(deviceID, &streamsAddress, 0, NULL, &streamsDataSize, streamIDs),
+                  @"Failed to get input stream list",
+                  error)) {
+    NSInteger selectedIndex = streamIndex >= 0 && streamIndex < (NSInteger)streamCount ? streamIndex : 0;
+    success = getStreamFormat(streamIDs[selectedIndex], format);
+    if (!success && error) {
+      *error = [NSError errorWithDomain:@"AudioTapHelper"
+                                   code:-10
+                               userInfo:@{NSLocalizedDescriptionKey: @"Failed to get input stream format"}];
+    }
+  }
+
+  free(streamIDs);
+  return success;
 }
 
 static BOOL getTapUID(AudioObjectID tapID, NSString **tapUID, NSError **error) {
@@ -585,6 +694,78 @@ static BOOL streamPCM(pid_t pid, NSString *deviceUID, NSInteger streamIndex, NSE
   return NO;
 }
 
+static BOOL streamInputDevicePCM(NSString *deviceUID, NSInteger streamIndex, NSError **error) {
+  AudioObjectID deviceID = findDeviceByUID(deviceUID, error);
+  if (deviceID == kAudioObjectUnknown) {
+    return NO;
+  }
+
+  AudioStreamBasicDescription format = {0};
+  AudioDeviceIOProcID ioProcID = NULL;
+  StreamContext context = {0};
+  BOOL success = NO;
+
+  if (!getDeviceStreamFormat(deviceID, kAudioDevicePropertyScopeInput, streamIndex, &format, error)) {
+    goto cleanup;
+  }
+
+  if (format.mFormatID != kAudioFormatLinearPCM ||
+      !(format.mFormatFlags & kAudioFormatFlagIsFloat) ||
+      format.mBitsPerChannel != 32) {
+    if (error) {
+      *error = [NSError errorWithDomain:@"AudioTapHelper"
+                                   code:-11
+                               userInfo:@{NSLocalizedDescriptionKey: @"Input device virtual format is not 32-bit float PCM"}];
+    }
+    goto cleanup;
+  }
+
+  context.format = format;
+  context.scratchBufferSize = 1024 * 1024;
+  context.scratchBuffer = calloc(context.scratchBufferSize, 1);
+  if (!context.scratchBuffer) {
+    if (error) {
+      *error = [NSError errorWithDomain:@"AudioTapHelper"
+                                   code:-4
+                               userInfo:@{NSLocalizedDescriptionKey: @"Failed to allocate PCM scratch buffer"}];
+    }
+    goto cleanup;
+  }
+
+  if (!checkStatus(AudioDeviceCreateIOProcID(deviceID, captureIOProc, &context, &ioProcID),
+                   @"Failed to create input device IO proc",
+                   error)) {
+    goto cleanup;
+  }
+
+  fprintf(stderr,
+          "{\"event\":\"format\",\"sampleRate\":%.0f,\"channels\":%u,\"bitsPerChannel\":%u,\"mode\":\"input-device\"}\n",
+          format.mSampleRate,
+          format.mChannelsPerFrame,
+          format.mBitsPerChannel);
+  fflush(stderr);
+
+  if (!checkStatus(AudioDeviceStart(deviceID, ioProcID),
+                   @"Failed to start input device IO",
+                   error)) {
+    goto cleanup;
+  }
+
+  while (!shouldStopStreaming) {
+    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
+  }
+
+  success = YES;
+
+cleanup:
+  if (ioProcID) {
+    AudioDeviceStop(deviceID, ioProcID);
+    AudioDeviceDestroyIOProcID(deviceID, ioProcID);
+  }
+  free(context.scratchBuffer);
+  return success;
+}
+
 static void printJSON(id object) {
   NSData *data = [NSJSONSerialization dataWithJSONObject:object options:NSJSONWritingPrettyPrinted | NSJSONWritingSortedKeys error:nil];
   if (data) {
@@ -614,9 +795,11 @@ static void printHelp(void) {
   puts("");
   puts("Commands:");
   puts("  --list-processes");
+  puts("  --list-input-streams");
   puts("  --list-output-streams");
   puts("  --create-tap --pid <pid> [--duration <seconds>] [--device-uid <uid> --stream-index <index>]");
   puts("  --stream-pcm --pid <pid> [--device-uid <uid> --stream-index <index>]");
+  puts("  --stream-input-device --device-uid <uid> [--stream-index <index>]");
 }
 
 int main(int argc, const char *argv[]) {
@@ -641,6 +824,16 @@ int main(int argc, const char *argv[]) {
       NSArray<NSDictionary *> *devices = listOutputStreams(&error);
       if (!devices) {
         printJSON(@{@"error": error.localizedDescription ?: @"Failed to list output streams"});
+        return 1;
+      }
+      printJSON(@{@"devices": devices});
+      return 0;
+    }
+
+    if ([arguments containsObject:@"--list-input-streams"]) {
+      NSArray<NSDictionary *> *devices = listInputStreams(&error);
+      if (!devices) {
+        printJSON(@{@"error": error.localizedDescription ?: @"Failed to list input streams"});
         return 1;
       }
       printJSON(@{@"devices": devices});
@@ -677,6 +870,22 @@ int main(int argc, const char *argv[]) {
       setvbuf(stdout, NULL, _IONBF, 0);
       if (!streamPCM((pid_t)pidString.intValue, deviceUID, streamIndex, &error)) {
         fprintf(stderr, "{\"event\":\"error\",\"message\":\"%s\"}\n", (error.localizedDescription ?: @"Failed to stream PCM").UTF8String);
+        return 1;
+      }
+      return 0;
+    }
+
+    if ([arguments containsObject:@"--stream-input-device"]) {
+      NSString *deviceUID = argumentValue(arguments, @"--device-uid");
+      if (!deviceUID) {
+        printJSON(@{@"error": @"--stream-input-device requires --device-uid <uid>"});
+        return 1;
+      }
+
+      NSInteger streamIndex = argumentIntegerValue(arguments, @"--stream-index", -1);
+      setvbuf(stdout, NULL, _IONBF, 0);
+      if (!streamInputDevicePCM(deviceUID, streamIndex, &error)) {
+        fprintf(stderr, "{\"event\":\"error\",\"message\":\"%s\"}\n", (error.localizedDescription ?: @"Failed to stream input device PCM").UTF8String);
         return 1;
       }
       return 0;

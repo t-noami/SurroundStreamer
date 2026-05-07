@@ -5,6 +5,92 @@ FFmpegをバックエンドに持ち、Electronで操作UIを提供する構成�
 
 ---
 
+## 2026-05-07 現状スナップショット
+
+この章は旧future development memoの内容と、直近の実装変更を統合した現在基準の計画である。
+後続の古い章は設計履歴として残す。
+
+### 正規版昇格メモ
+
+2026-05-07時点のbeta実装を正規版 `SurroundStreamer.app` としてビルドする方針にした。
+標準版はApp Audio / Input Device / Fileを入力ソースとして持ち、Ogg Opusの実用範囲をMonoから7.1までに制限する。
+7.1.2 / 7.1.4などの実験的な多チャンネル構成は研究版扱いとし、標準UIの主導線から外す。
+
+主な正規版仕様:
+
+- 入力ソース順は `App Audio`, `Input Device`, `File`。
+- デフォルト設定は48 kHz、128 kbps stereo-equivalent、マルチチャンネルソースでは5.1テンプレートを優先する。
+- App AudioはCore Audio Process Tapでアプリ出力を取得し、Output Stream選択は `App Output Capture Source` として表示する。
+- Input DeviceはCore Audio helperでFloat32 PCMを取得し、FFmpegへpipe入力する。Monitor OutputはInput Device選択中は無効化する。
+- File入力は配信前preview monitorに対応し、WebAudio側の初期チャンネル数/サンプルレートをFFmpeg出力に合わせる。
+- Monitor OutputのバイノーラルはKU100 Near-field HRIR 1.0mを使うConvolverNode処理へ変更した。
+- アプリ終了時はFFmpeg、App Audio helper、Input Device helper、preview monitorを明示的に停止する。
+- 第三者データの帰属表示は `README.md` の Third-Party Notices に統合する。
+
+### 実装済みの主な変更
+
+- App Audio入力は `Preserve Surround` 前提に整理し、旧 `Stereo Mixdown` モードと `Tap Test` 操作はUI上の主導線から外した。
+- App Audioの対象アプリとOutput Device Streamは、再スキャン後も直前に選択したものが存在する場合は維持する。
+- App AudioタブからFile/Deviceへ移動した場合、プレビュー用Process TapとWeb Audio Monitorを強制停止し、別タブに戻ったときに古いアプリ音が残らないようにした。
+- File入力でも、配信開始前に選択ファイルをFFmpegで再生してMonitor Outputへ送れるようにした。
+- Device入力のMonitor Outputは実機で鳴らない問題が残っているため、現状はDeviceタブ選択中にMonitor Outputをグレーアウトして無効化する。
+- Monitor Outputには2chピークメーター、ボリュームフェーダー、20ms以上のバッファー選択を追加した。
+- Monitor VolumeはStereo Pair / Binaural HRTFなどのモニターモード処理後にかかるマスターゲインとして扱う。
+- ピークメーターの色は `-6 dB` 超で黄色、`-1 dB` 超で赤に切り替える。配信用メーターとモニター用メーターで同じ基準を使う。
+- Binaural HRTFはStream Channel Templateのチャンネルラベルを参照し、標準版ではKU100 Near-field HRIR 1.0mを使って5.1 / 7.1のスピーカー配置を処理する。
+- Binaural HRTFではLFEを定位対象から外し、バイノーラル全体ゲインを下げてクリップしにくくした。リミッターは入れない。
+- 標準版のStream Channel Templateは `Mono`, `Stereo`, `Stereo + C`, `5.1`, `7.1` を持つ。
+- 標準版のFileタブ最大チャンネル構成は `7.1`、つまり8chまで選択可能とする。
+- 5.1.2 / 7.1.2 / 7.1.4を含む現行betaは研究版として `dist/research/mac-arm64/SurroundStreamer-research-0.1.0-current-beta.app` に退避した。
+- Sample RateはOpus出力で扱える値へ自動整合し、44.1 kHz / 96 kHzソースは48 kHzへ寄せる。
+- Bitrate表示はチャンネル数に応じた実ビットレートではなく、比較しやすいステレオ換算値を主表示にする。
+- Betaアプリは現行版と分け、`SurroundStreamer-beta-0.1.0.app` として別appIdで作成する。
+
+### 現在の未解決事項
+
+- Device入力のMonitor Outputは正規版では無効化する。配信経路はCore Audio helper PCM captureへ切り替え済み。
+- App Audio Preserve Surroundのチャンネル順は、実際のCore Audio出力デバイス/streamと再生アプリの出力に依存するため、実機でのサラウンド順序確認が必要。
+- 8ch超、特に7.1.4chの配信互換性は研究版でのみ継続検証する。
+- Fileプレビューは配信前確認用であり、配信中のファイル差し替えや再生位置操作は未実装。
+- Icecast 403は接続先/認証/マウントのサーバー設定に依存する。アプリ側はパスワードのURLエンコードとFFmpeg stderr詳細表示を実装済み。
+
+## 統合ロードマップ
+
+### 優先タスク
+
+- [x] Monitor Outputの基本ルーティングを見直し、配信中でもMonitor Output設定を変えられる構成にする。
+- [x] Monitor Outputのレイテンシ選択を20msまで下げる。
+- [x] Monitor Outputに2chピークメーターとボリュームフェーダーを追加する。
+- [x] App AudioからFile/App Audioへ切り替えたとき、古いプレビュー音が残らないようにする。
+- [x] File入力でもMonitor Outputで選択ファイルを再生できるようにする。
+- [x] 配信開始後は設定系UIをロックし、Monitor Outputのみ変更可能にする。
+- [x] Device入力のMonitor Outputを正規版ではグレーアウトして無効化する。
+- [x] Icecast URLのsource passwordをURLエンコードし、FFmpeg stderr詳細をログに出す。
+- [x] Fileプレビューのチャンネル数/サンプルレート初期化を修正する。
+- [ ] 7.1.4chソースの入力検出、内部ルーティング、FFmpegマッピング、配信互換性を研究版で検証する。
+
+### 余力があれば実装
+
+- [ ] ステレオソース向けコンボリューションリバーブ機能を追加する。
+  プリセット候補はアリーナ、ホール、ライブハウス、クラブ、ホームシアター。
+- [ ] mp3ステレオ配信を、互換性重視の過渡期対応として入れるか検討する。
+
+### フォーマット調査メモ
+
+- Ogg Vorbisはマルチチャンネル配信自体は可能。
+- Vorbis仕様で標準的にチャンネル位置が定義されているのは8ch、つまり7.1chまで。
+- 7.1.4chは12chになるため、Vorbisではアプリケーション定義扱いになり、一般的なプレイヤー互換性は期待しにくい。
+- 5.1ch / 7.1chまでならVorbis配信は技術検証候補に入れてよい。
+- 7.1.4chの本命配信方式は、既存のOpus系ルートを優先して検証する。
+
+参考:
+
+- Vorbis I specification: https://www.xiph.org/vorbis/doc/Vorbis_I_spec.html
+- Vorbis channel coupling discussion: https://xiph.org/vorbis/doc/stereo.html
+- Ogg Vorbis documentation: https://xiph.org/vorbis/doc/
+
+---
+
 ## User Review Required
 
 > [!IMPORTANT]

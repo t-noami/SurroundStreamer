@@ -1,10 +1,99 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, Menu, session, systemPreferences } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { setupIpcHandlers } from './ipc-handlers'
+import ffmpegManager from './ffmpeg-manager'
 
 let mainWindow = null
+let shutdownInProgress = false
+let shutdownComplete = false
+
+function setupApplicationMenu() {
+  if (process.platform !== 'darwin') {
+    Menu.setApplicationMenu(null)
+    return
+  }
+
+  const appName = app.getName()
+  const template = [
+    {
+      label: appName,
+      submenu: [
+        { role: 'about', label: `${appName}について` },
+        { type: 'separator' },
+        { role: 'hide', label: `${appName}を隠す` },
+        { role: 'hideOthers', label: 'ほかを隠す' },
+        { role: 'unhide', label: 'すべてを表示' },
+        { type: 'separator' },
+        { role: 'quit', label: `${appName}を終了` }
+      ]
+    },
+    {
+      label: '編集',
+      submenu: [
+        { role: 'undo', label: '取り消す' },
+        { role: 'redo', label: 'やり直す' },
+        { type: 'separator' },
+        { role: 'cut', label: 'カット' },
+        { role: 'copy', label: 'コピー' },
+        { role: 'paste', label: 'ペースト' },
+        { role: 'selectAll', label: 'すべてを選択' }
+      ]
+    },
+    {
+      label: 'ウインドウ',
+      submenu: [
+        { role: 'minimize', label: 'しまう' },
+        { role: 'close', label: '閉じる' }
+      ]
+    }
+  ]
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
+
+function setupMediaPermissions() {
+  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    callback(permission === 'media' || permission === 'audioCapture')
+  })
+
+  session.defaultSession.setPermissionCheckHandler((_webContents, permission) => {
+    return permission === 'media' || permission === 'audioCapture'
+  })
+
+  ipcMain.handle('media:ensure-microphone-access', async () => {
+    if (process.platform !== 'darwin') {
+      return { granted: true }
+    }
+
+    const status = systemPreferences.getMediaAccessStatus('microphone')
+    if (status === 'granted') {
+      return { granted: true, status }
+    }
+
+    if (status === 'denied' || status === 'restricted') {
+      return { granted: false, status }
+    }
+
+    const granted = await systemPreferences.askForMediaAccess('microphone')
+    return {
+      granted,
+      status: systemPreferences.getMediaAccessStatus('microphone')
+    }
+  })
+
+  ipcMain.handle('media:open-microphone-settings', async () => {
+    if (process.platform !== 'darwin') {
+      return { success: false }
+    }
+
+    await shell.openExternal(
+      'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone'
+    )
+    return { success: true }
+  })
+}
 
 function createWindow() {
   // Create the browser window.
@@ -59,7 +148,9 @@ app.whenReady().then(() => {
   // IPC test
   ipcMain.on('ping', () => console.log('pong'))
 
+  setupMediaPermissions()
   setupIpcHandlers()
+  setupApplicationMenu()
 
   createWindow()
 
@@ -70,13 +161,36 @@ app.whenReady().then(() => {
   })
 })
 
-// Quit when all windows are closed, except on macOS. There, it's common
-// for applications and their menu bar to stay active until the user quits
-// explicitly with Cmd + Q.
+// This app owns capture/streaming child processes, so closing the window should
+// mean the whole app is ending.
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit()
+  app.quit()
+})
+
+app.on('before-quit', (event) => {
+  if (shutdownComplete) {
+    return
   }
+
+  event.preventDefault()
+  if (shutdownInProgress) {
+    return
+  }
+
+  shutdownInProgress = true
+  ffmpegManager
+    .shutdown()
+    .catch((error) => {
+      console.error('Failed to stop streaming processes during app quit:', error)
+    })
+    .finally(() => {
+      shutdownComplete = true
+      app.quit()
+    })
+})
+
+process.on('exit', () => {
+  void ffmpegManager.shutdown()
 })
 
 // In this file you can include the rest of your app's specific main process

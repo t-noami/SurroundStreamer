@@ -2,7 +2,7 @@ class PcmMonitorSourceProcessor extends AudioWorkletProcessor {
   constructor(options) {
     super()
     this.channels = Math.max(1, Number(options.processorOptions?.channels || 2))
-    this.latencyMs = clampNumber(options.processorOptions?.latencyMs, 30, 500, 80)
+    this.latencyMs = clampNumber(options.processorOptions?.latencyMs, 20, 500, 80)
     this.queue = []
     this.bufferedFrames = 0
     this.updateBufferLimits()
@@ -11,7 +11,7 @@ class PcmMonitorSourceProcessor extends AudioWorkletProcessor {
       const { type, chunk, channels, latencyMs } = event.data || {}
       if (type === 'format') {
         this.channels = Math.max(1, Number(channels || this.channels))
-        this.latencyMs = clampNumber(latencyMs, 30, 500, this.latencyMs)
+        this.latencyMs = clampNumber(latencyMs, 20, 500, this.latencyMs)
         this.updateBufferLimits()
         this.queue = []
         this.bufferedFrames = 0
@@ -20,7 +20,13 @@ class PcmMonitorSourceProcessor extends AudioWorkletProcessor {
 
       if (type !== 'chunk' || !chunk) return
 
-      const samples = new Float32Array(chunk)
+      const sampleBytes = Math.floor(chunk.byteLength / 4) * 4
+      if (sampleBytes <= 0) return
+
+      const samples =
+        sampleBytes === chunk.byteLength
+          ? new Float32Array(chunk)
+          : new Float32Array(chunk.slice(0, sampleBytes))
       const frames = Math.floor(samples.length / this.channels)
       if (frames <= 0) return
 

@@ -18,34 +18,119 @@ const btnBrowse = document.getElementById('btn-browse')
 const filePathInput = document.getElementById('file-path')
 const loopFileInput = document.getElementById('loop-file')
 const appAudioList = document.getElementById('app-audio-list')
-const appAudioMode = document.getElementById('app-audio-mode')
 const appAudioOutputStream = document.getElementById('app-audio-output-stream')
 const btnRefreshAppAudio = document.getElementById('btn-refresh-app-audio')
-const btnTestAppAudio = document.getElementById('btn-test-app-audio')
+
+const inputSourceFields = [
+  tabFile,
+  tabDevice,
+  tabAppAudio,
+  btnBrowse,
+  filePathInput,
+  loopFileInput,
+  deviceList,
+  btnRefreshDevices,
+  appAudioList,
+  appAudioOutputStream,
+  btnRefreshAppAudio
+]
 
 const bitrateSelect = document.getElementById('bitrate-select')
+const bitrateActualValue = document.getElementById('bitrate-actual-value')
 const sampleRateSelect = document.getElementById('sample-rate-select')
+const channelTemplateSelect = document.getElementById('channel-template-select')
 const channelSelector = document.getElementById('channel-selector')
 const btnSelectDefaultChannels = document.getElementById('btn-select-default-channels')
 const peakMeterList = document.getElementById('peak-meter-list')
 const meterState = document.getElementById('meter-state')
+const monitorPeakMeterList = document.getElementById('monitor-peak-meter-list')
+const monitorMeterState = document.getElementById('monitor-meter-state')
 const monitorEnabled = document.getElementById('monitor-enabled')
 const monitorDeviceList = document.getElementById('monitor-device-list')
 const monitorMode = document.getElementById('monitor-mode')
 const monitorPairGroup = document.getElementById('monitor-pair-group')
 const monitorSourcePair = document.getElementById('monitor-source-pair')
 const monitorLatency = document.getElementById('monitor-latency')
+const monitorVolume = document.getElementById('monitor-volume')
+const monitorVolumeValue = document.getElementById('monitor-volume-value')
 const btnRefreshMonitorDevices = document.getElementById('btn-refresh-monitor-devices')
+const icecastHostInput = document.getElementById('icecast-host')
+const icecastPortInput = document.getElementById('icecast-port')
+const mountPointInput = document.getElementById('mount-point')
+const sourcePasswordInput = document.getElementById('source-password')
+const icecastSettingsFields = [
+  icecastHostInput,
+  icecastPortInput,
+  mountPointInput,
+  sourcePasswordInput
+]
+const encodingSettingsFields = [
+  bitrateSelect,
+  sampleRateSelect,
+  channelTemplateSelect,
+  btnSelectDefaultChannels
+]
 
-const channelNames = ['FL', 'FR', 'FC', 'LFE', 'SL', 'SR', 'BL', 'BR']
+const channelNames = ['L', 'R', 'C', 'LFE', 'LS', 'RS', 'LSR', 'RSR']
+const FILE_MAX_CHANNELS = 8
+const ICECAST_SETTINGS_STORAGE_KEY = 'surroundStreamer.icecastSettings.v1'
+const defaultIcecastSettings = {
+  host: '',
+  port: '8000',
+  mountPoint: '/stream',
+  sourcePassword: ''
+}
+const channelTemplates = [
+  {
+    id: 'mono',
+    label: 'Mono',
+    channels: ['FC'],
+    displayLabels: ['C'],
+    layout: 'mono'
+  },
+  {
+    id: 'stereo',
+    label: 'Stereo',
+    channels: ['FL', 'FR'],
+    displayLabels: ['L', 'R'],
+    layout: 'stereo'
+  },
+  {
+    id: 'stereo-c',
+    label: 'Stereo + C',
+    channels: ['FL', 'FR', 'FC'],
+    displayLabels: ['L', 'R', 'C'],
+    layout: '3.0'
+  },
+  {
+    id: '5.1',
+    label: '5.1',
+    channels: ['FL', 'FR', 'FC', 'LFE', 'SL', 'SR'],
+    displayLabels: ['L', 'R', 'C', 'LFE', 'LS', 'RS'],
+    layout: '5.1'
+  },
+  {
+    id: '7.1',
+    label: '7.1',
+    channels: ['FL', 'FR', 'FC', 'LFE', 'BL', 'BR', 'SL', 'SR'],
+    displayLabels: ['L', 'R', 'C', 'LFE', 'LS', 'RS', 'LSR', 'RSR'],
+    layout: '7.1'
+  }
+]
 
 let startTime = null
 let timerInterval = null
-let currentInputType = 'file'
+let currentInputType = 'app-audio'
 let activeMeterChannels = 6
+let activeMonitorMeterChannels = 2
+let inputDevices = []
+let fileInputInfo = null
 let isStreaming = false
 let currentMonitorFormat = null
 let monitorSettingsPromise = Promise.resolve()
+let previewMonitorKey = ''
+let pendingPreviewStart = false
+let lastMonitorPeakUpdateAt = 0
 const webAudioMonitor = new WebAudioMonitor(addLog)
 
 function addLog(message, type = 'system') {
@@ -78,6 +163,9 @@ function setStreamingState(nextIsStreaming) {
   btnStart.classList.toggle('hidden', nextIsStreaming)
   btnStop.classList.toggle('hidden', !nextIsStreaming)
   meterState.textContent = nextIsStreaming ? 'LIVE' : 'IDLE'
+  setInputSourceLocked(nextIsStreaming)
+  setIcecastSettingsLocked(nextIsStreaming)
+  setEncodingSettingsLocked(nextIsStreaming)
 
   if (nextIsStreaming && !startTime) {
     startTime = Date.now()
@@ -93,8 +181,91 @@ function setStreamingState(nextIsStreaming) {
   }
 }
 
+function setInputSourceLocked(isLocked) {
+  inputSourceFields.forEach((field) => {
+    if (field) field.disabled = isLocked
+  })
+  document.querySelector('.input-panel')?.classList.toggle('disabled-panel', isLocked)
+}
+
+function setIcecastSettingsLocked(isLocked) {
+  icecastSettingsFields.forEach((field) => {
+    if (field) field.disabled = isLocked
+  })
+  document.querySelector('.config-panel')?.classList.toggle('disabled-panel', isLocked)
+}
+
+function setEncodingSettingsLocked(isLocked) {
+  encodingSettingsFields.forEach((field) => {
+    if (field) field.disabled = isLocked
+  })
+  channelSelector.querySelectorAll('input').forEach((input) => {
+    input.disabled = isLocked
+  })
+  document.querySelector('.encode-panel')?.classList.toggle('disabled-panel', isLocked)
+}
+
+function normalizeMountPoint(mountPoint) {
+  const value = String(mountPoint || '').trim()
+  if (!value) return defaultIcecastSettings.mountPoint
+  return value.startsWith('/') ? value : `/${value}`
+}
+
+function currentIcecastSettings() {
+  return {
+    host: icecastHostInput.value.trim(),
+    port: String(icecastPortInput.value || '').trim(),
+    mountPoint: normalizeMountPoint(mountPointInput.value),
+    sourcePassword: sourcePasswordInput.value
+  }
+}
+
+function applyIcecastSettings(settings) {
+  const merged = {
+    ...defaultIcecastSettings,
+    ...(settings || {})
+  }
+
+  icecastHostInput.value = merged.host || defaultIcecastSettings.host
+  icecastPortInput.value = merged.port || defaultIcecastSettings.port
+  mountPointInput.value = normalizeMountPoint(merged.mountPoint)
+  sourcePasswordInput.value =
+    merged.sourcePassword === undefined
+      ? defaultIcecastSettings.sourcePassword
+      : merged.sourcePassword
+}
+
+function loadIcecastSettings() {
+  try {
+    const raw = localStorage.getItem(ICECAST_SETTINGS_STORAGE_KEY)
+    if (!raw) {
+      applyIcecastSettings(defaultIcecastSettings)
+      return
+    }
+    applyIcecastSettings(JSON.parse(raw))
+  } catch {
+    applyIcecastSettings(defaultIcecastSettings)
+  }
+}
+
+function saveIcecastSettings() {
+  const settings = currentIcecastSettings()
+  mountPointInput.value = settings.mountPoint
+  try {
+    localStorage.setItem(ICECAST_SETTINGS_STORAGE_KEY, JSON.stringify(settings))
+  } catch (err) {
+    addLog(`Could not save Icecast settings: ${err.message}`, 'error')
+  }
+}
+
 function showInputSection(inputType) {
+  const previousInputType = currentInputType
   currentInputType = inputType
+
+  if (previousInputType !== inputType && !isStreaming) {
+    void forceStopPreviewMonitor()
+  }
+
   tabFile.classList.toggle('active', inputType === 'file')
   tabDevice.classList.toggle('active', inputType === 'device')
   tabAppAudio.classList.toggle('active', inputType === 'app-audio')
@@ -102,12 +273,18 @@ function showInputSection(inputType) {
   deviceInputSection.classList.toggle('hidden', inputType !== 'device')
   appAudioInputSection.classList.toggle('hidden', inputType !== 'app-audio')
   updateChannelControls()
+  updateMonitorAvailability()
+  if (!(inputType === 'app-audio' && previousInputType !== inputType)) {
+    applyMonitorSettings('input')
+  }
 }
 
 async function refreshDevices() {
+  await ensureMicrophoneAccess('device scan')
   addLog('Scanning audio devices...', 'system')
   try {
     const devices = await window.api.listDevices()
+    inputDevices = devices
     deviceList.innerHTML = ''
     if (devices.length === 0) {
       deviceList.innerHTML = '<option value="">No audio devices found</option>'
@@ -115,14 +292,54 @@ async function refreshDevices() {
       devices.forEach((dev) => {
         const opt = document.createElement('option')
         opt.value = dev.index
-        opt.textContent = `[${dev.index}] ${dev.name}`
+        opt.textContent = formatDeviceOption(dev)
         deviceList.appendChild(opt)
       })
     }
     addLog(`Found ${devices.length} devices.`, 'system')
+    syncInputSettings(true)
   } catch (err) {
     addLog(`Error listing devices: ${err.message}`, 'error')
   }
+}
+
+async function ensureMicrophoneAccess(reason = 'device input') {
+  if (!window.api.ensureMicrophoneAccess) {
+    return true
+  }
+
+  const result = await window.api.ensureMicrophoneAccess()
+  if (result?.granted) {
+    return true
+  }
+
+  addLog(
+    `Microphone access is ${result?.status || 'unavailable'}; ${reason} cannot capture input audio.`,
+    'error'
+  )
+  if (result?.status === 'denied' || result?.status === 'restricted') {
+    await window.api.openMicrophoneSettings?.()
+    addLog('Opened macOS Microphone privacy settings for SurroundStreamer-beta-0.1.0.', 'system')
+  }
+  return false
+}
+
+function formatDeviceOption(device) {
+  const details = []
+  if (device.channels) details.push(`${device.channels}ch`)
+  if (device.sampleRate) details.push(formatSampleRate(device.sampleRate))
+  if (device.isLikelyLoopback) details.push('loopback/virtual')
+  return details.length > 0
+    ? `[${device.index}] ${device.name} (${details.join(', ')})`
+    : `[${device.index}] ${device.name}`
+}
+
+function warnIfLoopbackInputDevice(device) {
+  if (!device?.isLikelyLoopback) return
+  addLog(
+    `Selected input device "${device.name}" looks like a loopback/virtual device, so it may include system output audio.`,
+    'error'
+  )
 }
 
 async function refreshMonitorDevices(requestOutputSelection = false) {
@@ -179,6 +396,7 @@ async function refreshMonitorDevices(requestOutputSelection = false) {
 async function refreshAppAudioProcesses() {
   addLog('Scanning app audio processes...', 'system')
   try {
+    const previousValue = appAudioList.value
     const result = await window.api.listAppAudioProcesses()
     const processes = result.processes || []
     appAudioList.innerHTML = ''
@@ -191,6 +409,9 @@ async function refreshAppAudioProcesses() {
         opt.textContent = `${process.isRunningOutput ? '* ' : ''}${process.name} [${process.pid}]`
         appAudioList.appendChild(opt)
       })
+      if (processes.some((process) => String(process.pid) === String(previousValue))) {
+        appAudioList.value = previousValue
+      }
     }
     addLog(`Found ${processes.length} app audio processes.`, 'system')
   } catch (err) {
@@ -199,8 +420,9 @@ async function refreshAppAudioProcesses() {
 }
 
 async function refreshAppAudioOutputStreams() {
-  addLog('Scanning output streams for surround capture...', 'system')
+  addLog('Scanning app output capture sources...', 'system')
   try {
+    const previousValue = appAudioOutputStream.value
     const result = await window.api.listAppAudioOutputStreams()
     const devices = result.devices || []
     appAudioOutputStream.innerHTML = ''
@@ -219,24 +441,29 @@ async function refreshAppAudioOutputStreams() {
           bitsPerChannel: stream.bitsPerChannel || 32
         }
         opt.value = JSON.stringify(payload)
-        opt.textContent = `${device.name} / stream ${stream.streamIndex}: ${payload.channels}ch @ ${payload.sampleRate}Hz`
+        opt.textContent = `${device.name} app output / Stream ${stream.streamIndex}: ${payload.channels}ch @ ${formatSampleRate(payload.sampleRate)}`
         appAudioOutputStream.appendChild(opt)
       })
     })
 
     if (streamCount === 0) {
-      appAudioOutputStream.innerHTML = '<option value="">No output streams found</option>'
+      appAudioOutputStream.innerHTML =
+        '<option value="">No app output capture sources found</option>'
+    } else if (
+      Array.from(appAudioOutputStream.options).some((option) => option.value === previousValue)
+    ) {
+      appAudioOutputStream.value = previousValue
     }
 
-    addLog(`Found ${streamCount} output streams.`, 'system')
-    updateChannelControls()
+    addLog(`Found ${streamCount} app output capture sources.`, 'system')
+    syncInputSettings(true)
   } catch (err) {
-    addLog(`Error listing output streams: ${err.message}`, 'error')
+    addLog(`Error listing app output capture sources: ${err.message}`, 'error')
   }
 }
 
 function selectedAppAudioStream() {
-  if (appAudioMode.value !== 'preserve' || !appAudioOutputStream.value) {
+  if (!appAudioOutputStream.value) {
     return null
   }
 
@@ -247,31 +474,249 @@ function selectedAppAudioStream() {
   }
 }
 
-function getAvailableChannelCount() {
-  if (currentInputType === 'app-audio') {
-    if (appAudioMode.value === 'preserve') {
-      return selectedAppAudioStream()?.channels || 2
-    }
-    return 2
-  }
+function selectedAppAudioMonitorConfig() {
+  const pid = appAudioList.value
+  const stream = selectedAppAudioStream()
 
-  return 8
+  return {
+    inputType: 'app-audio',
+    inputPath: pid,
+    appAudioPid: pid ? Number(pid) : undefined,
+    appAudioMode: 'preserve',
+    appAudioDeviceUID: stream?.deviceUID,
+    appAudioStreamIndex: stream?.streamIndex,
+    appAudioSampleRate: stream?.sampleRate,
+    appAudioChannels: stream?.channels || 2,
+    monitorMode: monitorMode.value,
+    monitorPairStart: Number(monitorSourcePair.value || 0),
+    monitorLatencyMs: Number(monitorLatency.value || 80),
+    monitorVolume: monitorVolumePercent()
+  }
+}
+
+function selectedFileMonitorConfig() {
+  const selectedChannels = selectedChannelIndexes()
+  const inputInfo = selectedInputInfo()
+  return {
+    inputType: 'file',
+    inputPath: filePathInput.value,
+    selectedChannels,
+    streamChannelLayout: selectedStreamLayout(),
+    sampleRate: inputInfo.sampleRate || Number(sampleRateSelect.value),
+    monitorMode: monitorMode.value,
+    monitorPairStart: Number(monitorSourcePair.value || 0),
+    monitorLatencyMs: Number(monitorLatency.value || 80),
+    monitorVolume: monitorVolumePercent(),
+    loopFile: loopFileInput.checked
+  }
+}
+
+function selectedInputDeviceMonitorConfig() {
+  const inputInfo = selectedInputInfo()
+  return {
+    inputType: 'device',
+    inputPath: selectedInputDevicePath(),
+    inputChannels: inputInfo.channels,
+    inputSampleRate: inputInfo.sampleRate,
+    inputDeviceUID: selectedInputDevice()?.deviceUID,
+    inputStreamIndex: selectedInputDevice()?.streamIndex,
+    sampleRate: inputInfo.sampleRate || Number(sampleRateSelect.value),
+    monitorMode: monitorMode.value,
+    monitorPairStart: Number(monitorSourcePair.value || 0),
+    monitorLatencyMs: Number(monitorLatency.value || 80),
+    monitorVolume: monitorVolumePercent()
+  }
+}
+
+function selectedPreviewMonitorConfig() {
+  if (currentInputType === 'file') {
+    return selectedFileMonitorConfig()
+  }
+  if (currentInputType === 'app-audio') {
+    return selectedAppAudioMonitorConfig()
+  }
+  if (currentInputType === 'device') {
+    return selectedInputDeviceMonitorConfig()
+  }
+  return null
+}
+
+function supportsPreviewMonitor() {
+  return currentInputType === 'file' || currentInputType === 'app-audio'
+}
+
+function isMonitorAvailable() {
+  return currentInputType !== 'device'
+}
+
+function updateMonitorAvailability() {
+  const available = isMonitorAvailable()
+  monitorEnabled.disabled = !available
+  monitorDeviceList.disabled = !available
+  monitorMode.disabled = !available
+  monitorSourcePair.disabled = !available
+  monitorLatency.disabled = !available
+  monitorVolume.disabled = !available
+  btnRefreshMonitorDevices.disabled = !available
+  document.querySelector('.monitor-panel')?.classList.toggle('disabled-panel', !available)
+
+  if (!available) {
+    monitorEnabled.checked = false
+    monitorMeterState.textContent = 'IDLE'
+    resetMonitorPeakMeters()
+  }
+}
+
+function getAvailableChannelCount() {
+  return selectedInputInfo().channels || 2
 }
 
 function defaultChannelCount() {
-  if (currentInputType === 'app-audio') {
-    return getAvailableChannelCount()
+  if (currentInputType === 'device') {
+    return Math.min(getAvailableChannelCount(), 2)
   }
-  return 6
+  return Math.min(getAvailableChannelCount(), 6)
 }
 
-function updateChannelControls(useDefaults = false) {
+function selectedInputInfo() {
+  if (currentInputType === 'app-audio') {
+    const stream = selectedAppAudioStream()
+    return {
+      channels: stream?.channels || 2,
+      sampleRate: stream?.sampleRate || 48000
+    }
+  }
+
+  if (currentInputType === 'device') {
+    const device = selectedInputDevice()
+    return {
+      channels: device?.channels || 2,
+      sampleRate: device?.sampleRate || 48000
+    }
+  }
+
+  return {
+    channels: FILE_MAX_CHANNELS,
+    sampleRate: fileInputInfo?.sampleRate || 48000
+  }
+}
+
+function selectedInputDevice() {
+  return inputDevices.find((item) => String(item.index) === String(deviceList.value)) || null
+}
+
+function selectedInputDevicePath() {
+  return deviceList.value ? `none:${deviceList.value}` : ''
+}
+
+function syncInputSettings(useDefaults = false) {
+  syncSampleRateToInput()
+  updateChannelControls(useDefaults)
+}
+
+function syncSampleRateToInput() {
+  const sampleRate = selectedInputInfo().sampleRate
+  const normalized = streamOutputSampleRate(sampleRate)
+  sampleRateSelect.disabled = !!normalized
+  if (normalized) {
+    sampleRateSelect.value = String(normalized)
+  }
+}
+
+function renderChannelTemplates(selectedTemplateId = channelTemplateSelect.value) {
+  const templates = compatibleChannelTemplates(getAvailableChannelCount())
+  const previous =
+    selectedTemplateId || defaultChannelTemplate(templates)?.id || templates[0]?.id || ''
+  channelTemplateSelect.innerHTML = ''
+
+  templates.forEach((template) => {
+    const opt = document.createElement('option')
+    opt.value = template.id
+    opt.textContent = template.label
+    channelTemplateSelect.appendChild(opt)
+  })
+
+  if (templates.some((template) => template.id === previous)) {
+    channelTemplateSelect.value = previous
+  } else if (templates.length > 0) {
+    channelTemplateSelect.value =
+      defaultChannelTemplate(templates)?.id || templates[templates.length - 1].id
+  }
+}
+
+function compatibleChannelTemplates(maxChannels) {
+  return channelTemplates.filter((template) => template.channels.length <= maxChannels)
+}
+
+function selectedChannelTemplate() {
+  const selectedChannels = selectedChannelIndexes().length
+  return (
+    channelTemplates.find((template) => template.id === channelTemplateSelect.value) ||
+    channelTemplates.find((template) => template.channels.length === selectedChannels)
+  )
+}
+
+function selectedStreamLayout() {
+  const selectedChannels = selectedChannelIndexes().length
+  const template = selectedChannelTemplate()
+  return template?.channels.length === selectedChannels ? template.layout : null
+}
+
+function selectedTemplateChannelLabels(channels) {
+  const template = selectedChannelTemplate()
+  return Array.from({ length: channels }, (_value, index) => {
+    return template?.channels[index] || channelNames[index] || `CH${index + 1}`
+  })
+}
+
+function defaultChannelTemplate(templates) {
+  if (templates.length === 0) return null
+  if (getAvailableChannelCount() >= 6) {
+    return (
+      templates.find((template) => template.id === '5.1') ||
+      templates.find((template) => template.id === 'stereo') ||
+      templates[templates.length - 1]
+    )
+  }
+  if (getAvailableChannelCount() >= 2) {
+    return (
+      templates.find((template) => template.id === 'stereo') ||
+      templates.find((template) => template.id === 'mono') ||
+      templates[0]
+    )
+  }
+  return templates.find((template) => template.id === 'mono') || templates[0]
+}
+
+function templateSourceIndexes(template) {
+  if (!template) return []
+  return Array.from({ length: template.channels.length }, (_value, index) => index)
+}
+
+function streamChannelName(index, template) {
+  if (template?.displayLabels?.[index]) {
+    return template.displayLabels[index]
+  }
+  if (template?.channels[index]) {
+    return template.channels[index]
+  }
+  return channelNames[index] || `CH${index + 1}`
+}
+
+function updateChannelControls(useDefaults = false, templateId = null) {
   const maxChannels = getAvailableChannelCount()
-  const defaults = defaultChannelCount()
+  const compatibleTemplates = compatibleChannelTemplates(maxChannels)
+  const selectedTemplateId =
+    templateId ||
+    (useDefaults ? defaultChannelTemplate(compatibleTemplates)?.id : channelTemplateSelect.value)
+  const template = compatibleTemplates.find((item) => item.id === selectedTemplateId)
+  const defaults = template?.channels.length || defaultChannelCount()
+  const defaultSelection = new Set(templateSourceIndexes(template))
   const previous = new Set(selectedChannelIndexes())
 
+  renderChannelTemplates(template?.id || selectedTemplateId)
   channelSelector.innerHTML = ''
-  for (let index = 0; index < Math.min(maxChannels, 8); index += 1) {
+  for (let index = 0; index < Math.min(maxChannels, channelNames.length); index += 1) {
     const label = document.createElement('label')
     label.className = 'channel-toggle'
 
@@ -279,17 +724,23 @@ function updateChannelControls(useDefaults = false) {
     input.type = 'checkbox'
     input.value = String(index)
     input.checked = useDefaults
-      ? index < defaults
+      ? defaultSelection.size > 0
+        ? defaultSelection.has(index)
+        : index < defaults
       : previous.size === 0
-        ? index < defaults
+        ? defaultSelection.size > 0
+          ? defaultSelection.has(index)
+          : index < defaults
         : previous.has(index)
     input.addEventListener('change', () => {
       renderPeakMeters(selectedChannelIndexes().length || 1)
       updateMonitorRoutingControls()
+      updateBitrateActualLabel()
+      applyMonitorSettings('channels')
     })
 
     const text = document.createElement('span')
-    text.textContent = `${index + 1} ${channelNames[index] || `CH${index + 1}`}`
+    text.textContent = `${index + 1} ${streamChannelName(index, template)}`
 
     label.appendChild(input)
     label.appendChild(text)
@@ -298,6 +749,7 @@ function updateChannelControls(useDefaults = false) {
 
   renderPeakMeters(selectedChannelIndexes().length || defaults)
   updateMonitorRoutingControls()
+  updateBitrateActualLabel()
 }
 
 function selectedChannelIndexes() {
@@ -310,7 +762,18 @@ function renderPeakMeters(channels) {
   activeMeterChannels = Math.max(1, channels)
   peakMeterList.innerHTML = ''
 
-  for (let index = 0; index < activeMeterChannels; index += 1) {
+  renderPeakMeterRows(peakMeterList, activeMeterChannels)
+}
+
+function renderMonitorPeakMeters(channels) {
+  activeMonitorMeterChannels = Math.max(1, channels)
+  renderPeakMeterRows(monitorPeakMeterList, activeMonitorMeterChannels)
+}
+
+function renderPeakMeterRows(container, channels) {
+  container.innerHTML = ''
+
+  for (let index = 0; index < channels; index += 1) {
     const row = document.createElement('div')
     row.className = 'peak-row'
     row.dataset.channel = String(index)
@@ -333,12 +796,20 @@ function renderPeakMeters(channels) {
     row.appendChild(label)
     row.appendChild(track)
     row.appendChild(value)
-    peakMeterList.appendChild(row)
+    container.appendChild(row)
   }
 }
 
 function resetPeakMeters() {
-  peakMeterList.querySelectorAll('.peak-row').forEach((row) => {
+  resetPeakMeterRows(peakMeterList)
+}
+
+function resetMonitorPeakMeters() {
+  resetPeakMeterRows(monitorPeakMeterList)
+}
+
+function resetPeakMeterRows(container) {
+  container.querySelectorAll('.peak-row').forEach((row) => {
     row.querySelector('.peak-fill').style.width = '0%'
     row.querySelector('.peak-value').textContent = '-inf'
   })
@@ -350,17 +821,160 @@ function updatePeakMeters(payload) {
     renderPeakMeters(channels)
   }
 
-  Object.entries(payload.peaks || {}).forEach(([channel, db]) => {
-    const row = peakMeterList.querySelector(`[data-channel="${channel}"]`)
+  updatePeakMeterRows(peakMeterList, payload.peaks)
+}
+
+function updateMonitorPeakMeters(payload) {
+  const channels = payload.channels || activeMonitorMeterChannels
+  if (channels !== activeMonitorMeterChannels) {
+    renderMonitorPeakMeters(channels)
+  }
+
+  updatePeakMeterRows(monitorPeakMeterList, payload.peaks)
+}
+
+function updatePeakMeterRows(container, peaks = {}) {
+  Object.entries(peaks || {}).forEach(([channel, db]) => {
+    const row = container.querySelector(`[data-channel="${channel}"]`)
     if (!row) return
 
     const numericDb = Number(db)
     const clamped = Math.max(-60, Math.min(0, numericDb))
     const percent = ((clamped + 60) / 60) * 100
-    row.querySelector('.peak-fill').style.width = `${percent}%`
+    const fill = row.querySelector('.peak-fill')
+    fill.style.width = `${percent}%`
+    fill.classList.toggle('warn', numericDb > -6 && numericDb <= -1)
+    fill.classList.toggle('hot', numericDb > -1)
     row.querySelector('.peak-value').textContent =
       numericDb <= -119 ? '-inf' : `${numericDb.toFixed(1)} dB`
   })
+}
+
+function calculateMonitorPeaks(chunk, channels) {
+  if (!chunk || !channels) return null
+
+  const view = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk)
+  const samples = new Float32Array(view.buffer, view.byteOffset, Math.floor(view.byteLength / 4))
+  const frameCount = Math.floor(samples.length / channels)
+  if (frameCount <= 0) return null
+
+  const peaks = {}
+  for (let channel = 0; channel < channels; channel += 1) {
+    let peak = 0
+    for (let frame = 0; frame < frameCount; frame += 1) {
+      const sample = Math.abs(samples[frame * channels + channel] || 0)
+      if (sample > peak) peak = sample
+    }
+    peaks[channel] = peak <= 0 ? -120 : 20 * Math.log10(peak)
+  }
+
+  return { channels, peaks }
+}
+
+function calculateMonitorOutputPeaks(chunk, format) {
+  if (!chunk || !format?.channels) return null
+
+  const input = calculateMonitorPeaks(chunk, format.channels)
+  if (!input) return null
+
+  const volume = Number.isFinite(Number(format.volume)) ? Number(format.volume) : 1
+  const left = monitorOutputPeakAmplitude(input.peaks, 0, format) * volume
+  const right = monitorOutputPeakAmplitude(input.peaks, 1, format) * volume
+
+  return {
+    channels: 2,
+    peaks: {
+      0: amplitudeToDb(left),
+      1: amplitudeToDb(right)
+    }
+  }
+}
+
+function monitorOutputPeakAmplitude(inputPeaks, outputChannel, format) {
+  const mode = format.mode || monitorMode.value
+  const channels = format.channels || 2
+
+  if (mode === 'stereo-pair' || mode === 'stereo') {
+    const sourceIndex = Math.min((format.pairStart || 0) + outputChannel, channels - 1)
+    return dbToAmplitude(inputPeaks[sourceIndex])
+  }
+
+  if (mode === 'downmix') {
+    let sum = 0
+    for (let channel = 0; channel < channels; channel += 1) {
+      const gains = downmixGains(channel, channels)
+      sum += dbToAmplitude(inputPeaks[channel]) * (outputChannel === 0 ? gains.left : gains.right)
+    }
+    return sum * 0.707
+  }
+
+  let sum = 0
+  for (let channel = 0; channel < channels; channel += 1) {
+    sum +=
+      dbToAmplitude(inputPeaks[channel]) * hrtfMonitorGain(format.channelLabels?.[channel], channel)
+  }
+  return sum * 0.35
+}
+
+function downmixGains(channel, totalChannels) {
+  if (totalChannels === 1) {
+    return { left: 1, right: 1 }
+  }
+
+  const minus3db = 0.707
+  const matrix = [
+    { left: 1, right: 0 },
+    { left: 0, right: 1 },
+    { left: minus3db, right: minus3db },
+    { left: 0, right: 0 },
+    { left: minus3db, right: 0 },
+    { left: 0, right: minus3db },
+    { left: minus3db, right: 0 },
+    { left: 0, right: minus3db }
+  ]
+
+  return (
+    matrix[channel] || {
+      left: channel % 2 === 0 ? 0.45 : 0,
+      right: channel % 2 === 0 ? 0 : 0.45
+    }
+  )
+}
+
+function hrtfMonitorGain(label, channel) {
+  const labelGains = {
+    L: 1,
+    R: 1,
+    C: 0.707,
+    FL: 1,
+    FR: 1,
+    FC: 0.707,
+    LFE: 0,
+    LS: 0.707,
+    SL: 0.707,
+    SR: 0.707,
+    LSR: 0.707,
+    RSR: 0.707,
+    BL: 0.707,
+    BR: 0.707,
+    TFL: 0.707,
+    TFR: 0.707,
+    TBL: 0.707,
+    TBR: 0.707
+  }
+  if (labelGains[label]) return labelGains[label]
+  if (label === 'LFE') return 0
+  return channel < 2 ? 1 : 0.7
+}
+
+function dbToAmplitude(db) {
+  const numericDb = Number(db)
+  if (!Number.isFinite(numericDb) || numericDb <= -119) return 0
+  return 10 ** (numericDb / 20)
+}
+
+function amplitudeToDb(amplitude) {
+  return amplitude <= 0 ? -120 : 20 * Math.log10(amplitude)
 }
 
 function selectedMonitorFormat() {
@@ -372,13 +986,40 @@ function selectedMonitorFormat() {
     deviceId: monitorDeviceList.value,
     pairStart: Number(monitorSourcePair.value || 0),
     latencyMs: Number(monitorLatency.value || 80),
+    volume: monitorVolumePercent(),
     sampleRate: currentMonitorFormat?.sampleRate || Number(sampleRateSelect.value),
-    channels: sourceChannels
+    channels: sourceChannels,
+    channelLabels: selectedTemplateChannelLabels(sourceChannels)
   }
 }
 
+function monitorVolumePercent() {
+  return Math.max(0, Math.min(1, Number(monitorVolume.value || 100) / 100))
+}
+
+function updateMonitorVolumeLabel() {
+  monitorVolumeValue.textContent = `${Math.round(monitorVolumePercent() * 100)}%`
+}
+
+function formatSampleRate(sampleRate) {
+  const numeric = Number(sampleRate)
+  if (!Number.isFinite(numeric) || numeric <= 0) return ''
+  const khz = numeric / 1000
+  return `${Number.isInteger(khz) ? khz : khz.toFixed(1)} kHz`
+}
+
+function actualBitrateValue() {
+  const stereoKbps = Number(bitrateSelect.value || 128)
+  const channels = Math.max(1, selectedChannelIndexes().length || defaultChannelCount())
+  return `${Math.round(stereoKbps * Math.max(1, channels / 2))}k`
+}
+
+function updateBitrateActualLabel() {
+  bitrateActualValue.textContent = `${actualBitrateValue().replace('k', ' kbps')} actual`
+}
+
 function monitorModeLabel(mode = monitorMode.value) {
-  if (mode === 'binaural') return 'Web Audio HRTF'
+  if (mode === 'binaural') return 'KU100 near-field HRTF'
   if (mode === 'downmix') return 'Stereo downmix'
   return `${monitorPairLabel(Number(monitorSourcePair.value || 0))} stereo pair`
 }
@@ -417,11 +1058,31 @@ function applyMonitorSettings(reason = 'settings') {
   monitorSettingsPromise = monitorSettingsPromise
     .catch(() => {})
     .then(async () => {
-      if (!isStreaming) return
+      if (!isMonitorAvailable()) {
+        await forceStopPreviewMonitor()
+        await window.api.setMonitorActive(false).catch(() => {})
+        monitorMeterState.textContent = 'IDLE'
+        resetMonitorPeakMeters()
+        return
+      }
+
+      if (!isStreaming) {
+        if (!monitorEnabled.checked || !supportsPreviewMonitor()) {
+          await forceStopPreviewMonitor()
+          monitorMeterState.textContent = 'IDLE'
+          resetMonitorPeakMeters()
+          return
+        }
+
+        await startPreviewMonitor(reason)
+        return
+      }
 
       if (!monitorEnabled.checked) {
+        await forceStopPreviewMonitor()
         await window.api.setMonitorActive(false)
-        await webAudioMonitor.stop()
+        monitorMeterState.textContent = 'IDLE'
+        resetMonitorPeakMeters()
         addLog('Monitor output disabled.', 'system')
         return
       }
@@ -441,26 +1102,188 @@ function applyMonitorSettings(reason = 'settings') {
 async function startInitialMonitor(config, channels) {
   if (!config.monitorEnabled) return
 
-  const format = initialMonitorFormat(config, channels)
+  const format = initialMonitorFormat(config, channels, streamingMonitorSampleRate(config))
   await webAudioMonitor.start({
     mode: format.mode,
     deviceId: config.monitorDeviceId,
     pairStart: format.pairStart,
     latencyMs: format.latencyMs,
     sampleRate: format.sampleRate,
-    channels: format.channels
+    channels: format.channels,
+    channelLabels: format.channelLabels,
+    volume: monitorVolumePercent()
   })
+  monitorMeterState.textContent = 'LIVE'
+  renderMonitorPeakMeters(2)
   addLog(`Monitor output ready (${monitorModeLabel(config.monitorMode)}).`, 'system')
 }
 
-function initialMonitorFormat(config, streamChannels) {
+async function startPreviewMonitor(reason = 'settings') {
+  const config = selectedPreviewMonitorConfig()
+  if (!config) {
+    await stopPreviewMonitor()
+    await webAudioMonitor.stop()
+    return
+  }
+
+  if (config.inputType === 'app-audio' && !config.appAudioPid) {
+    await stopPreviewMonitor()
+    await webAudioMonitor.stop()
+    return
+  }
+
+  if (config.inputType === 'app-audio' && !config.appAudioDeviceUID) {
+    await stopPreviewMonitor()
+    await webAudioMonitor.stop()
+    return
+  }
+
+  if (config.inputType === 'file' && !config.inputPath) {
+    await stopPreviewMonitor()
+    await webAudioMonitor.stop()
+    return
+  }
+
+  if (config.inputType === 'device' && !config.inputPath) {
+    await stopPreviewMonitor()
+    await webAudioMonitor.stop()
+    return
+  }
+
+  const key = JSON.stringify({
+    inputType: config.inputType,
+    inputPath: config.inputPath || '',
+    selectedChannels: config.selectedChannels || [],
+    streamChannelLayout: config.streamChannelLayout || '',
+    loopFile: config.loopFile ?? '',
+    pid: config.appAudioPid || '',
+    inputChannels: config.inputChannels || '',
+    sampleRate: config.sampleRate || config.appAudioSampleRate || '',
+    mode: config.appAudioMode,
+    deviceUID: config.appAudioDeviceUID || '',
+    streamIndex: config.appAudioStreamIndex ?? '',
+    outputDeviceId: monitorDeviceList.value || '',
+    monitorMode: config.monitorMode,
+    pairStart: config.monitorPairStart,
+    latencyMs: config.monitorLatencyMs
+  })
+
+  if (previewMonitorKey === key) {
+    return
+  }
+
+  await stopPreviewMonitor()
+  pendingPreviewStart = true
+  const format = initialMonitorFormat(
+    config,
+    previewMonitorChannelCount(config),
+    previewMonitorSampleRate(config)
+  )
+  try {
+    await webAudioMonitor.start({
+      mode: format.mode,
+      deviceId: monitorDeviceList.value,
+      pairStart: format.pairStart,
+      latencyMs: format.latencyMs,
+      sampleRate: format.sampleRate,
+      channels: format.channels,
+      channelLabels: format.channelLabels,
+      volume: monitorVolumePercent()
+    })
+    monitorMeterState.textContent = 'PREVIEW'
+    renderMonitorPeakMeters(2)
+
+    const result =
+      config.inputType === 'file'
+        ? await window.api.startFileMonitor(config)
+        : config.inputType === 'device'
+          ? await window.api.startInputDeviceMonitor(config)
+          : await window.api.startAppAudioMonitor(config)
+    if (!result.success) {
+      previewMonitorKey = ''
+      await webAudioMonitor.stop()
+      addLog(`Preview monitor failed: ${result.error}`, 'error')
+      return
+    }
+
+    previewMonitorKey = key
+    addLog(`Preview monitor active (${monitorModeLabel(config.monitorMode)}, ${reason}).`, 'system')
+  } finally {
+    pendingPreviewStart = false
+  }
+}
+
+async function stopPreviewMonitor() {
+  if (!previewMonitorKey) return
+  previewMonitorKey = ''
+  await window.api.stopPreviewMonitor().catch(() => {})
+}
+
+async function forceStopPreviewMonitor() {
+  previewMonitorKey = ''
+  pendingPreviewStart = false
+  currentMonitorFormat = null
+  monitorMeterState.textContent = 'IDLE'
+  resetMonitorPeakMeters()
+  await window.api.stopPreviewMonitor().catch(() => {})
+  await webAudioMonitor.stop().catch(() => {})
+}
+
+function previewMonitorChannelCount(config) {
+  if (config.inputType === 'app-audio') {
+    return config.appAudioChannels || 2
+  }
+  if (config.inputType === 'device') {
+    return config.inputChannels || 2
+  }
+  return config.selectedChannels?.length || defaultChannelCount()
+}
+
+function previewMonitorSampleRate(config) {
+  if (config.inputType === 'app-audio') {
+    return config.appAudioSampleRate || 48000
+  }
+  if (config.inputType === 'device') {
+    return config.sampleRate || 48000
+  }
+  return streamOutputSampleRate(config.sampleRate || 48000)
+}
+
+function streamingMonitorSampleRate(config) {
+  if (config.inputType === 'app-audio') {
+    return config.appAudioSampleRate || 48000
+  }
+  return streamOutputSampleRate(config.sampleRate || 48000)
+}
+
+function streamOutputSampleRate(sampleRate) {
+  const supportedRates = [48000, 24000, 16000, 12000, 8000]
+  const numeric = Math.round(Number(sampleRate))
+  return supportedRates.includes(numeric) ? numeric : 48000
+}
+
+function initialMonitorFormat(config, streamChannels, sampleRateOverride = null) {
   const isDirectAppAudioMonitor = config.inputType === 'app-audio'
+  const isDirectDeviceMonitor = config.inputType === 'device'
   return {
     mode: config.monitorMode || 'stereo-pair',
     pairStart: config.monitorPairStart || 0,
     latencyMs: config.monitorLatencyMs || 80,
-    sampleRate: isDirectAppAudioMonitor ? config.appAudioSampleRate || 48000 : config.sampleRate,
-    channels: isDirectAppAudioMonitor ? config.appAudioChannels || 2 : streamChannels
+    sampleRate:
+      sampleRateOverride ||
+      (isDirectAppAudioMonitor ? config.appAudioSampleRate || 48000 : config.sampleRate || 48000),
+    channels: isDirectAppAudioMonitor
+      ? config.appAudioChannels || 2
+      : isDirectDeviceMonitor
+        ? config.inputChannels || 2
+        : streamChannels,
+    channelLabels: selectedTemplateChannelLabels(
+      isDirectAppAudioMonitor
+        ? config.appAudioChannels || 2
+        : isDirectDeviceMonitor
+          ? config.inputChannels || 2
+          : streamChannels
+    )
   }
 }
 
@@ -473,13 +1296,18 @@ tabDevice.addEventListener('click', () => {
   refreshDevices()
 })
 
-tabAppAudio.addEventListener('click', () => {
+tabAppAudio.addEventListener('click', async () => {
   showInputSection('app-audio')
-  refreshAppAudioProcesses()
-  refreshAppAudioOutputStreams()
+  await Promise.all([refreshAppAudioProcesses(), refreshAppAudioOutputStreams()])
+  applyMonitorSettings('app-scan')
 })
 
 btnRefreshDevices.addEventListener('click', refreshDevices)
+deviceList.addEventListener('change', () => {
+  syncInputSettings(true)
+  warnIfLoopbackInputDevice(selectedInputDevice())
+  applyMonitorSettings('device-input')
+})
 btnRefreshMonitorDevices.addEventListener('click', () => refreshMonitorDevices(true))
 monitorEnabled.addEventListener('change', () => applyMonitorSettings('enabled'))
 monitorDeviceList.addEventListener('change', () => applyMonitorSettings('device'))
@@ -489,51 +1317,63 @@ monitorMode.addEventListener('change', () => {
 })
 monitorSourcePair.addEventListener('change', () => applyMonitorSettings('source'))
 monitorLatency.addEventListener('change', () => applyMonitorSettings('latency'))
-btnRefreshAppAudio.addEventListener('click', () => {
-  refreshAppAudioProcesses()
-  refreshAppAudioOutputStreams()
+monitorVolume.addEventListener('input', () => {
+  if (!isMonitorAvailable()) return
+  updateMonitorVolumeLabel()
+  webAudioMonitor.setVolume(monitorVolumePercent())
 })
-appAudioMode.addEventListener('change', () => updateChannelControls(true))
-appAudioOutputStream.addEventListener('change', () => updateChannelControls(true))
+icecastSettingsFields.forEach((field) => {
+  field.addEventListener('change', saveIcecastSettings)
+  field.addEventListener('input', saveIcecastSettings)
+})
+bitrateSelect.addEventListener('change', updateBitrateActualLabel)
+channelTemplateSelect.addEventListener('change', () => {
+  updateChannelControls(true, channelTemplateSelect.value)
+  applyMonitorSettings('template')
+})
+btnRefreshAppAudio.addEventListener('click', async () => {
+  await forceStopPreviewMonitor()
+  await Promise.all([refreshAppAudioProcesses(), refreshAppAudioOutputStreams()])
+  applyMonitorSettings('refresh')
+})
+appAudioList.addEventListener('change', async () => {
+  await forceStopPreviewMonitor()
+  applyMonitorSettings('app')
+})
+appAudioOutputStream.addEventListener('change', async () => {
+  await forceStopPreviewMonitor()
+  syncInputSettings(true)
+  applyMonitorSettings('stream')
+})
 btnSelectDefaultChannels.addEventListener('click', () => updateChannelControls(true))
-
-btnTestAppAudio.addEventListener('click', async () => {
-  const pid = appAudioList.value
-  if (!pid) {
-    addLog('Error: No app audio process selected.', 'error')
-    return
-  }
-
-  addLog(`Creating short app audio tap for PID ${pid}...`, 'system')
-  try {
-    const stream = selectedAppAudioStream()
-    const result = await window.api.createAppAudioTap({
-      pid: Number(pid),
-      options: stream ? { deviceUID: stream.deviceUID, streamIndex: stream.streamIndex } : {}
-    })
-    const format = result.format
-    if (format) {
-      addLog(`Tap OK: ${format.channels}ch @ ${format.sampleRate}Hz`, 'system')
-    } else {
-      addLog('Tap OK: format unavailable until tapped app outputs audio.', 'system')
-    }
-  } catch (err) {
-    addLog(`Tap test failed: ${err.message}`, 'error')
-  }
-})
+btnSelectDefaultChannels.addEventListener('click', () => applyMonitorSettings('channels'))
 
 btnBrowse.addEventListener('click', async () => {
   const path = await window.api.openFile()
   if (path) {
     filePathInput.value = path
     addLog(`Selected file: ${path}`)
+    try {
+      fileInputInfo = await window.api.probeAudio(path)
+      addLog(
+        `File audio: ${fileInputInfo.channels || '?'}ch @ ${formatSampleRate(fileInputInfo.sampleRate) || '?'}${fileInputInfo.layout ? ` (${fileInputInfo.layout})` : ''}`,
+        'system'
+      )
+    } catch (err) {
+      fileInputInfo = null
+      addLog(`Could not read file audio format: ${err.message}`, 'error')
+    }
+    syncInputSettings(true)
+    applyMonitorSettings('file')
   }
 })
 
 btnStart.addEventListener('click', async () => {
   const appAudioPid = appAudioList.value
   const stream = selectedAppAudioStream()
+  const inputDevice = selectedInputDevice()
   const selectedChannels = selectedChannelIndexes()
+  const inputInfo = selectedInputInfo()
 
   const config = {
     inputType: currentInputType,
@@ -541,28 +1381,38 @@ btnStart.addEventListener('click', async () => {
       currentInputType === 'file'
         ? filePathInput.value
         : currentInputType === 'device'
-          ? `:${deviceList.value}`
+          ? selectedInputDevicePath()
           : appAudioPid,
+    inputChannels:
+      currentInputType === 'device' ? inputDevice?.channels || inputInfo.channels : undefined,
+    inputSampleRate:
+      currentInputType === 'device' ? inputDevice?.sampleRate || inputInfo.sampleRate : undefined,
+    inputDeviceUID: currentInputType === 'device' ? inputDevice?.deviceUID : undefined,
+    inputStreamIndex: currentInputType === 'device' ? inputDevice?.streamIndex : undefined,
+    inputDeviceName: currentInputType === 'device' ? inputDevice?.name : undefined,
     appAudioPid: currentInputType === 'app-audio' ? Number(appAudioPid) : undefined,
-    appAudioMode: currentInputType === 'app-audio' ? appAudioMode.value : undefined,
+    appAudioMode: currentInputType === 'app-audio' ? 'preserve' : undefined,
     appAudioDeviceUID: stream?.deviceUID,
     appAudioStreamIndex: stream?.streamIndex,
     appAudioSampleRate: stream?.sampleRate,
-    appAudioChannels: appAudioMode.value === 'preserve' ? stream?.channels : 2,
+    appAudioChannels: stream?.channels || 2,
     selectedChannels,
-    sampleRate: Number(sampleRateSelect.value),
-    bitrate: bitrateSelect.value,
-    monitorEnabled: monitorEnabled.checked,
-    monitorDeviceId: monitorEnabled.checked ? monitorDeviceList.value : '',
+    streamChannelLayout: selectedStreamLayout(),
+    sampleRate: inputInfo.sampleRate || Number(sampleRateSelect.value),
+    bitrate: actualBitrateValue(),
+    monitorEnabled: isMonitorAvailable() && monitorEnabled.checked,
+    monitorDeviceId: isMonitorAvailable() && monitorEnabled.checked ? monitorDeviceList.value : '',
     monitorMode: monitorMode.value,
     monitorPairStart: Number(monitorSourcePair.value || 0),
     monitorLatencyMs: Number(monitorLatency.value || 80),
-    icecastHost: document.getElementById('icecast-host').value,
-    icecastPort: document.getElementById('icecast-port').value,
-    mountPoint: document.getElementById('mount-point').value,
-    sourcePassword: document.getElementById('source-password').value,
+    monitorVolume: monitorVolumePercent(),
+    icecastHost: icecastHostInput.value.trim(),
+    icecastPort: icecastPortInput.value.trim(),
+    mountPoint: normalizeMountPoint(mountPointInput.value),
+    sourcePassword: sourcePasswordInput.value,
     loopFile: currentInputType === 'file' && loopFileInput.checked
   }
+  saveIcecastSettings()
 
   if (selectedChannels.length === 0) {
     addLog('Error: At least one stream channel must be enabled.', 'error')
@@ -574,9 +1424,17 @@ btnStart.addEventListener('click', async () => {
     return
   }
 
-  if (currentInputType === 'device' && config.inputPath === ':') {
+  if (currentInputType === 'device' && !config.inputPath) {
     addLog('Error: No input source selected.', 'error')
     return
+  }
+
+  if (currentInputType === 'device' && !(await ensureMicrophoneAccess('streaming'))) {
+    return
+  }
+
+  if (currentInputType === 'device') {
+    warnIfLoopbackInputDevice(inputDevice)
   }
 
   if (currentInputType === 'app-audio' && !config.appAudioPid) {
@@ -584,7 +1442,7 @@ btnStart.addEventListener('click', async () => {
     return
   }
 
-  if (currentInputType === 'app-audio' && appAudioMode.value === 'preserve' && !stream) {
+  if (currentInputType === 'app-audio' && !stream) {
     addLog('Error: No output stream selected for surround capture.', 'error')
     return
   }
@@ -592,6 +1450,7 @@ btnStart.addEventListener('click', async () => {
   renderPeakMeters(selectedChannels.length)
 
   try {
+    await stopPreviewMonitor()
     await startInitialMonitor(config, selectedChannels.length)
   } catch (err) {
     addLog(`Error starting monitor output: ${err.message}`, 'error')
@@ -600,11 +1459,10 @@ btnStart.addEventListener('click', async () => {
   }
 
   if (currentInputType === 'app-audio') {
-    const modeText =
-      appAudioMode.value === 'preserve'
-        ? `${config.appAudioChannels}ch preserve surround`
-        : 'stereo mixdown'
-    addLog(`Starting stream from app audio tap (${modeText})...`, 'system')
+    addLog(
+      `Starting stream from app audio tap (${config.appAudioChannels}ch preserve surround)...`,
+      'system'
+    )
   } else {
     addLog('Starting stream...', 'system')
   }
@@ -628,10 +1486,16 @@ btnStop.addEventListener('click', async () => {
   addLog('Stopping stream...', 'system')
   await window.api.setMonitorActive(false).catch(() => {})
   await window.api.stopStream()
-  await webAudioMonitor.stop()
+  setStreamingState(false)
+
+  if (monitorEnabled.checked && supportsPreviewMonitor()) {
+    await applyMonitorSettings('post-stop')
+  } else {
+    monitorMeterState.textContent = 'IDLE'
+    resetMonitorPeakMeters()
+  }
 
   addLog('Stream stopped.', 'system')
-  setStreamingState(false)
 })
 
 window.api.onFfmpegLog(({ message, type }) => {
@@ -642,7 +1506,15 @@ window.api.onStreamStatus(({ isRunning }) => {
   if (!isRunning) {
     currentMonitorFormat = null
     window.api.setMonitorActive(false).catch(() => {})
-    webAudioMonitor.stop()
+    setStreamingState(false)
+    if (monitorEnabled.checked && supportsPreviewMonitor()) {
+      applyMonitorSettings('status')
+    } else {
+      webAudioMonitor.stop()
+      monitorMeterState.textContent = 'IDLE'
+      resetMonitorPeakMeters()
+    }
+    return
   }
   setStreamingState(isRunning)
 })
@@ -650,7 +1522,8 @@ window.api.onStreamStatus(({ isRunning }) => {
 window.api.onMonitorFormat((format) => {
   currentMonitorFormat = format
   updateMonitorRoutingControls()
-  addLog(`Monitor PCM: ${format.channels}ch @ ${format.sampleRate}Hz`, 'system')
+  renderMonitorPeakMeters(2)
+  addLog(`Monitor PCM: ${format.channels}ch @ ${formatSampleRate(format.sampleRate)}`, 'system')
   if (isStreaming && monitorEnabled.checked) {
     applyMonitorSettings('format')
   }
@@ -658,19 +1531,42 @@ window.api.onMonitorFormat((format) => {
 
 window.api.onMonitorAudio((payload) => {
   webAudioMonitor.pushChunk(payload.chunk)
+  const now = performance.now()
+  if (now - lastMonitorPeakUpdateAt >= 100) {
+    lastMonitorPeakUpdateAt = now
+    const monitorPeaks = calculateMonitorOutputPeaks(payload.chunk, selectedMonitorFormat())
+    if (monitorPeaks) {
+      updateMonitorPeakMeters(monitorPeaks)
+    }
+  }
 })
 
 window.api.onMonitorStop(() => {
   currentMonitorFormat = null
-  webAudioMonitor.stop()
+  previewMonitorKey = ''
+  if (!pendingPreviewStart) {
+    webAudioMonitor.stop()
+  }
+  monitorMeterState.textContent = 'IDLE'
+  resetMonitorPeakMeters()
 })
 
 window.api.onStreamMeter((payload) => {
   updatePeakMeters(payload)
 })
 
-updateChannelControls(true)
-updateMonitorRoutingControls()
-refreshDevices()
-refreshMonitorDevices()
-addLog('SurroundStreamer initialized.', 'system')
+async function initializeApp() {
+  loadIcecastSettings()
+  bitrateSelect.value = '128'
+  sampleRateSelect.value = '48000'
+  updateChannelControls(true)
+  updateMonitorRoutingControls()
+  updateMonitorVolumeLabel()
+  updateMonitorAvailability()
+  renderMonitorPeakMeters(2)
+  await Promise.all([refreshAppAudioProcesses(), refreshAppAudioOutputStreams()])
+  refreshMonitorDevices()
+  addLog('SurroundStreamer initialized.', 'system')
+}
+
+initializeApp()

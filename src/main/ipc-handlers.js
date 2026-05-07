@@ -2,6 +2,7 @@ import { ipcMain, dialog, BrowserWindow } from 'electron'
 import ffmpegManager from './ffmpeg-manager'
 import deviceScanner from './device-scanner'
 import appAudioHelper from './app-audio-helper'
+import mediaProber from './media-prober'
 
 export function setupIpcHandlers() {
   ffmpegManager.on('log', (payload) => {
@@ -55,6 +56,38 @@ export function setupIpcHandlers() {
     return { success: true }
   })
 
+  ipcMain.handle('monitor:start-app-audio', (_event, config) => {
+    try {
+      ffmpegManager.startAppAudioMonitor(config)
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: error.message }
+    }
+  })
+
+  ipcMain.handle('monitor:start-file', (_event, config) => {
+    try {
+      ffmpegManager.startFileMonitor(config)
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: error.message }
+    }
+  })
+
+  ipcMain.handle('monitor:start-input-device', (_event, config) => {
+    try {
+      ffmpegManager.startInputDeviceMonitor(config)
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: error.message }
+    }
+  })
+
+  ipcMain.handle('monitor:stop-preview', () => {
+    ffmpegManager.stopPreviewMonitor()
+    return { success: true }
+  })
+
   ipcMain.handle('devices:list', async () => {
     return await deviceScanner.listAudioDevices()
   })
@@ -67,11 +100,8 @@ export function setupIpcHandlers() {
     return await appAudioHelper.listOutputStreams()
   })
 
-  ipcMain.handle('app-audio:create-tap', async (_event, payload) => {
-    if (typeof payload === 'number') {
-      return await appAudioHelper.createTap(payload)
-    }
-    return await appAudioHelper.createTap(payload.pid, payload.options || {})
+  ipcMain.handle('media:probe-audio', async (_event, path) => {
+    return await mediaProber.probeAudio(path)
   })
 
   ipcMain.handle('dialog:openFile', async () => {

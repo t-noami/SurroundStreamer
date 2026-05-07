@@ -1,0 +1,34 @@
+appId: com.surroundstreamer.beta
+productName: SurroundStreamer-beta-0.1.0
+buildVersion: 0.1.0
+copyright: Copyright © 2026 Non-REM Studio
+extraMetadata:
+  version: 0.1.0-beta.1
+directories:
+  buildResources: build
+  output: dist/beta
+files:
+  - '!**/.vscode/*'
+  - '!src/**'
+  - '!dist/**'
+  - '!legacy/**'
+  - '!node_modules/.cache/**'
+  - '!docs/manual-assets/capture.html'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md}'
+  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml,test_streamconfig.txt}'
+asarUnpack:
+  - resources/**
+mac:
+  category: public.app-category.music
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  extraResources:
+    - from: native/audio-tap-helper/.build/AudioTapHelper
+      to: audio-tap-helper
+  extendInfo:
+    NSMicrophoneUsageDescription: SurroundStreamer beta needs microphone access for audio device input.
+    NSDocumentsFolderUsageDescription: SurroundStreamer beta needs access to selected audio files.
+    NSDownloadsFolderUsageDescription: SurroundStreamer beta needs access to selected audio files.
+  notarize: false
+npmRebuild: false

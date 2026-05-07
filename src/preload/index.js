@@ -7,11 +7,17 @@ const api = {
   stopStream: () => ipcRenderer.invoke('stream:stop'),
   getStreamStatus: () => ipcRenderer.invoke('stream:status'),
   setMonitorActive: (isActive) => ipcRenderer.invoke('monitor:set-active', isActive),
+  startAppAudioMonitor: (config) => ipcRenderer.invoke('monitor:start-app-audio', config),
+  startFileMonitor: (config) => ipcRenderer.invoke('monitor:start-file', config),
+  startInputDeviceMonitor: (config) => ipcRenderer.invoke('monitor:start-input-device', config),
+  stopPreviewMonitor: () => ipcRenderer.invoke('monitor:stop-preview'),
   listDevices: () => ipcRenderer.invoke('devices:list'),
   openFile: () => ipcRenderer.invoke('dialog:openFile'),
   listAppAudioProcesses: () => ipcRenderer.invoke('app-audio:list-processes'),
   listAppAudioOutputStreams: () => ipcRenderer.invoke('app-audio:list-output-streams'),
-  createAppAudioTap: (payload) => ipcRenderer.invoke('app-audio:create-tap', payload),
+  probeAudio: (path) => ipcRenderer.invoke('media:probe-audio', path),
+  ensureMicrophoneAccess: () => ipcRenderer.invoke('media:ensure-microphone-access'),
+  openMicrophoneSettings: () => ipcRenderer.invoke('media:open-microphone-settings'),
   onFfmpegLog: (callback) => {
     const listener = (_event, payload) => callback(payload)
     ipcRenderer.on('ffmpeg:log', listener)

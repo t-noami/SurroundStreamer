@@ -14,22 +14,32 @@ class AppAudioHelper {
   }
 
   async listProcesses() {
-    return await this.runHelper(['--list-processes'])
+    const result = await this.runHelper(['--list-processes'])
+    return {
+      ...result,
+      processes: (result.processes || []).filter((process) => this.isUserFacingProcess(process))
+    }
+  }
+
+  isUserFacingProcess(process) {
+    if (process.isRegularApp) return true
+    if (process.isRegularApp === false) return false
+
+    const name = String(process.name || '')
+    const bundleID = String(process.bundleID || '')
+    if (!name || name.startsWith('PID ')) return false
+    if (bundleID.startsWith('com.apple.audio') || bundleID.startsWith('com.apple.CoreAudio')) {
+      return false
+    }
+    return true
+  }
+
+  async listInputStreams() {
+    return await this.runHelper(['--list-input-streams'])
   }
 
   async listOutputStreams() {
     return await this.runHelper(['--list-output-streams'])
-  }
-
-  async createTap(pid, options = {}, duration = 1) {
-    return await this.runHelper([
-      '--create-tap',
-      '--pid',
-      String(pid),
-      '--duration',
-      String(duration),
-      ...this.buildStreamArgs(options)
-    ])
   }
 
   spawnPCMStream(pid, options = {}) {
@@ -45,6 +55,26 @@ class AppAudioHelper {
         stdio: ['ignore', 'pipe', 'pipe']
       }
     )
+  }
+
+  spawnInputDevicePCMStream(options = {}) {
+    const helperPath = this.getHelperPath()
+    if (!existsSync(helperPath)) {
+      throw new Error(`Audio tap helper not found: ${helperPath}`)
+    }
+
+    if (!options.deviceUID) {
+      throw new Error('Input device PCM stream requires a Core Audio device UID')
+    }
+
+    const args = ['--stream-input-device', '--device-uid', String(options.deviceUID)]
+    if (options.streamIndex !== undefined && options.streamIndex !== null) {
+      args.push('--stream-index', String(options.streamIndex))
+    }
+
+    return spawn(helperPath, args, {
+      stdio: ['ignore', 'pipe', 'pipe']
+    })
   }
 
   buildStreamArgs(options) {
