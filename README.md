@@ -179,57 +179,13 @@ Monitor Outputが使えない場合:
 
 ## Development
 
-Install dependencies:
+Build instructions are split by operating system:
 
-```bash
-npm install
-```
+- [Build on macOS](docs/build-macos.md)
+- [Build on Windows](docs/build-windows.md)
+- [Build on Linux](docs/build-linux.md)
 
-Run the development app:
-
-```bash
-npm run dev
-```
-
-Build the native Core Audio helper:
-
-```bash
-npm run build:audio-helper
-```
-
-Build renderer/main bundles:
-
-```bash
-npm run build
-```
-
-Build the regular macOS app:
-
-```bash
-npm run build:audio-helper
-npm run build
-npx electron-builder --dir --config electron-builder.yml
-```
-
-Regular app output:
-
-```text
-dist/mac-arm64/SurroundStreamer.app
-```
-
-Build the beta macOS app:
-
-```bash
-npm run build:audio-helper
-npm run build
-npx electron-builder --dir --config electron-builder.beta.yml
-```
-
-Beta app output:
-
-```text
-dist/beta/mac-arm64/SurroundStreamer-beta-0.1.0.app
-```
+macOS is the primary supported build target. Windows and Linux packaging notes are included for future platform work, but the current audio capture path depends on macOS Core Audio.
 
 ## Test Stream Config
 

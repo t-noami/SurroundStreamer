@@ -1,0 +1,107 @@
+# Build On macOS
+
+This is the primary supported build path for SurroundStreamer.
+
+## Requirements
+
+- macOS on Apple Silicon
+- Node.js 20 or later
+- npm
+- Xcode Command Line Tools
+- Network access for the first `npm install`
+
+Install Xcode Command Line Tools if needed:
+
+```bash
+xcode-select --install
+```
+
+## Install Dependencies
+
+From the repository root:
+
+```bash
+npm install
+```
+
+## Development Run
+
+```bash
+npm run dev
+```
+
+## Build Renderer And Main Bundles
+
+```bash
+npm run build
+```
+
+## Build Native Core Audio Helper
+
+```bash
+npm run build:audio-helper
+```
+
+The helper output is:
+
+```text
+native/audio-tap-helper/.build/AudioTapHelper
+```
+
+## Build Regular App
+
+```bash
+npm run build:mac:dir
+```
+
+Output:
+
+```text
+dist/mac-arm64/SurroundStreamer.app
+```
+
+## Build Beta App
+
+Use this for ongoing test builds.
+
+```bash
+npm run build:beta:mac
+```
+
+Output:
+
+```text
+dist/beta/mac-arm64/SurroundStreamer-beta-0.1.0.app
+```
+
+## Optional Packaged macOS Artifact
+
+```bash
+npm run build:mac
+```
+
+This uses the default Electron Builder macOS target and writes artifacts under:
+
+```text
+dist/
+```
+
+## Verify App Signature
+
+For a local unsigned/development build:
+
+```bash
+codesign --verify --deep --strict --verbose=2 dist/beta/mac-arm64/SurroundStreamer-beta-0.1.0.app
+```
+
+or:
+
+```bash
+codesign --verify --deep --strict --verbose=2 dist/mac-arm64/SurroundStreamer.app
+```
+
+## Notes
+
+- The macOS build includes the Core Audio helper used for App Audio capture and Input Device capture.
+- `test_streamconfig.txt` is intentionally excluded from packaged apps.
+- The current Electron Builder config has notarization disabled.
