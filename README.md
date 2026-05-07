@@ -4,6 +4,12 @@ SurroundStreamer is a macOS Electron app for sending Ogg Opus audio streams to a
 It supports App Audio capture, input-device capture, file playback, stream channel templates up to 7.1, and monitor output for previewing supported sources.
 The current practical target is macOS because the audio capture path depends on Core Audio.
 
+## Latest Release
+
+- macOS: [Download SurroundStreamer-0.1.0.dmg](https://github.com/t-noami/SurroundStreamer/releases/download/v0.1.0/SurroundStreamer-0.1.0.dmg)
+- Windows: Preparing
+- Linux: Preparing
+
 ## Developer
 
 - Studio: Non-REM Studio
@@ -45,7 +51,7 @@ The main screen is organized into these areas:
 - `Encoding Settings`: Configures bitrate, sample rate, and channel templates.
 - `Icecast Settings`: Configures the Icecast connection.
 - `START STREAM` / `STOP STREAM`: Starts or stops the stream.
-- `Logs`: Shows connection status and error messages.
+- `Window > Show Logs`: Opens connection status and error messages in a separate window.
 
 ### First-Run Settings
 
