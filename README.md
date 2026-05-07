@@ -212,6 +212,7 @@ Third-party materials remain under their own licenses. In particular, the bundle
 ## Repository Documents
 
 - `docs/implementation_plan.md`: project history, architecture notes, current plan, and future work
+- `docs/releases/`: release notes used for GitHub Releases
 - `docs/task.md`: current task status and release checklist
 
 ## Third-Party Notices
