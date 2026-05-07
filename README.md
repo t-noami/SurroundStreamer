@@ -2,6 +2,7 @@
 
 SurroundStreamer is a macOS Electron app for sending Ogg Opus audio streams to an Icecast server.
 It supports App Audio capture, input-device capture, file playback, stream channel templates up to 7.1, and monitor output for previewing supported sources.
+The current practical target is macOS because the audio capture path depends on Core Audio.
 
 ## Developer
 
@@ -27,163 +28,164 @@ It supports App Audio capture, input-device capture, file playback, stream chann
 - Opus output is constrained to supported sample rates. 44.1 kHz and 96 kHz sources are converted to 48 kHz for stream output.
 - 7.1.2 and 7.1.4 are not part of the standard build. The current production target is up to 7.1 because that maps cleanly to common Opus channel mapping support.
 - KU100 near-field HRIR data is included under CC BY 4.0. Attribution is listed below.
+- Windows and Linux build notes are kept for future platform work, but the current capture implementation is macOS-specific.
 
 ## User Manual
 
-SurroundStreamerは、macOS上のアプリ音声、入力デバイス、または音声ファイルをIcecastへOgg Opusで配信するためのアプリです。
+SurroundStreamer sends audio from macOS app audio, input devices, or audio files to Icecast as Ogg Opus streams.
 
 ### Basic Screen
 
 ![Main screen](docs/manual-assets/overview.png)
 
-画面は主に以下の領域で構成されています。
+The main screen is organized into these areas:
 
-- `Input Source`: 配信元を選択します。
-- `Monitor Output`: 配信前または配信中のモニター出力を設定します。
-- `Encoding Settings`: ビットレート、サンプルレート、チャンネルテンプレートを設定します。
-- `Icecast Settings`: Icecast接続先を設定します。
-- `START STREAM` / `STOP STREAM`: 配信を開始・停止します。
-- `Logs`: 接続状況やエラーを確認します。
+- `Input Source`: Selects the streaming source.
+- `Monitor Output`: Configures monitor playback before or during streaming.
+- `Encoding Settings`: Configures bitrate, sample rate, and channel templates.
+- `Icecast Settings`: Configures the Icecast connection.
+- `START STREAM` / `STOP STREAM`: Starts or stops the stream.
+- `Logs`: Shows connection status and error messages.
 
 ### First-Run Settings
 
-初回起動時のIcecast設定は以下です。
+The first-run Icecast defaults are:
 
-- Host: 空欄
+- Host: empty
 - Port: `8000`
 - Mount Point: `/stream`
-- Password: 空欄
+- Password: empty
 
-Icecast設定は編集すると保存され、次回起動時に復元されます。すでに保存済みの環境では、初期値ではなく保存値が優先されます。
+Icecast settings are saved after editing and restored on the next launch. If settings are already saved, the saved values are used instead of the first-run defaults.
 
 ### Input Sources
 
 #### App Audio
 
-他のアプリケーションから出ている音声を配信する場合に使います。
+Use App Audio when streaming audio from another application.
 
-1. `Input Source` で `App Audio` を選択します。
-2. `App` で対象アプリを選びます。
-3. `App Output Capture Source` で、対象アプリが出力しているデバイス/ストリームを選びます。
-4. 必要に応じて `Refresh` で一覧を更新します。
+1. Select `App Audio` in `Input Source`.
+2. Select the target application in `App`.
+3. Select the output device or stream used by that app in `App Output Capture Source`.
+4. Use `Refresh` if the app or output capture source list needs to be updated.
 
-5.1などの多チャンネル音声を扱う場合は、対象アプリが多チャンネル出力している出力ストリームを選んでください。
+For multichannel sources such as 5.1 audio, select the output stream where the target app is actually sending multichannel audio.
 
 #### File
 
-音声ファイルを再生しながら配信する場合に使います。
+Use File when streaming audio from a selected audio file.
 
 ![File source](docs/manual-assets/file-source.png)
 
-1. `Input Source` で `File` を選択します。
-2. `Browse` で音声ファイルを選びます。
-3. 繰り返し再生したい場合は `Loop` を有効にします。
-4. ファイルのチャンネル数に応じて `Stream Channel Template` を選びます。
+1. Select `File` in `Input Source`.
+2. Select an audio file with `Browse`.
+3. Enable `Loop` if repeated playback is needed.
+4. Select a `Stream Channel Template` that matches the file channel layout.
 
-Fileソースでは、ファイルを選択して再生できる状態にしないとMonitor Outputの意味がありません。
+For File source, Monitor Output is useful only after a playable file has been selected.
 
 #### Input Device
 
-オーディオインターフェイス、仮想入力、マイク入力などを配信する場合に使います。
+Use Input Device when streaming from an audio interface, virtual input, or microphone input.
 
 ![Input device source](docs/manual-assets/device-source.png)
 
-1. `Input Source` で `Input Device` を選択します。
-2. `Input Device` で使用する入力デバイスを選びます。
-3. 必要に応じて `Refresh` でデバイス一覧を更新します。
+1. Select `Input Device` in `Input Source`.
+2. Select the input device in `Input Device`.
+3. Use `Refresh` if the device list needs to be updated.
 
-Input Deviceソースでは、現状Monitor Outputは無効化されます。入力デバイスのモニター処理は配信経路と切り離して安定化する必要があるためです。
+Monitor Output is currently disabled for Input Device source. Input-device monitoring still needs to be stabilized separately from the streaming path.
 
-macOSで入力デバイスを使う場合は、アプリにマイク権限が必要です。配信できない場合は、macOSのプライバシー設定でSurroundStreamer betaにマイク権限があるか確認してください。
+On macOS, input-device streaming requires microphone permission. If streaming does not capture input audio, confirm that macOS Privacy settings allow microphone access for SurroundStreamer or SurroundStreamer beta.
 
 ### Encoding Settings
 
-`Encoding Settings` では、配信フォーマットを設定します。
+`Encoding Settings` controls the stream format.
 
-- `Bitrate (Stereo Equivalent)`: ステレオ換算のビットレートです。実際のビットレートは選択チャンネル数に応じて増えます。
-- `Sample Rate`: Opus配信用のサンプルレートです。標準は48 kHzです。
-- `Stream Channel Template`: 配信チャンネル構成を選択します。
-- `Stream Channels`: 実際に配信へ載せるチャンネルを選択します。
+- `Bitrate (Stereo Equivalent)`: Bitrate expressed as a stereo-equivalent value. The actual bitrate increases with the selected channel count.
+- `Sample Rate`: Opus stream sample rate. The default is 48 kHz.
+- `Stream Channel Template`: Selects the stream channel layout.
+- `Stream Channels`: Selects the channels included in the stream.
 
-標準テンプレートは `Mono`, `Stereo`, `Stereo + C`, `5.1`, `7.1` です。多チャンネルソースでは、まず `5.1` を標準として使う想定です。
+Standard templates are `Mono`, `Stereo`, `Stereo + C`, `5.1`, and `7.1`. For multichannel sources, `5.1` is the default practical starting point.
 
 ### Monitor Output
 
-Monitor Outputは、配信前または配信中に音を確認するための機能です。
+Monitor Output is used to check audio before or during streaming.
 
-- `Enable monitor output`: モニター出力を有効化します。
-- `Output Device`: モニター先の出力デバイスを選びます。
-- `Monitor Mode`: モニター方式を選びます。
-- `Monitor Buffer`: モニター出力のバッファを選びます。
-- `Monitor Source`: Stereo Pair時にモニターするチャンネルペアを選びます。
-- `Monitor Volume`: モニター出力だけにかかる音量です。
+- `Enable monitor output`: Enables monitor playback.
+- `Output Device`: Selects the monitor output device.
+- `Monitor Mode`: Selects the monitor processing mode.
+- `Monitor Buffer`: Selects the monitor output buffer.
+- `Monitor Source`: Selects the channel pair used in Stereo Pair mode.
+- `Monitor Volume`: Controls only the monitor output level.
 
-Monitor Modeは以下です。
+Monitor modes:
 
-- `Stereo Pair`: 指定した2chをそのままモニターします。
-- `Stereo Downmix`: 多チャンネルをステレオへダウンミックスします。
-- `KU100 Near-field HRTF`: KU100近距離HRTFでバイノーラル化します。
+- `Stereo Pair`: Monitors the selected two-channel pair directly.
+- `Stereo Downmix`: Downmixes multichannel audio to stereo.
+- `KU100 Near-field HRTF`: Renders a binaural monitor signal using KU100 near-field HRIR data.
 
-Monitor Volumeはモニターモードごとの処理の後にかかります。配信音声そのものには影響しません。
+Monitor Volume is applied after the selected monitor mode processing. It does not affect the streamed audio.
 
 ### Icecast Settings
 
-`Icecast Settings` には接続先を入力します。
+`Icecast Settings` configures the streaming destination.
 
-- `Host`: Icecastサーバーのホスト名またはIPアドレス
-- `Port`: Icecastポート
-- `Mount Point`: 配信マウント。例: `/stream`
-- `Password`: source接続用パスワード
+- `Host`: Icecast server host name or IP address
+- `Port`: Icecast port
+- `Mount Point`: Stream mount point, for example `/stream`
+- `Password`: Source password
 
-Mount Pointは `/stream` のように先頭に `/` を付けてください。入力時に `/` が無い場合は、保存時に補正されます。
+Mount Point should start with `/`, such as `/stream`. If the leading `/` is missing, the app normalizes it when saving.
 
 ### Starting And Stopping
 
 ![Live locked state](docs/manual-assets/live-lock.png)
 
-配信を始めるには `START STREAM` を押します。
+Click `START STREAM` to start streaming.
 
-配信中は誤操作を避けるため、以下は編集できません。
+While streaming, the following controls are locked to prevent accidental changes:
 
 - `Input Source`
 - `Encoding Settings`
 - `Icecast Settings`
 
-配信を止めるには `STOP STREAM` を押します。アプリ左上の閉じるボタンでウィンドウを閉じた場合も、アプリ終了として扱い、裏で動いている配信プロセスを停止します。
+Click `STOP STREAM` to stop streaming. Closing the window with the macOS close button also quits the app and stops any streaming processes running in the background.
 
 ### Stream Playback Check
 
-配信先に音声が届いているか確認する場合は、以下のWebプレーヤーを使えます。
+Use the following web player to confirm that audio is reaching the streaming destination:
 
 https://non-rem.com/SurroundWebPlayer/
 
-IcecastのHost、Port、Mount Pointを入力して再生し、プレーヤー側でバッファ中のまま止まる場合は `Logs` とIcecast側のマウント状態を確認してください。
+Enter the Icecast Streaming URL and start playback. If the player remains buffering, check `Logs` in SurroundStreamer and confirm the mount state on the Icecast server. This web player is an external verification page and is not bundled with the app.
 
 ### Troubleshooting
 
-Icecastに接続できない場合:
+If Icecast connection fails:
 
-- Host、Port、Mount Point、Passwordを確認してください。
-- `403 Forbidden` が出る場合は、パスワード、接続ユーザー、マウント、またはIcecast側の権限設定を確認してください。
-- Passwordに `@` が含まれていても、アプリ側でURLエンコードします。
+- Confirm Host, Port, Mount Point, and Password.
+- If `403 Forbidden` appears, check the password, source user, mount point, and Icecast server permissions.
+- Passwords containing `@` are URL-encoded by the app.
 
-プレーヤー側がバッファ中のままになる場合:
+If the player remains buffering:
 
-- Icecastサーバー側で該当マウントが作成されているか確認してください。
-- LogsでFFmpegが起動直後に終了していないか確認してください。
-- 入力デバイスを使う場合は、macOSのマイク権限が有効か確認してください。
+- Confirm that the Icecast server created the expected mount point.
+- Check `Logs` to see whether FFmpeg exits immediately after startup.
+- For Input Device source, confirm that macOS microphone permission is enabled.
 
-Input Deviceで音が乗らない場合:
+If Input Device source has no audio:
 
-- 入力デバイスが実際に信号を受けているか確認してください。
-- ループバック/仮想デバイスを使っている場合、意図せずシステム出力も混ざることがあります。
-- macOSのマイク権限を確認してください。
+- Confirm that the selected input device is receiving signal.
+- If using a loopback or virtual device, confirm that the routing is not unintentionally mixing system output into the input.
+- Confirm macOS microphone permission.
 
-Monitor Outputが使えない場合:
+If Monitor Output is unavailable:
 
-- Input DeviceソースではMonitor Outputは無効化されます。
-- App AudioまたはFileソースで確認してください。
-- Output Deviceを変更した場合は、必要に応じて `Refresh Monitor Devices` を押してください。
+- Monitor Output is disabled for Input Device source.
+- Use App Audio or File source for monitor output.
+- If the output device list changes, use `Refresh Monitor Devices`.
 
 ## Development
 
@@ -199,6 +201,14 @@ macOS is the primary supported build target. Windows and Linux packaging notes a
 
 `test_streamconfig.txt` is a local convenience note for stream testing. Treat it as sensitive operational data and do not publish it.
 
+## License
+
+SurroundStreamer is released under the MIT License. See [LICENSE](LICENSE).
+
+The MIT License is a permissive open-source license that allows commercial use, private use, modification, distribution, and sublicensing, while requiring preservation of copyright and license notices.
+
+Third-party materials remain under their own licenses. In particular, the bundled KU100 near-field HRIR extraction is CC BY 4.0 and requires attribution.
+
 ## Repository Documents
 
 - `docs/implementation_plan.md`: project history, architecture notes, current plan, and future work
@@ -213,6 +223,7 @@ This application includes a reduced JavaScript extraction from:
 Spherical Near-Field (NF) HRIR Compilation of the Neumann KU100
 
 Authors:
+
 - Johannes M. Arend
 - Annika Neidhardt
 - Christoph Poerschmann
