@@ -7,13 +7,19 @@ This is the primary supported build path for SurroundStreamer.
 - macOS on Apple Silicon
 - Node.js 20 or later
 - npm
-- Xcode Command Line Tools
+- Full Xcode with a macOS SDK that includes Core Audio process tap headers
 - Network access for the first `npm install`
 
-Install Xcode Command Line Tools if needed:
+Install Xcode from the Mac App Store or Apple Developer, then make sure the command line tools are available:
 
 ```bash
 xcode-select --install
+```
+
+If `xcode-select` points at Command Line Tools and the helper build cannot find `AudioHardwareTapping.h`, switch to full Xcode:
+
+```bash
+sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
 ```
 
 ## Install Dependencies

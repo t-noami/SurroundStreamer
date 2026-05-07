@@ -5,7 +5,19 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SOURCE_FILE="$ROOT_DIR/native/audio-tap-helper/Sources/AudioTapHelper/main.m"
 OUTPUT_DIR="$ROOT_DIR/native/audio-tap-helper/.build"
 OUTPUT_FILE="$OUTPUT_DIR/AudioTapHelper"
-SDKROOT="/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
+XCODE_SDK="/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
+XCRUN_SDK="$(xcrun --sdk macosx --show-sdk-path)"
+TAP_HEADER="System/Library/Frameworks/CoreAudio.framework/Headers/AudioHardwareTapping.h"
+
+if [[ -f "$XCODE_SDK/$TAP_HEADER" ]]; then
+  SDKROOT="$XCODE_SDK"
+elif [[ -f "$XCRUN_SDK/$TAP_HEADER" ]]; then
+  SDKROOT="$XCRUN_SDK"
+else
+  echo "AudioHardwareTapping.h was not found in the active macOS SDK." >&2
+  echo "Install full Xcode with a macOS SDK that includes Core Audio process tap headers." >&2
+  exit 1
+fi
 
 mkdir -p "$OUTPUT_DIR"
 
