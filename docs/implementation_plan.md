@@ -23,7 +23,7 @@ The current public-facing release line is `v0.1.0`.
   - `docs/releases/v0.1.0-beta.1.md`
 - Release status:
   - The current beta implementation is promoted to the regular `0.1.0` build line.
-  - Regular macOS release artifact target: `dist/surround-streamer-0.1.0.dmg`.
+  - Regular macOS release artifact target: `dist/SurroundStreamer-0.1.0.dmg`.
   - Previous beta GitHub Release exists as a draft prerelease for `v0.1.0-beta.1`.
 - Removed from Git tracking:
   - `legacy/`
@@ -220,7 +220,7 @@ Important outputs:
 
 ```text
 dist/mac-arm64/SurroundStreamer.app
-dist/surround-streamer-0.1.0.dmg
+dist/SurroundStreamer-0.1.0.dmg
 ```
 
 Current release build status:
@@ -272,7 +272,7 @@ For regular macOS releases:
 4. Verify the DMG exists:
 
    ```bash
-   ls -lh dist/surround-streamer-0.1.0.dmg
+   ls -lh dist/SurroundStreamer-0.1.0.dmg
    ```
 
 5. Update release notes under `docs/releases/`.
@@ -290,7 +290,7 @@ Current release target:
 
 - Tag: `v0.1.0`
 - Title: `SurroundStreamer v0.1.0`
-- Artifact: `dist/surround-streamer-0.1.0.dmg`
+- Artifact: `dist/SurroundStreamer-0.1.0.dmg`
 
 ## Roadmap
 

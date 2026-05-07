@@ -36,7 +36,7 @@ mac:
     NSDownloadsFolderUsageDescription: SurroundStreamer needs access to selected audio files.
   notarize: false
 dmg:
-  artifactName: ${name}-${version}.${ext}
+  artifactName: ${productName}-${version}.${ext}
 linux:
   target:
     - AppImage

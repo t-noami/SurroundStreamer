@@ -64,7 +64,7 @@ Outputs:
 
 ```text
 dist/mac-arm64/SurroundStreamer.app
-dist/surround-streamer-0.1.0.dmg
+dist/SurroundStreamer-0.1.0.dmg
 ```
 
 ## Build Beta App
