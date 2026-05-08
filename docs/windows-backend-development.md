@@ -21,11 +21,12 @@ Current Windows status:
 
 - Official Windows release: not available.
 - Windows beta packaging script exists: `npm run build:beta:win`
-- `process.platform === 'win32'` now selects a Windows backend in `src/main/audio-backends/windows-dshow.js`.
+- `process.platform === 'win32'` now selects `src/main/audio-backends/windows-wasapi.js`.
 - File source is the first Windows validation target.
-- App Audio capture is not implemented on Windows.
+- App Audio capture uses a native WASAPI Process Loopback helper when built.
+- Windows App Audio support intentionally requires Windows 10 Build 20348 or later.
 - Input Device capture has an experimental DirectShow/FFmpeg backend for early Windows validation.
-- Output loopback capture has an experimental DirectShow loopback-device bridge when Windows exposes a loopback-like input such as Stereo Mix or a virtual loopback device.
+- The earlier DirectShow loopback-device bridge remains a development reference, but the selected backend targets true per-process capture through WASAPI.
 - Preserve-surround App Audio capture is not implemented on Windows.
 
 ## Do Not Break macOS
@@ -70,6 +71,7 @@ Suggested files:
 
 ```text
 src/main/audio-backends/windows-dshow.js
+src/main/audio-backends/windows-wasapi.js
 src/main/audio-backends/windows/
   windows-backend-helper.js
 
@@ -97,7 +99,7 @@ spawnAppAudioPCMStream(pid, options)
 spawnInputDevicePCMStream(options)
 ```
 
-It is acceptable for early Windows work to return unsupported App Audio and Input Device capabilities while File source validation is being completed.
+It is acceptable for early Windows work to return unsupported App Audio capabilities when the native helper executable has not been built yet.
 
 ## Capability Rules
 
@@ -127,21 +129,22 @@ File-only Windows beta capabilities looked like this:
 
 Only change a flag to `true` after the feature is implemented and tested on Windows.
 
-The current experimental DirectShow input backend reports:
+The selected Windows WASAPI backend reports App Audio support only when the native helper exists:
 
 ```js
 {
   platform: 'win32',
-  backendName: 'windows-dshow-input',
+  backendName: 'windows-wasapi-process-loopback',
   appAudioCapture: true,
-  appAudioPerProcess: false,
+  appAudioPerProcess: true,
   appAudioSurroundPreserve: false,
   inputDeviceCapture: true,
   inputDeviceMonitor: true,
   fileSource: true,
   monitorPlayback: true,
   monitorDeviceEnumeration: false,
-  outputLoopbackCapture: true
+  outputLoopbackCapture: false,
+  minimumWindowsBuild: 20348
 }
 ```
 
@@ -315,14 +318,23 @@ Exit criteria:
 
 ### Stage 4: Windows Per-Process Capture Research
 
-Goal: evaluate newer Windows process loopback APIs.
+Goal: implement and validate newer Windows process loopback APIs.
 
 Likely API area:
 
-- Windows process loopback activation
+- `ActivateAudioInterfaceAsync`
+- `VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK`
+- `AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK`
+- `AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS`
 - Audio Session APIs
 
-This is research. Do not promise macOS parity until real tests prove:
+Current bootstrap:
+
+- `native/audio-backends/windows/src/main.cpp` streams WASAPI Process Loopback as Float32 PCM.
+- `src/main/audio-backends/windows-wasapi.js` lists windowed processes and spawns the helper for selected PIDs.
+- `scripts/build-windows-audio-helper.ps1` builds `SurroundAudioBackend.exe` with Visual Studio C++ tools.
+
+Do not promise macOS parity until real tests prove:
 
 - target process selection works,
 - process tree inclusion/exclusion behaves correctly,
@@ -373,6 +385,7 @@ On Windows after Windows changes:
 
 ```powershell
 npm install
+npm run build:audio-helper:win
 npm run build
 npm run build:beta:win
 ```

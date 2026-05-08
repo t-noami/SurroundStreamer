@@ -69,7 +69,7 @@ Last updated: 2026-05-08
 - [x] Add a user-visible About/License screen for MIT and third-party notices.
 - [ ] Decide whether to notarize macOS public releases.
 - [ ] Add a platform support matrix to the app UI if Windows/Linux builds are attempted.
-- [ ] Investigate a Windows audio backend, likely WASAPI loopback for App Audio.
+- [x] Investigate and start a Windows WASAPI Process Loopback backend for App Audio.
 - [ ] Investigate a Linux audio backend, likely PipeWire or PulseAudio monitor sources.
 - [ ] Investigate optional MP3 stereo streaming for transitional compatibility.
 - [ ] Investigate optional Ogg Vorbis multichannel streaming up to 7.1.
@@ -114,8 +114,9 @@ Branch: `beta/cross-platform-backend`
 - [ ] Validate `windows-dshow-input` capabilities in the Windows beta app.
 - [x] Smoke-test Windows Input Device streaming to Icecast.
 - [x] Smoke-test Windows Input Device Monitor Output.
-- [ ] Validate Windows DirectShow output loopback candidates in App Audio UI.
-- [ ] Smoke-test Windows DirectShow output loopback streaming to Icecast.
+- [x] Add Windows WASAPI Process Loopback helper source and JS backend wiring.
+- [ ] Build Windows WASAPI helper with Visual Studio C++ tools.
+- [ ] Smoke-test Windows WASAPI Process Loopback App Audio streaming to Icecast.
 - [x] Add Windows backend development guide for Windows-side contributors.
 - [x] Document macOS-safe files, Windows-owned files, and required cross-platform checks.
 - [x] Document native low-latency monitor as an optional backend capability.

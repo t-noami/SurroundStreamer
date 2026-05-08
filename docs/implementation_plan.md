@@ -287,9 +287,8 @@ Candidate APIs:
 Initial target:
 
 - File-only Windows beta validation first.
-- Input-device capture second.
-- Output-device loopback third.
-- Per-app/process capture is a separate research task after basic Windows capture stability is proven.
+- Input-device capture second. The current bridge uses FFmpeg DirectShow and has passed initial user validation.
+- Per-app/process capture third. The current bootstrap uses WASAPI Process Loopback and intentionally requires Windows 10 Build 20348 or later.
 - Native low-latency monitor playback is not part of the first Windows backend target.
 
 Risks:
@@ -381,10 +380,11 @@ Exit criteria:
 
 - The stable `0.1.0` build is macOS-first.
 - Windows/Linux builds are not release-ready.
-- Windows currently has an experimental DirectShow input-device bridge, but no production WASAPI/native capture backend.
-- Windows DirectShow loopback support is only a bridge for loopback-like input devices exposed by the host, not true per-app capture.
-- Windows/Linux App Audio capture is not implemented.
-- Windows/Linux Input Device capture is not implemented.
+- Windows currently has an experimental DirectShow input-device bridge and a WASAPI Process Loopback helper source for App Audio.
+- Windows App Audio requires Windows 10 Build 20348 or later and a built native helper executable.
+- Windows DirectShow loopback support is only a development bridge for loopback-like input devices exposed by the host, not the selected App Audio path.
+- Linux App Audio capture is not implemented.
+- Linux Input Device capture is not implemented.
 - Windows/Linux monitor device enumeration is not implemented.
 - 7.1.2 and 7.1.4 remain research-only.
 - Input Device monitor output remains disabled in the current macOS product behavior, but is experimentally enabled for the Windows DirectShow backend.
@@ -399,9 +399,8 @@ Exit criteria:
 
 ## Immediate Next Tasks
 
-1. Validate `windows-dshow-input` on a real Windows beta build.
-2. Verify File source streaming and monitor playback on Windows.
-3. Smoke-test Windows Input Device streaming to Icecast.
-4. Smoke-test Windows Input Device Monitor Output.
-5. Smoke-test macOS behavior after shared backend changes.
-6. Start production Windows WASAPI/helper research after DirectShow input validation.
+1. Build `native/audio-backends/windows/.build/SurroundAudioBackend.exe`.
+2. Smoke-test Windows WASAPI Process Loopback App Audio streaming to Icecast.
+3. Smoke-test Windows App Audio Monitor Output.
+4. Smoke-test macOS behavior after shared backend changes.
+5. Decide whether Windows needs native WASAPI input-device capture after DirectShow validation.

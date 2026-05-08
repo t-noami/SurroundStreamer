@@ -29,7 +29,8 @@
     "build:beta:win": "npm run build && electron-builder --win --config electron-builder.beta.yml",
     "build:beta:linux": "npm run build && electron-builder --linux --config electron-builder.beta.yml",
     "build:linux": "npm run build && electron-builder --linux",
-    "build:audio-helper": "bash scripts/build-audio-tap-helper.sh"
+    "build:audio-helper": "bash scripts/build-audio-tap-helper.sh",
+    "build:audio-helper:win": "powershell -ExecutionPolicy Bypass -File scripts/build-windows-audio-helper.ps1"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",

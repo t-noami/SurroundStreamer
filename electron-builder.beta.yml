@@ -20,6 +20,7 @@ files:
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml,test_streamconfig.txt}'
 asarUnpack:
   - resources/**
+  - native/audio-backends/windows/.build/**
 mac:
   category: public.app-category.music
   entitlements: build/entitlements.mac.plist

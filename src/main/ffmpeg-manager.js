@@ -1046,6 +1046,8 @@ class FFmpegManager extends EventEmitter {
     return {
       deviceUID: config.appAudioDeviceUID,
       streamIndex: Number(config.appAudioStreamIndex),
+      sampleRate: this.getAppAudioSampleRate(config),
+      channels: this.getAppAudioChannels(config),
       bufferFrames: this.shouldUseLowLatencyMonitor(config) ? 128 : undefined
     }
   }
