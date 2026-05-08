@@ -54,7 +54,7 @@ The current practical target is macOS because the audio capture path depends on 
 ## Important Notes
 
 - App Audio capture depends on Apple's Core Audio Process Tap API. If the app is launched on macOS older than 14.2, App Audio and App Audio monitor preview are not expected to work.
-- Input Device source currently disables Monitor Output controls. This keeps the streaming path stable while input-device monitoring remains separate from the production path.
+- Input Device source currently disables Monitor Output controls on the stable macOS build. The Windows beta branch experimentally enables Input Device Monitor Output through the DirectShow backend.
 - Opus output is constrained to supported sample rates. 44.1 kHz and 96 kHz sources are converted to 48 kHz for stream output.
 - 7.1.2 and 7.1.4 are not part of the standard build. The current production target is up to 7.1 because that maps cleanly to common Opus channel mapping support.
 - KU100 near-field HRIR data is included under CC BY 4.0. Attribution is listed below.
@@ -125,7 +125,7 @@ Use Input Device when streaming from an audio interface, virtual input, or micro
 2. Select the input device in `Input Device`.
 3. Use `Refresh` if the device list needs to be updated.
 
-Monitor Output is currently disabled for Input Device source. Input-device monitoring still needs to be stabilized separately from the streaming path.
+Monitor Output is currently disabled for Input Device source on the stable macOS build. On the Windows beta branch, Input Device Monitor Output is available experimentally through the DirectShow backend and still needs real-device validation.
 
 On macOS, input-device streaming requires microphone permission. If streaming does not capture input audio, confirm that macOS Privacy settings allow microphone access for SurroundStreamer.
 
@@ -214,7 +214,7 @@ If Input Device source has no audio:
 
 If Monitor Output is unavailable:
 
-- Monitor Output is disabled for Input Device source.
+- Monitor Output is disabled for Input Device source on the stable macOS build.
 - Use App Audio or File source for monitor output.
 - If the output device list changes, use `Refresh Monitor Devices`.
 

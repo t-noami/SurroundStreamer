@@ -136,7 +136,7 @@ The current experimental DirectShow input backend reports:
   appAudioPerProcess: false,
   appAudioSurroundPreserve: false,
   inputDeviceCapture: true,
-  inputDeviceMonitor: false,
+  inputDeviceMonitor: true,
   fileSource: true,
   monitorPlayback: true,
   monitorDeviceEnumeration: false,
@@ -267,11 +267,12 @@ Tasks:
 - Feed Float32 PCM to stdout.
 - Update capabilities:
   - `inputDeviceCapture: true` for the experimental DirectShow path
-  - keep `inputDeviceMonitor: false` unless specifically implemented
+  - `inputDeviceMonitor: true` for the experimental DirectShow preview path
 
 Exit criteria:
 
 - Input Device stream reaches Icecast.
+- Input Device monitor preview starts and stops without leaving FFmpeg running.
 - Audio does not speed up, slow down, or repeatedly buffer.
 - macOS App Audio and Input Device still build and smoke-test.
 

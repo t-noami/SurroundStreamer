@@ -62,7 +62,7 @@ class WindowsDshowBackend {
       appAudioPerProcess: false,
       appAudioSurroundPreserve: false,
       inputDeviceCapture: true,
-      inputDeviceMonitor: false,
+      inputDeviceMonitor: true,
       fileSource: true,
       monitorPlayback: true,
       monitorDeviceEnumeration: false,

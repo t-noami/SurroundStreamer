@@ -386,7 +386,7 @@ Exit criteria:
 - Windows/Linux Input Device capture is not implemented.
 - Windows/Linux monitor device enumeration is not implemented.
 - 7.1.2 and 7.1.4 remain research-only.
-- Input Device monitor output remains disabled in the current product behavior.
+- Input Device monitor output remains disabled in the current macOS product behavior, but is experimentally enabled for the Windows DirectShow backend.
 - macOS release is ad-hoc signed and not notarized.
 
 ## Documentation Tasks
@@ -401,5 +401,6 @@ Exit criteria:
 1. Validate `windows-dshow-input` on a real Windows beta build.
 2. Verify File source streaming and monitor playback on Windows.
 3. Smoke-test Windows Input Device streaming to Icecast.
-4. Smoke-test macOS behavior after shared backend changes.
-5. Start production Windows WASAPI/helper research after DirectShow input validation.
+4. Smoke-test Windows Input Device Monitor Output.
+5. Smoke-test macOS behavior after shared backend changes.
+6. Start production Windows WASAPI/helper research after DirectShow input validation.

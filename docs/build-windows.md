@@ -12,6 +12,7 @@ Do not treat `npm run build:win` or `npm run build:beta:win` as a supported publ
 - Windows beta branch backend: experimental DirectShow input backend added as `windows-dshow-input`.
 - App Audio capture: not implemented on Windows.
 - Input Device capture: experimental FFmpeg DirectShow path is available for validation.
+- Input Device Monitor Output: experimental FFmpeg DirectShow preview path is available for validation.
 - Preserve-surround app capture: not implemented on Windows.
 - File source support: first practical Windows target, but not yet validated as a release build.
 - Local beta packaging: `npm run build:beta:win` has produced `dist/beta/SurroundStreamer-beta-0.1.1-setup.exe` on Windows.
