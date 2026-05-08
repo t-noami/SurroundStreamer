@@ -972,9 +972,10 @@ class FFmpegManager extends EventEmitter {
     }
 
     const channelSelection = this.getChannelSelection(config, outputChannels)
+    const inputChannels = this.getPreEncodeInputChannels(config, channelSelection, outputChannels)
     const needsPan = channelSelection.some(
       (sourceIndex, outputIndex) => sourceIndex !== outputIndex
-    )
+    ) || inputChannels !== outputChannels
 
     if (needsPan) {
       const layout = this.channelLayoutFor(outputChannels, config) || `${outputChannels}c`
@@ -985,6 +986,24 @@ class FFmpegManager extends EventEmitter {
     }
 
     return filters
+  }
+
+  getPreEncodeInputChannels(config, channelSelection = [], fallbackChannels = 2) {
+    let channels = 0
+    if (config?.inputType === 'app-audio') {
+      channels = this.getAppAudioChannels(config)
+    } else if (config?.inputType === 'device') {
+      channels = this.getDeviceInputChannels(config)
+    } else {
+      const explicit = Number(config?.inputChannels)
+      if (Number.isInteger(explicit) && explicit > 0) {
+        channels = explicit
+      }
+    }
+
+    const selectedExtent =
+      channelSelection.length > 0 ? Math.max(...channelSelection) + 1 : 0
+    return Math.max(1, channels || selectedExtent || fallbackChannels)
   }
 
   buildMeterFilters(outputChannels, sampleRate = 48000) {
