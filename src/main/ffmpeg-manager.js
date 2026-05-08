@@ -249,6 +249,8 @@ class FFmpegManager extends EventEmitter {
       if (parsed?.event === 'format') {
         const nextFormat = {
           mode: config.monitorMode || 'stereo-pair',
+          latencyMs: this.getMonitorLatencyMs(config),
+          lowLatency: this.shouldUseLowLatencyMonitor(config),
           sampleRate: parsed.sampleRate || this.getAppAudioSampleRate(config),
           channels: parsed.channels || this.getAppAudioChannels(config)
         }
@@ -445,6 +447,8 @@ class FFmpegManager extends EventEmitter {
       if (parsed?.event === 'format') {
         const nextFormat = {
           mode: config.monitorMode || 'stereo-pair',
+          latencyMs: this.getMonitorLatencyMs(config),
+          lowLatency: this.shouldUseLowLatencyMonitor(config),
           sampleRate: parsed.sampleRate || this.getAppAudioSampleRate(config),
           channels: parsed.channels || this.getAppAudioChannels(config)
         }
@@ -507,6 +511,8 @@ class FFmpegManager extends EventEmitter {
     const layout = this.channelLayoutFor(channels, config)
     this.monitorFormat = {
       mode: config.monitorMode || 'stereo-pair',
+      latencyMs: this.getMonitorLatencyMs(config),
+      lowLatency: this.shouldUseLowLatencyMonitor(config),
       sampleRate,
       channels
     }
@@ -598,6 +604,8 @@ class FFmpegManager extends EventEmitter {
     const channels = inputChannels
     this.monitorFormat = {
       mode: config.monitorMode || 'stereo-pair',
+      latencyMs: this.getMonitorLatencyMs(config),
+      lowLatency: this.shouldUseLowLatencyMonitor(config),
       sampleRate,
       channels
     }
@@ -629,6 +637,8 @@ class FFmpegManager extends EventEmitter {
       if (parsed?.event === 'format') {
         const nextFormat = {
           mode: config.monitorMode || 'stereo-pair',
+          latencyMs: this.getMonitorLatencyMs(config),
+          lowLatency: this.shouldUseLowLatencyMonitor(config),
           sampleRate: parsed.sampleRate || sampleRate,
           channels: parsed.channels || channels
         }
@@ -1000,12 +1010,24 @@ class FFmpegManager extends EventEmitter {
         : this.getOutputChannels(config)
     return {
       mode: config.monitorMode || 'stereo-pair',
+      latencyMs: this.getMonitorLatencyMs(config),
+      lowLatency: this.shouldUseLowLatencyMonitor(config),
       sampleRate:
         config?.inputType === 'app-audio'
           ? this.getAppAudioSampleRate(config)
           : this.getOutputSampleRate(config),
       channels: this.getMonitorChannels(config, outputChannels)
     }
+  }
+
+  getMonitorLatencyMs(config) {
+    const latency = Number(config?.monitorLatencyMs || 80)
+    if (!Number.isFinite(latency)) return 80
+    return Math.max(5, Math.min(500, latency))
+  }
+
+  shouldUseLowLatencyMonitor(config) {
+    return !!config?.monitorLowLatency
   }
 
   shouldUseFfmpegMonitor(config) {
@@ -1023,7 +1045,8 @@ class FFmpegManager extends EventEmitter {
 
     return {
       deviceUID: config.appAudioDeviceUID,
-      streamIndex: Number(config.appAudioStreamIndex)
+      streamIndex: Number(config.appAudioStreamIndex),
+      bufferFrames: this.shouldUseLowLatencyMonitor(config) ? 128 : undefined
     }
   }
 
@@ -1201,10 +1224,11 @@ class FFmpegManager extends EventEmitter {
     }
 
     if (!this.monitorAudioFlushTimer) {
+      const flushDelayMs = this.shouldFlushMonitorAudioLowLatency() ? 2 : 10
       this.monitorAudioFlushTimer = setTimeout(() => {
         this.monitorAudioFlushTimer = null
         this.flushMonitorAudio()
-      }, 10)
+      }, flushDelayMs)
     }
   }
 
@@ -1250,13 +1274,19 @@ class FFmpegManager extends EventEmitter {
 
   monitorAudioTargetBytes() {
     const sampleRate = Math.max(1, Number(this.monitorFormat?.sampleRate || 48000))
-    const channels = Math.max(1, Number(this.monitorFormat?.channels || 2))
-    return Math.max(4096, Math.floor(sampleRate * channels * 4 * 0.02))
+    const frameBytes = this.monitorAudioFrameBytes()
+    const bufferSeconds = this.shouldFlushMonitorAudioLowLatency() ? 0.005 : 0.02
+    const minFrames = this.shouldFlushMonitorAudioLowLatency() ? 128 : Math.ceil(4096 / frameBytes)
+    return Math.max(frameBytes * minFrames, Math.floor(sampleRate * frameBytes * bufferSeconds))
   }
 
   monitorAudioFrameBytes() {
     const channels = Math.max(1, Number(this.monitorFormat?.channels || 2))
     return channels * 4
+  }
+
+  shouldFlushMonitorAudioLowLatency() {
+    return !!this.monitorFormat?.lowLatency
   }
 
   redactArgs(args) {

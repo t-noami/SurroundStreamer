@@ -338,6 +338,7 @@ function showInputSection(inputType) {
   appAudioInputSection.classList.toggle('hidden', inputType !== 'app-audio')
   updateChannelControls()
   updateMonitorAvailability()
+  applyLowLatencyMonitorDefault()
   if (!(inputType === 'app-audio' && previousInputType !== inputType)) {
     applyMonitorSettings('input')
   }
@@ -561,6 +562,7 @@ function selectedAppAudioStream() {
 function selectedAppAudioMonitorConfig() {
   const pid = appAudioList.value
   const stream = selectedAppAudioStream()
+  const lowLatencyMonitor = shouldUseLowLatencyMonitor('app-audio', monitorMode.value)
 
   return {
     inputType: 'app-audio',
@@ -573,7 +575,8 @@ function selectedAppAudioMonitorConfig() {
     appAudioChannels: stream?.channels || 2,
     monitorMode: monitorMode.value,
     monitorPairStart: Number(monitorSourcePair.value || 0),
-    monitorLatencyMs: Number(monitorLatency.value || 80),
+    monitorLatencyMs: effectiveMonitorLatencyMs('app-audio', monitorMode.value),
+    monitorLowLatency: lowLatencyMonitor,
     monitorVolume: monitorVolumePercent()
   }
 }
@@ -590,6 +593,7 @@ function selectedFileMonitorConfig() {
     monitorMode: monitorMode.value,
     monitorPairStart: Number(monitorSourcePair.value || 0),
     monitorLatencyMs: Number(monitorLatency.value || 80),
+    monitorLowLatency: false,
     monitorVolume: monitorVolumePercent(),
     loopFile: loopFileInput.checked
   }
@@ -608,6 +612,7 @@ function selectedInputDeviceMonitorConfig() {
     monitorMode: monitorMode.value,
     monitorPairStart: Number(monitorSourcePair.value || 0),
     monitorLatencyMs: Number(monitorLatency.value || 80),
+    monitorLowLatency: false,
     monitorVolume: monitorVolumePercent()
   }
 }
@@ -1071,15 +1076,35 @@ function selectedMonitorFormat() {
   const selectedChannels = selectedChannelIndexes()
   const sourceChannels =
     currentMonitorFormat?.channels || selectedChannels.length || defaultChannelCount()
+  const lowLatencyMonitor = shouldUseLowLatencyMonitor(currentInputType, monitorMode.value)
   return {
     mode: monitorMode.value,
     deviceId: monitorDeviceList.value,
     pairStart: Number(monitorSourcePair.value || 0),
-    latencyMs: Number(monitorLatency.value || 80),
+    latencyMs: effectiveMonitorLatencyMs(currentInputType, monitorMode.value),
+    lowLatency: lowLatencyMonitor,
     volume: monitorVolumePercent(),
     sampleRate: currentMonitorFormat?.sampleRate || Number(sampleRateSelect.value),
     channels: sourceChannels,
     channelLabels: selectedTemplateChannelLabels(sourceChannels)
+  }
+}
+
+function shouldUseLowLatencyMonitor(inputType = currentInputType, mode = monitorMode.value) {
+  return inputType === 'app-audio' && mode === 'stereo-pair'
+}
+
+function effectiveMonitorLatencyMs(inputType = currentInputType, mode = monitorMode.value) {
+  const selectedLatency = Number(monitorLatency.value || 80)
+  return shouldUseLowLatencyMonitor(inputType, mode)
+    ? Math.max(5, selectedLatency)
+    : selectedLatency
+}
+
+function applyLowLatencyMonitorDefault() {
+  if (!shouldUseLowLatencyMonitor()) return
+  if (Number(monitorLatency.value || 80) > 5) {
+    monitorLatency.value = '5'
   }
 }
 
@@ -1198,6 +1223,7 @@ async function startInitialMonitor(config, channels) {
     deviceId: config.monitorDeviceId,
     pairStart: format.pairStart,
     latencyMs: format.latencyMs,
+    lowLatency: format.lowLatency,
     sampleRate: format.sampleRate,
     channels: format.channels,
     channelLabels: format.channelLabels,
@@ -1255,7 +1281,8 @@ async function startPreviewMonitor(reason = 'settings') {
     outputDeviceId: monitorDeviceList.value || '',
     monitorMode: config.monitorMode,
     pairStart: config.monitorPairStart,
-    latencyMs: config.monitorLatencyMs
+    latencyMs: config.monitorLatencyMs,
+    lowLatency: config.monitorLowLatency
   })
 
   if (previewMonitorKey === key) {
@@ -1275,6 +1302,7 @@ async function startPreviewMonitor(reason = 'settings') {
       deviceId: monitorDeviceList.value,
       pairStart: format.pairStart,
       latencyMs: format.latencyMs,
+      lowLatency: format.lowLatency,
       sampleRate: format.sampleRate,
       channels: format.channels,
       channelLabels: format.channelLabels,
@@ -1359,6 +1387,7 @@ function initialMonitorFormat(config, streamChannels, sampleRateOverride = null)
     mode: config.monitorMode || 'stereo-pair',
     pairStart: config.monitorPairStart || 0,
     latencyMs: config.monitorLatencyMs || 80,
+    lowLatency: !!config.monitorLowLatency,
     sampleRate:
       sampleRateOverride ||
       (isDirectAppAudioMonitor ? config.appAudioSampleRate || 48000 : config.sampleRate || 48000),
@@ -1403,6 +1432,7 @@ monitorEnabled.addEventListener('change', () => applyMonitorSettings('enabled'))
 monitorDeviceList.addEventListener('change', () => applyMonitorSettings('device'))
 monitorMode.addEventListener('change', () => {
   updateMonitorRoutingControls()
+  applyLowLatencyMonitorDefault()
   applyMonitorSettings('mode')
 })
 monitorSourcePair.addEventListener('change', () => applyMonitorSettings('source'))
@@ -1502,7 +1532,8 @@ btnStart.addEventListener('click', async () => {
     monitorDeviceId: isMonitorAvailable() && monitorEnabled.checked ? monitorDeviceList.value : '',
     monitorMode: monitorMode.value,
     monitorPairStart: Number(monitorSourcePair.value || 0),
-    monitorLatencyMs: Number(monitorLatency.value || 80),
+    monitorLatencyMs: effectiveMonitorLatencyMs(currentInputType, monitorMode.value),
+    monitorLowLatency: shouldUseLowLatencyMonitor(currentInputType, monitorMode.value),
     monitorVolume: monitorVolumePercent(),
     icecastHost: icecastHostInput.value.trim(),
     icecastPort: icecastPortInput.value.trim(),

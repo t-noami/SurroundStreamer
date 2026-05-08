@@ -52,6 +52,7 @@ export class WebAudioMonitor {
     this.channelLabels = DEFAULT_CHANNEL_LABELS.slice(0, 2)
     this.pairStart = 0
     this.latencyMs = 80
+    this.lowLatency = false
     this.volume = 1
     this.outputGain = null
     this.mediaStream = null
@@ -75,7 +76,8 @@ export class WebAudioMonitor {
     this.channelLabels = normalizeChannelLabels(format.channelLabels, this.channels)
     this.deviceId = format.deviceId || ''
     this.pairStart = clampInt(format.pairStart, 0, Math.max(0, this.channels - 1))
-    this.latencyMs = clampInt(format.latencyMs, 20, 500, 80)
+    this.lowLatency = !!format.lowLatency
+    this.latencyMs = clampInt(format.latencyMs, 5, 500, 80)
     this.volume = clampNumber(format.volume, 0, 1, 1)
 
     const sampleRate = Number(format.sampleRate || 48000)
@@ -87,12 +89,17 @@ export class WebAudioMonitor {
       numberOfInputs: 0,
       numberOfOutputs: this.channels,
       outputChannelCount: Array.from({ length: this.channels }, () => 1),
-      processorOptions: { channels: this.channels, latencyMs: this.latencyMs }
+      processorOptions: {
+        channels: this.channels,
+        latencyMs: this.latencyMs,
+        lowLatency: this.lowLatency
+      }
     })
     this.source.port.postMessage({
       type: 'format',
       channels: this.channels,
-      latencyMs: this.latencyMs
+      latencyMs: this.latencyMs,
+      lowLatency: this.lowLatency
     })
 
     this.destination = context.createMediaStreamDestination()
@@ -128,7 +135,8 @@ export class WebAudioMonitor {
     this.channelLabels = normalizeChannelLabels(format.channelLabels, this.channels)
     this.deviceId = format.deviceId || ''
     this.pairStart = clampInt(format.pairStart, 0, Math.max(0, this.channels - 1))
-    this.latencyMs = clampInt(format.latencyMs, 20, 500, 80)
+    this.lowLatency = !!format.lowLatency
+    this.latencyMs = clampInt(format.latencyMs, 5, 500, 80)
     this.volume = clampNumber(format.volume, 0, 1, 1)
     this.mediaStream = mediaStream
 

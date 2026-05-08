@@ -88,16 +88,22 @@ class CoreAudioHelper {
   }
 
   buildStreamArgs(options) {
-    if (!options.deviceUID || options.streamIndex === undefined || options.streamIndex === null) {
-      return []
+    const args = []
+
+    if (options.deviceUID && options.streamIndex !== undefined && options.streamIndex !== null) {
+      args.push(
+        '--device-uid',
+        String(options.deviceUID),
+        '--stream-index',
+        String(options.streamIndex)
+      )
     }
 
-    return [
-      '--device-uid',
-      String(options.deviceUID),
-      '--stream-index',
-      String(options.streamIndex)
-    ]
+    if (options.bufferFrames !== undefined && options.bufferFrames !== null) {
+      args.push('--buffer-frames', String(options.bufferFrames))
+    }
+
+    return args
   }
 
   runHelper(args) {

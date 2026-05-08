@@ -539,6 +539,51 @@ static AudioObjectID createAggregateDevice(NSString *tapUID, NSError **error) {
   return aggregateDeviceID;
 }
 
+static UInt32 clampBufferFrameSize(AudioObjectID deviceID, UInt32 requestedFrames) {
+  if (requestedFrames == 0) {
+    return 0;
+  }
+
+  AudioValueRange frameRange = {0};
+  UInt32 dataSize = sizeof(frameRange);
+  AudioObjectPropertyAddress rangeAddress = addressFor(kAudioDevicePropertyBufferFrameSizeRange);
+  OSStatus status = AudioObjectGetPropertyData(deviceID, &rangeAddress, 0, NULL, &dataSize, &frameRange);
+  if (status != noErr || frameRange.mMinimum <= 0 || frameRange.mMaximum <= 0) {
+    return requestedFrames;
+  }
+
+  Float64 clamped = requestedFrames;
+  if (clamped < frameRange.mMinimum) {
+    clamped = frameRange.mMinimum;
+  }
+  if (clamped > frameRange.mMaximum) {
+    clamped = frameRange.mMaximum;
+  }
+  return (UInt32)clamped;
+}
+
+static void requestDeviceBufferFrameSize(AudioObjectID deviceID, UInt32 requestedFrames) {
+  UInt32 targetFrames = clampBufferFrameSize(deviceID, requestedFrames);
+  if (targetFrames == 0) {
+    return;
+  }
+
+  AudioObjectPropertyAddress bufferAddress = addressFor(kAudioDevicePropertyBufferFrameSize);
+  UInt32 dataSize = sizeof(targetFrames);
+  OSStatus status = AudioObjectSetPropertyData(deviceID, &bufferAddress, 0, NULL, dataSize, &targetFrames);
+  if (status == noErr) {
+    fprintf(stderr,
+            "{\"event\":\"status\",\"message\":\"Requested Core Audio IO buffer: %u frames\"}\n",
+            targetFrames);
+  } else {
+    fprintf(stderr,
+            "{\"event\":\"status\",\"message\":\"Could not set Core Audio IO buffer to %u frames (%s)\"}\n",
+            targetFrames,
+            statusMessage(status).UTF8String);
+  }
+  fflush(stderr);
+}
+
 static OSStatus captureIOProc(AudioObjectID inDevice,
                               const AudioTimeStamp *inNow,
                               const AudioBufferList *inInputData,
@@ -599,7 +644,7 @@ static OSStatus captureIOProc(AudioObjectID inDevice,
   return noErr;
 }
 
-static BOOL streamPCM(pid_t pid, NSString *deviceUID, NSInteger streamIndex, NSError **error) {
+static BOOL streamPCM(pid_t pid, NSString *deviceUID, NSInteger streamIndex, UInt32 requestedBufferFrames, NSError **error) {
   if (@available(macOS 14.2, *)) {
     AudioObjectID processObjectID = translatePIDToProcessObject(pid, error);
     if (processObjectID == kAudioObjectUnknown) {
@@ -632,6 +677,8 @@ static BOOL streamPCM(pid_t pid, NSString *deviceUID, NSInteger streamIndex, NSE
     if (aggregateDeviceID == kAudioObjectUnknown) {
       goto cleanup;
     }
+
+    requestDeviceBufferFrameSize(aggregateDeviceID, requestedBufferFrames);
 
     context.format = format;
     context.scratchBufferSize = 1024 * 1024;
@@ -867,8 +914,9 @@ int main(int argc, const char *argv[]) {
 
       NSString *deviceUID = argumentValue(arguments, @"--device-uid");
       NSInteger streamIndex = argumentIntegerValue(arguments, @"--stream-index", -1);
+      NSInteger bufferFrames = argumentIntegerValue(arguments, @"--buffer-frames", 0);
       setvbuf(stdout, NULL, _IONBF, 0);
-      if (!streamPCM((pid_t)pidString.intValue, deviceUID, streamIndex, &error)) {
+      if (!streamPCM((pid_t)pidString.intValue, deviceUID, streamIndex, (UInt32)MAX(0, bufferFrames), &error)) {
         fprintf(stderr, "{\"event\":\"error\",\"message\":\"%s\"}\n", (error.localizedDescription ?: @"Failed to stream PCM").UTF8String);
         return 1;
       }

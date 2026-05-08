@@ -2,16 +2,20 @@ class PcmMonitorSourceProcessor extends AudioWorkletProcessor {
   constructor(options) {
     super()
     this.channels = Math.max(1, Number(options.processorOptions?.channels || 2))
-    this.latencyMs = clampNumber(options.processorOptions?.latencyMs, 20, 500, 80)
+    this.lowLatency = !!options.processorOptions?.lowLatency
+    this.latencyMs = clampNumber(options.processorOptions?.latencyMs, 5, 500, 80)
     this.queue = []
     this.bufferedFrames = 0
     this.updateBufferLimits()
 
     this.port.onmessage = (event) => {
-      const { type, chunk, channels, latencyMs } = event.data || {}
+      const { type, chunk, channels, latencyMs, lowLatency } = event.data || {}
       if (type === 'format') {
         this.channels = Math.max(1, Number(channels || this.channels))
-        this.latencyMs = clampNumber(latencyMs, 20, 500, this.latencyMs)
+        if (typeof lowLatency === 'boolean') {
+          this.lowLatency = lowLatency
+        }
+        this.latencyMs = clampNumber(latencyMs, 5, 500, this.latencyMs)
         this.updateBufferLimits()
         this.queue = []
         this.bufferedFrames = 0
@@ -41,7 +45,8 @@ class PcmMonitorSourceProcessor extends AudioWorkletProcessor {
 
   updateBufferLimits() {
     this.targetBufferedFrames = Math.max(128, Math.floor((sampleRate * this.latencyMs) / 1000))
-    this.maxBufferedFrames = Math.max(256, this.targetBufferedFrames * 2)
+    const extraFrames = this.lowLatency ? Math.floor(sampleRate * 0.01) : this.targetBufferedFrames
+    this.maxBufferedFrames = Math.max(256, this.targetBufferedFrames + extraFrames)
   }
 
   dropOldestFrames(framesToDrop) {

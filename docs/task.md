@@ -103,7 +103,10 @@ Branch: `beta/cross-platform-backend`
 - [x] Verify `codesign --verify --deep --strict --verbose=2 dist/mac-arm64/SurroundStreamer.app`.
 - [x] Verify `npm run build:beta:win` creates `dist/beta/SurroundStreamer-beta-0.1.1-setup.exe` on Windows.
 - [x] Smoke-launch `dist/beta/win-unpacked/SurroundStreamer-beta-0.1.1.exe` on Windows.
+- [x] Add a low-latency monitor path for App Audio + Stereo Pair.
+- [x] Request a smaller Core Audio IO buffer for App Audio low-latency monitor.
 - [ ] Smoke-test App Audio streaming on the new beta app.
+- [ ] Smoke-test App Audio + Stereo Pair monitor latency on the new beta app.
 - [ ] Smoke-test Input Device streaming on the new beta app.
 - [ ] Smoke-test File source streaming on the new beta app.
 - [ ] Start File-only Windows/Linux packaging validation after macOS behavior is confirmed.
