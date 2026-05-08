@@ -1,3 +1,7 @@
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+
 #include <audioclient.h>
 #if __has_include(<audioclientactivationparams.h>)
 #include <audioclientactivationparams.h>
@@ -72,7 +76,7 @@ class ActivationHandler final : public IActivateAudioInterfaceCompletionHandler,
                                 public IAgileObject {
  public:
   ActivationHandler() { event_ = CreateEventW(nullptr, TRUE, FALSE, nullptr); }
-  ~ActivationHandler() override {
+  ~ActivationHandler() {
     if (event_) CloseHandle(event_);
   }
 
