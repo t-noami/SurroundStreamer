@@ -212,6 +212,7 @@ Build instructions are split by operating system:
 - [Build on macOS](docs/build-macos.md)
 - [Build on Windows](docs/build-windows.md)
 - [Build on Linux](docs/build-linux.md)
+- [Windows / Linux Portability Assessment](docs/windows-linux-portability-assessment.md)
 
 macOS is the primary supported build target. Windows and Linux packaging notes are included for future platform work, but the current audio capture path depends on macOS Core Audio.
 

@@ -1,0 +1,496 @@
+# Windows / Linux Portability Assessment
+
+Created: 2026-05-08
+
+This assessment is tracked in the repository because Windows/Linux support is a significant architecture topic, not a simple packaging task.
+
+## Conclusion
+
+Implementing Windows or Linux support is now a substantial platform-backend project, not a small packaging task.
+
+The current application is structurally macOS-first. The Electron UI and FFmpeg encoding pipeline are mostly reusable, but the important capture and routing features are coupled to macOS Core Audio helper behavior. A Windows or Linux build can likely open the UI and may support File source work after validation, but App Audio, Input Device, device enumeration, and monitor device routing need platform-specific replacements.
+
+Feature parity on Windows or Linux should be treated as difficult.
+
+## What Is Portable
+
+- Renderer UI structure.
+- Icecast configuration and persistence.
+- Ogg Opus FFmpeg output pipeline.
+- Stream channel templates up to 7.1.
+- File source streaming path, because it uses FFmpeg file input.
+- WebAudio-based monitor playback logic in `src/renderer/src/monitor-audio.js`, assuming the runtime supports the required WebAudio APIs.
+- KU100 near-field HRTF renderer data and channel mapping logic.
+
+## Hard macOS Coupling
+
+### Native Core Audio helper
+
+Files:
+
+- `native/audio-tap-helper/Sources/AudioTapHelper/main.m`
+- `scripts/build-audio-tap-helper.sh`
+- `src/main/app-audio-helper.js`
+
+The helper is Objective-C and depends on:
+
+- `CoreAudio/AudioHardware.h`
+- `CoreAudio/AudioHardwareTapping.h`
+- `AudioHardwareCreateProcessTap`
+- private aggregate devices
+- Core Audio device UID and stream index concepts
+
+The build script calls `xcrun clang`, requires a macOS SDK, and explicitly checks for `AudioHardwareTapping.h`. This has no Windows/Linux equivalent.
+
+Current helper responsibilities:
+
+- List app/process capture candidates.
+- List output streams.
+- Capture App Audio PCM.
+- Capture Input Device PCM.
+- Emit raw Float32 PCM to stdout.
+- Emit JSON status/format lines to stderr.
+
+Any Windows/Linux implementation needs a new helper or backend with the same contract.
+
+### App Audio source
+
+Current path:
+
+- Renderer selects App Audio process and output stream.
+- `src/main/app-audio-helper.js` spawns `AudioTapHelper --stream-pcm`.
+- `src/main/ffmpeg-manager.js` reads Float32 PCM from helper stdout.
+- FFmpeg receives `f32le` through `pipe:0`.
+
+This is not just "select another FFmpeg input". The current design expects a per-app/process tap with known channels and sample rate. Windows/Linux need a backend that can either:
+
+- provide equivalent per-app capture, or
+- expose a documented limitation such as output-device loopback only.
+
+Without that backend, App Audio is not functional.
+
+### Input Device source
+
+Current path:
+
+- `src/main/device-scanner.js` uses FFmpeg `avfoundation` to list devices.
+- It then merges Core Audio stream metadata from `AudioTapHelper --list-input-streams`.
+- `src/main/ffmpeg-manager.js` requires `config.inputDeviceUID`.
+- `AudioTapHelper --stream-input-device --device-uid ...` produces Float32 PCM.
+
+This is also macOS-only. Windows/Linux need separate device enumeration and PCM capture.
+
+Important point: Input Device no longer uses direct FFmpeg capture as the main streaming path. It depends on the native helper for stable PCM pacing. That makes porting harder than a simple `ffmpeg -f dshow` or `ffmpeg -f alsa` swap.
+
+### Monitor output device enumeration
+
+Current path:
+
+- `src/main/monitor-scanner.js` uses FFmpeg `audiotoolbox -list_devices`.
+
+`audiotoolbox` is macOS-specific. Windows/Linux need alternative enumeration:
+
+- Windows: likely WASAPI/MMDevice enumeration.
+- Linux: likely PipeWire/PulseAudio/PipeWire portal or ALSA/Pulse sink enumeration.
+
+Renderer monitor playback itself is WebAudio-based, but selecting a specific output device depends on browser/Electron support and permissions. This needs separate validation per platform.
+
+### macOS permissions
+
+Current path:
+
+- `src/main/index.js` uses `systemPreferences.getMediaAccessStatus('microphone')`.
+- `systemPreferences.askForMediaAccess('microphone')`.
+- macOS privacy settings deep link.
+
+This is mostly guarded by `process.platform === 'darwin'`, but equivalent user guidance and permission handling would be needed on Windows/Linux.
+
+## Platform Packaging Is Not Enough
+
+The current package scripts expose:
+
+- `npm run build:win`
+- `npm run build:linux`
+
+But those scripts only package the Electron app. They do not provide platform audio backends.
+
+Additionally, `electron-builder.yml` packages the macOS helper under `mac.extraResources`. There is no Windows/Linux extra resource for an equivalent helper. So even if the app packages, the audio source paths that expect helper behavior will not be complete.
+
+## Likely Windows Path
+
+Minimum viable Windows backend:
+
+- Add `src/main/audio-backends/windows-*`.
+- Implement input-device enumeration and capture.
+- Implement output-device or process/app capture.
+- Replace `avfoundation` and `audiotoolbox` scanner assumptions.
+- Gate unsupported App Audio features until the backend is ready.
+- Package a Windows helper binary if native APIs are required.
+
+Candidate APIs:
+
+- WASAPI loopback for output-device capture.
+- WASAPI input capture for input devices.
+- Windows MMDevice API for device enumeration.
+- Per-process capture may be possible on newer Windows APIs, but should be treated as a separate research task from simple loopback.
+
+Risk:
+
+- Output loopback is easier than true per-app/process capture.
+- Multichannel preservation depends on the selected endpoint format and driver.
+- Device/channel layout naming differs from the current Core Audio stream model.
+- SmartScreen/signing is a release issue separate from implementation.
+
+Rough difficulty:
+
+- File-only Windows build: low to medium, if unsupported sources are disabled cleanly.
+- Basic output-device loopback streaming: medium to high.
+- App-level capture with surround preservation: high.
+- Feature parity with current macOS App Audio behavior: high.
+
+## Likely Linux Path
+
+Minimum viable Linux backend:
+
+- Add `src/main/audio-backends/linux-*`.
+- Implement capture through PipeWire or PulseAudio monitor sources.
+- Implement input-device enumeration/capture.
+- Implement sink/source enumeration for monitor routing.
+- Gate unsupported features per detected backend.
+- Package/declare runtime dependencies.
+
+Candidate APIs:
+
+- PipeWire for modern Linux desktop audio.
+- PulseAudio monitor sources for simpler output loopback.
+- ALSA for low-level input devices, but it is a poor fit for app-level capture.
+
+Risk:
+
+- Linux distributions vary significantly.
+- PipeWire/PulseAudio availability differs.
+- Sandboxed packages such as snap may need plugs/permissions.
+- AppImage depends on host runtime details such as FUSE.
+- True per-app capture is not the same as monitor-source capture.
+- Multichannel routing depends on sink configuration and desktop audio policy.
+
+Rough difficulty:
+
+- File-only Linux build: low to medium, if unsupported sources are disabled cleanly.
+- PulseAudio/PipeWire output loopback streaming: medium.
+- Input-device capture with robust device selection: medium.
+- App-level capture with surround preservation: high.
+- Feature parity with current macOS App Audio behavior: high.
+
+## Architectural Work Needed Before Porting
+
+The main blocker is that platform behavior is currently embedded in specific modules rather than isolated behind a backend interface.
+
+Recommended refactor before Windows/Linux implementation:
+
+1. Create a platform backend boundary.
+
+   Suggested shape:
+
+   ```text
+   src/main/audio-backends/
+     index.js
+     macos-core-audio.js
+     windows-wasapi.js
+     linux-pipewire.js
+     unsupported.js
+   ```
+
+2. Define capability reporting.
+
+   Example:
+
+   ```js
+   {
+     appAudioCapture: true,
+     appAudioPerProcess: true,
+     appAudioSurroundPreserve: true,
+     inputDeviceCapture: true,
+     monitorDeviceEnumeration: true
+   }
+   ```
+
+3. Make renderer UI respond to capabilities.
+
+   Unsupported tabs/options should be disabled with clear labels rather than failing after click.
+
+4. Replace direct calls to:
+
+   - `appAudioHelper.listProcesses`
+   - `appAudioHelper.listOutputStreams`
+   - `appAudioHelper.spawnPCMStream`
+   - `appAudioHelper.spawnInputDevicePCMStream`
+   - FFmpeg `avfoundation`
+   - FFmpeg `audiotoolbox`
+
+   with backend calls.
+
+5. Keep a stable PCM contract into FFmpeg.
+
+   Existing `ffmpeg-manager.js` can remain mostly reusable if each backend emits:
+
+   - raw Float32 PCM stdout/stream
+   - sample rate
+   - channel count
+   - optional channel layout
+   - error/status events
+
+6. Split release support from packaging support.
+
+   Packaging scripts can remain, but README/downloads should keep Windows/Linux as preparing until the backend and user workflows pass real tests.
+
+## Can One Shared Standard Cover macOS / Windows / Linux?
+
+Short answer: not for the full feature set.
+
+There is no single OS-level audio capture standard that provides the same features as the current macOS Core Audio Process Tap path on Windows and Linux. The realistic answer is to create a shared internal contract for SurroundStreamer, then implement one backend per OS behind that contract.
+
+### Candidate shared layers
+
+#### FFmpeg device inputs
+
+FFmpeg looks attractive because it already supports many platform input APIs, but it does not remove platform differences.
+
+Examples:
+
+- macOS: `avfoundation`, `audiotoolbox`
+- Windows: `dshow`, `wasapi`
+- Linux: `alsa`, `pulse`, sometimes PipeWire through Pulse/PipeWire compatibility paths depending on the build
+
+Problems:
+
+- Device naming and enumeration differ per platform.
+- App/process capture is not a stable common FFmpeg abstraction.
+- Multichannel channel layouts differ per driver/backend.
+- Pacing and buffering can differ, which already mattered for Input Device stability.
+- Preserve Surround is not just "read N channels"; it depends on endpoint/session routing.
+
+FFmpeg should remain the common encoder/output layer, but not the only capture abstraction.
+
+#### WebAudio / Electron media APIs
+
+Electron/Chromium APIs are cross-platform, but they do not provide the current full feature set.
+
+Useful for:
+
+- monitor playback
+- maybe generic microphone/input capture
+
+Not sufficient for:
+
+- reliable app-specific audio capture
+- output-device loopback capture with surround preservation
+- native device stream/channel metadata
+- deterministic low-latency PCM capture equivalent to the helper path
+
+Also, browser media APIs can be permission- and security-model dependent, and may expose fewer channels than the hardware/backend actually supports.
+
+#### PortAudio / RtAudio / miniaudio / libsoundio
+
+These libraries can help create a shared native helper for input/output devices.
+
+Useful for:
+
+- cross-platform input-device capture
+- cross-platform output-device playback
+- possibly simpler monitor device handling
+
+Not sufficient by themselves for:
+
+- per-app/process capture
+- output loopback on every OS
+- app-audio surround preservation
+
+They are good candidates for a shared "Input Device" helper, but not a complete replacement for Core Audio Process Tap.
+
+#### JUCE
+
+JUCE is a cross-platform audio framework, but adopting it would be a major architectural choice.
+
+Useful for:
+
+- audio device I/O
+- cross-platform audio callback model
+- possible future DSP/UI-native work
+
+Not sufficient by itself for:
+
+- per-app capture
+- Electron integration without a native helper boundary
+
+JUCE would probably be too heavy if the goal is only to add platform capture helpers.
+
+#### GStreamer
+
+GStreamer can be cross-platform, but the capture plugins and platform behavior still differ.
+
+Useful for:
+
+- media pipeline abstraction
+- possible alternative to FFmpeg for some capture/playback scenarios
+
+Risk:
+
+- larger runtime/distribution burden
+- still backend-specific for device/app capture
+- not obviously simpler than keeping FFmpeg and adding platform helpers
+
+### Best shared standard for this project
+
+The best common standard is not an external OS API. It is an internal helper contract:
+
+```text
+SurroundStreamer audio backend contract
+
+Commands:
+  --capabilities
+  --list-input-devices
+  --list-output-devices
+  --list-apps
+  --list-app-output-streams
+  --capture-input --device-id <id> [--stream-index <n>]
+  --capture-app --app-id <id> [--output-id <id>] [--stream-index <n>]
+  --capture-loopback --output-id <id>
+
+stdout:
+  raw PCM, preferably 32-bit float little-endian
+
+stderr:
+  JSON events:
+    {"event":"format","sampleRate":48000,"channels":6,"layout":"5.1","bitsPerChannel":32}
+    {"event":"error","message":"..."}
+    {"event":"status","message":"..."}
+```
+
+Then the Electron/FFmpeg side can stay mostly common:
+
+- receive Float32 PCM
+- read JSON format events
+- pass PCM to FFmpeg with `-f f32le -ar ... -ac ... -i pipe:0`
+- use the same Opus/Icecast output path
+- use the same monitor queue and WebAudio monitor path
+
+Platform-specific implementations would sit behind the helper contract:
+
+- macOS helper: Apple Core Audio Process Tap / Core Audio device capture
+- Windows helper: Microsoft Core Audio APIs / WASAPI / MMDevice / Audio Session APIs
+- Linux helper: PipeWire first, PulseAudio compatibility or ALSA as fallback
+
+This is the closest route to "mostly unchanged builds": the app code sees the same helper contract, while the helper implementation changes per OS.
+
+### What can be built with almost no OS-specific code?
+
+These features can be largely shared:
+
+- File source streaming
+- Ogg Opus encoding
+- Icecast output
+- stream channel template UI
+- settings persistence
+- logs/About windows
+- README/manual/build docs
+
+These features cannot be made common without platform backends:
+
+- App Audio process capture
+- App Audio preserve-surround stream selection
+- Input Device PCM capture with stable pacing
+- monitor output device enumeration
+- per-platform audio permissions and diagnostics
+
+### Practical build structure
+
+Recommended target structure:
+
+```text
+native/audio-backends/
+  macos/
+    SurroundAudioBackend
+  windows/
+    SurroundAudioBackend.exe
+  linux/
+    surround-audio-backend
+
+src/main/audio-backend.js
+  selects packaged helper by process.platform
+```
+
+Electron Builder resources:
+
+```yaml
+mac:
+  extraResources:
+    - from: native/audio-backends/macos/SurroundAudioBackend
+      to: audio-backend
+
+win:
+  extraResources:
+    - from: native/audio-backends/windows/SurroundAudioBackend.exe
+      to: audio-backend.exe
+
+linux:
+  extraResources:
+    - from: native/audio-backends/linux/surround-audio-backend
+      to: audio-backend
+```
+
+This keeps packaging similar while accepting that the native helper differs by platform.
+
+### Final answer on common standard
+
+Common build pipeline: yes, mostly possible.
+
+Common UI and stream pipeline: yes, mostly possible.
+
+Common audio capture implementation: no, not for full feature parity.
+
+Common internal PCM/JSON helper protocol: yes, strongly recommended.
+
+The right approach is not "find one universal audio API." The right approach is "make SurroundStreamer define its own platform-neutral audio backend contract, then implement macOS/Windows/Linux helpers behind it."
+
+## Official API Notes Checked
+
+Windows:
+
+- Microsoft documents Windows Core Audio APIs as a set of user-mode audio APIs including MMDevice API, WASAPI, DeviceTopology API, and EndpointVolume API.
+- Microsoft documents WASAPI as the API used to manage audio data flow between an application and audio endpoint devices.
+- Microsoft documents process loopback activation through `AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK`, with inclusion/exclusion of audio rendered by a target process tree.
+- The process loopback API is Windows-specific and is not the same as Apple Core Audio Process Tap.
+
+Linux:
+
+- PipeWire streams are used to exchange audio data with the PipeWire server.
+- PipeWire streams can consume or produce streams and can be connected to specific server ports or nodes.
+- PipeWire provides a plausible backend basis, but it is not the same abstraction as Apple Core Audio Process Tap or Microsoft WASAPI process loopback.
+
+Reference URLs:
+
+- https://learn.microsoft.com/en-us/windows/win32/coreaudio/about-the-windows-core-audio-apis
+- https://learn.microsoft.com/en-us/windows/win32/coreaudio/wasapi
+- https://learn.microsoft.com/en-us/windows/win32/api/audioclientactivationparams/ne-audioclientactivationparams-audioclient_activation_type
+- https://learn.microsoft.com/en-us/windows/win32/api/audioclientactivationparams/ns-audioclientactivationparams-audioclient_process_loopback_params
+- https://docs.pipewire.org/1.2/page_streams.html
+
+## Practical Recommendation
+
+Do not attempt Windows/Linux full parity immediately.
+
+Recommended staged approach:
+
+1. Add platform capability gating first.
+2. Make Windows/Linux builds open without presenting broken App Audio/Input Device controls.
+3. Support File source first on Windows/Linux.
+4. Add Windows output-device loopback as a research build.
+5. Add Linux PipeWire/PulseAudio monitor-source capture as a research build.
+6. Only after loopback works, revisit true per-app capture and surround preservation.
+
+## Current Assessment
+
+Windows/Linux support is not impossible, but the current implementation makes it a significant backend rewrite.
+
+The app should continue to be described as macOS-primary. Windows/Linux should remain "Preparing" in public docs until platform backend boundaries and at least one real capture backend are implemented and tested.
