@@ -25,6 +25,7 @@ Current Windows status:
 - File source is the first Windows validation target.
 - App Audio capture is not implemented on Windows.
 - Input Device capture has an experimental DirectShow/FFmpeg backend for early Windows validation.
+- Output loopback capture has an experimental DirectShow loopback-device bridge when Windows exposes a loopback-like input such as Stereo Mix or a virtual loopback device.
 - Preserve-surround App Audio capture is not implemented on Windows.
 
 ## Do Not Break macOS
@@ -132,7 +133,7 @@ The current experimental DirectShow input backend reports:
 {
   platform: 'win32',
   backendName: 'windows-dshow-input',
-  appAudioCapture: false,
+  appAudioCapture: true,
   appAudioPerProcess: false,
   appAudioSurroundPreserve: false,
   inputDeviceCapture: true,
@@ -140,7 +141,7 @@ The current experimental DirectShow input backend reports:
   fileSource: true,
   monitorPlayback: true,
   monitorDeviceEnumeration: false,
-  outputLoopbackCapture: false
+  outputLoopbackCapture: true
 }
 ```
 
@@ -280,6 +281,12 @@ Exit criteria:
 
 Goal: capture output-device loopback as the first practical Windows App Audio alternative.
 
+Current bootstrap:
+
+- `src/main/audio-backends/windows-dshow.js` exposes likely DirectShow loopback/virtual input devices as App Audio output-loopback candidates.
+- This path is only available when the host system exposes a loopback-like DirectShow input such as Stereo Mix, VB-CABLE, or another virtual routing device.
+- This is not true per-app capture and is not the final WASAPI loopback helper.
+
 Likely APIs:
 
 - WASAPI loopback
@@ -302,7 +309,7 @@ Candidate capability flags:
 
 Exit criteria:
 
-- Windows can stream selected output-device loopback.
+- Windows can stream selected output-device loopback. Initial DirectShow bridge added; needs real-device validation.
 - UI wording clearly distinguishes loopback from app-specific capture.
 - Multichannel behavior is documented per tested device.
 

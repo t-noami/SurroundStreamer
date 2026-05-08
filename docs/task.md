@@ -112,8 +112,10 @@ Branch: `beta/cross-platform-backend`
 - [ ] Smoke-test File source streaming on the new beta app.
 - [ ] Start File-only Windows/Linux packaging validation after macOS behavior is confirmed.
 - [ ] Validate `windows-dshow-input` capabilities in the Windows beta app.
-- [ ] Smoke-test Windows Input Device streaming to Icecast.
-- [ ] Smoke-test Windows Input Device Monitor Output.
+- [x] Smoke-test Windows Input Device streaming to Icecast.
+- [x] Smoke-test Windows Input Device Monitor Output.
+- [ ] Validate Windows DirectShow output loopback candidates in App Audio UI.
+- [ ] Smoke-test Windows DirectShow output loopback streaming to Icecast.
 - [x] Add Windows backend development guide for Windows-side contributors.
 - [x] Document macOS-safe files, Windows-owned files, and required cross-platform checks.
 - [x] Document native low-latency monitor as an optional backend capability.

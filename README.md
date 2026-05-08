@@ -59,7 +59,7 @@ The current practical target is macOS because the audio capture path depends on 
 - 7.1.2 and 7.1.4 are not part of the standard build. The current production target is up to 7.1 because that maps cleanly to common Opus channel mapping support.
 - KU100 near-field HRIR data is included under CC BY 4.0. Attribution is listed below.
 - Windows and Linux build notes are kept for future platform work, but the current capture implementation is macOS-specific.
-- Windows beta development has started with a conservative backend entry point and experimental DirectShow input-device capture; Windows downloads remain `Preparing` until a real beta is validated.
+- Windows beta development has started with a conservative backend entry point, experimental DirectShow input-device capture, and a DirectShow loopback bridge for systems that expose loopback-like inputs; Windows downloads remain `Preparing` until a real beta is validated.
 
 ## User Manual
 

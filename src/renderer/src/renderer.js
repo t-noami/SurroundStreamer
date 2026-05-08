@@ -407,6 +407,10 @@ function formatDeviceOption(device) {
     : `[${device.index}] ${device.name}`
 }
 
+function isWindowsOutputLoopbackMode() {
+  return !!audioBackendCapabilities.outputLoopbackCapture && !audioBackendCapabilities.appAudioPerProcess
+}
+
 function warnIfLoopbackInputDevice(device) {
   if (!device?.isLikelyLoopback) return
   addLog(
@@ -473,28 +477,40 @@ async function refreshAppAudioProcesses() {
     return
   }
 
-  addLog('Scanning app audio processes...', 'system')
+  const isLoopbackMode = isWindowsOutputLoopbackMode()
+  addLog(
+    isLoopbackMode ? 'Scanning output loopback capture sources...' : 'Scanning app audio processes...',
+    'system'
+  )
   try {
     const previousValue = appAudioList.value
     const result = await window.api.listAppAudioProcesses()
     const processes = result.processes || []
     appAudioList.innerHTML = ''
     if (processes.length === 0) {
-      appAudioList.innerHTML = '<option value="">No app audio processes found</option>'
+      appAudioList.innerHTML = `<option value="">${isLoopbackMode ? 'No output loopback sources found' : 'No app audio processes found'}</option>`
     } else {
       processes.forEach((process) => {
         const opt = document.createElement('option')
         opt.value = process.pid
-        opt.textContent = `${process.isRunningOutput ? '* ' : ''}${process.name} [${process.pid}]`
+        opt.textContent = isLoopbackMode
+          ? process.name
+          : `${process.isRunningOutput ? '* ' : ''}${process.name} [${process.pid}]`
         appAudioList.appendChild(opt)
       })
       if (processes.some((process) => String(process.pid) === String(previousValue))) {
         appAudioList.value = previousValue
       }
     }
-    addLog(`Found ${processes.length} app audio processes.`, 'system')
+    addLog(
+      `Found ${processes.length} ${isLoopbackMode ? 'output loopback sources' : 'app audio processes'}.`,
+      'system'
+    )
   } catch (err) {
-    addLog(`Error listing app audio processes: ${err.message}`, 'error')
+    addLog(
+      `Error listing ${isLoopbackMode ? 'output loopback sources' : 'app audio processes'}: ${err.message}`,
+      'error'
+    )
   }
 }
 
@@ -505,7 +521,13 @@ async function refreshAppAudioOutputStreams() {
     return
   }
 
-  addLog('Scanning app output capture sources...', 'system')
+  const isLoopbackMode = isWindowsOutputLoopbackMode()
+  addLog(
+    isLoopbackMode
+      ? 'Scanning DirectShow loopback devices...'
+      : 'Scanning app output capture sources...',
+    'system'
+  )
   try {
     const previousValue = appAudioOutputStream.value
     const result = await window.api.listAppAudioOutputStreams()
@@ -526,24 +548,31 @@ async function refreshAppAudioOutputStreams() {
           bitsPerChannel: stream.bitsPerChannel || 32
         }
         opt.value = JSON.stringify(payload)
-        opt.textContent = `${device.name} app output / Stream ${stream.streamIndex}: ${payload.channels}ch @ ${formatSampleRate(payload.sampleRate)}`
+        opt.textContent = isLoopbackMode
+          ? `${device.name} loopback: ${payload.channels}ch @ ${formatSampleRate(payload.sampleRate)}`
+          : `${device.name} app output / Stream ${stream.streamIndex}: ${payload.channels}ch @ ${formatSampleRate(payload.sampleRate)}`
         appAudioOutputStream.appendChild(opt)
       })
     })
 
     if (streamCount === 0) {
-      appAudioOutputStream.innerHTML =
-        '<option value="">No app output capture sources found</option>'
+      appAudioOutputStream.innerHTML = `<option value="">${isLoopbackMode ? 'No DirectShow loopback devices found' : 'No app output capture sources found'}</option>`
     } else if (
       Array.from(appAudioOutputStream.options).some((option) => option.value === previousValue)
     ) {
       appAudioOutputStream.value = previousValue
     }
 
-    addLog(`Found ${streamCount} app output capture sources.`, 'system')
+    addLog(
+      `Found ${streamCount} ${isLoopbackMode ? 'DirectShow loopback devices' : 'app output capture sources'}.`,
+      'system'
+    )
     syncInputSettings(true)
   } catch (err) {
-    addLog(`Error listing app output capture sources: ${err.message}`, 'error')
+    addLog(
+      `Error listing ${isLoopbackMode ? 'DirectShow loopback devices' : 'app output capture sources'}: ${err.message}`,
+      'error'
+    )
   }
 }
 
@@ -1567,12 +1596,18 @@ btnStart.addEventListener('click', async () => {
   }
 
   if (currentInputType === 'app-audio' && !config.appAudioPid) {
-    addLog('Error: No app audio process selected.', 'error')
+    addLog(
+      `Error: No ${isWindowsOutputLoopbackMode() ? 'output loopback source' : 'app audio process'} selected.`,
+      'error'
+    )
     return
   }
 
   if (currentInputType === 'app-audio' && !stream) {
-    addLog('Error: No output stream selected for surround capture.', 'error')
+    addLog(
+      `Error: No ${isWindowsOutputLoopbackMode() ? 'loopback device' : 'output stream'} selected for capture.`,
+      'error'
+    )
     return
   }
 
@@ -1589,7 +1624,9 @@ btnStart.addEventListener('click', async () => {
 
   if (currentInputType === 'app-audio') {
     addLog(
-      `Starting stream from app audio tap (${config.appAudioChannels}ch preserve surround)...`,
+      isWindowsOutputLoopbackMode()
+        ? `Starting stream from output loopback (${config.appAudioChannels}ch)...`
+        : `Starting stream from app audio tap (${config.appAudioChannels}ch preserve surround)...`,
       'system'
     )
   } else {

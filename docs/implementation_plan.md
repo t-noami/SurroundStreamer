@@ -382,6 +382,7 @@ Exit criteria:
 - The stable `0.1.0` build is macOS-first.
 - Windows/Linux builds are not release-ready.
 - Windows currently has an experimental DirectShow input-device bridge, but no production WASAPI/native capture backend.
+- Windows DirectShow loopback support is only a bridge for loopback-like input devices exposed by the host, not true per-app capture.
 - Windows/Linux App Audio capture is not implemented.
 - Windows/Linux Input Device capture is not implemented.
 - Windows/Linux monitor device enumeration is not implemented.

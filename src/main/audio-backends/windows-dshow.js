@@ -58,7 +58,7 @@ class WindowsDshowBackend {
     return {
       platform: 'win32',
       backendName: 'windows-dshow-input',
-      appAudioCapture: false,
+      appAudioCapture: true,
       appAudioPerProcess: false,
       appAudioSurroundPreserve: false,
       inputDeviceCapture: true,
@@ -66,7 +66,7 @@ class WindowsDshowBackend {
       fileSource: true,
       monitorPlayback: true,
       monitorDeviceEnumeration: false,
-      outputLoopbackCapture: false
+      outputLoopbackCapture: true
     }
   }
 
@@ -104,11 +104,38 @@ class WindowsDshowBackend {
   }
 
   async listAppProcesses() {
-    return { processes: [] }
+    const loopbackDevices = await this.listLoopbackDevices()
+    return {
+      processes:
+        loopbackDevices.length > 0
+          ? [
+              {
+                pid: 1,
+                name: 'System Output Loopback (DirectShow)',
+                isRunningOutput: true,
+                isPerProcess: false
+              }
+            ]
+          : []
+    }
   }
 
   async listAppOutputStreams() {
-    return { devices: [] }
+    const devices = await this.listLoopbackDevices()
+    return {
+      devices: devices.map((device) => ({
+        name: device.name,
+        deviceUID: device.deviceUID,
+        streams: [
+          {
+            streamIndex: 0,
+            sampleRate: device.sampleRate,
+            channels: device.channels,
+            bitsPerChannel: device.bitsPerChannel
+          }
+        ]
+      }))
+    }
   }
 
   async listInputStreams() {
@@ -129,8 +156,13 @@ class WindowsDshowBackend {
     }
   }
 
-  spawnAppAudioPCMStream() {
-    throw new Error('App Audio capture is not implemented on Windows')
+  spawnAppAudioPCMStream(_pid, options = {}) {
+    const descriptor = this.decodeDeviceUID(options.deviceUID)
+    if (!descriptor?.id) {
+      throw new Error('Windows loopback capture requires a DirectShow loopback device id')
+    }
+
+    return this.spawnDshowPCMStream(descriptor)
   }
 
   spawnInputDevicePCMStream(options = {}) {
@@ -139,6 +171,10 @@ class WindowsDshowBackend {
       throw new Error('Input Device capture requires a DirectShow device id')
     }
 
+    return this.spawnDshowPCMStream(descriptor)
+  }
+
+  spawnDshowPCMStream(descriptor) {
     const sampleRate = Number(descriptor.sampleRate) || DEFAULT_SAMPLE_RATE
     const channels = Number(descriptor.channels) || DEFAULT_CHANNELS
     const child = spawn(
@@ -202,6 +238,11 @@ class WindowsDshowBackend {
         ...device,
         id: device.id || device.name
       }))
+  }
+
+  async listLoopbackDevices() {
+    const devices = await this.listInputDevices()
+    return devices.filter((device) => device.isLikelyLoopback)
   }
 
   async bestDeviceFormat(deviceId) {
