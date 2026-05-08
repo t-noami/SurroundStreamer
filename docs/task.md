@@ -104,3 +104,6 @@ Branch: `beta/cross-platform-backend`
 - [ ] Smoke-test Input Device streaming on the new beta app.
 - [ ] Smoke-test File source streaming on the new beta app.
 - [ ] Start File-only Windows/Linux packaging validation after macOS behavior is confirmed.
+- [x] Add Windows backend development guide for Windows-side contributors.
+- [x] Document macOS-safe files, Windows-owned files, and required cross-platform checks.
+- [ ] Validate File-only Windows beta on a real Windows environment.

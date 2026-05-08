@@ -214,6 +214,12 @@ Exit criteria:
 
 Goal: add a first real Windows capture backend.
 
+Development guardrail:
+
+- Follow `docs/windows-backend-development.md`.
+- Do not edit macOS-owned backend files unless the change is explicitly platform-neutral.
+- After shared backend changes, re-run the macOS beta build before committing.
+
 Candidate APIs:
 
 - Microsoft Core Audio APIs.
@@ -224,8 +230,10 @@ Candidate APIs:
 
 Initial target:
 
-- Output-device loopback or input-device capture first.
-- Per-app/process capture is a separate task after basic loopback stability is proven.
+- File-only Windows beta validation first.
+- Input-device capture second.
+- Output-device loopback third.
+- Per-app/process capture is a separate research task after basic Windows capture stability is proven.
 
 Risks:
 

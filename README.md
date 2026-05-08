@@ -22,6 +22,17 @@ The current practical target is macOS because the audio capture path depends on 
 | Windows | Preparing |
 | Linux | Preparing |
 
+## System Requirements
+
+> [!IMPORTANT]
+> SurroundStreamer 0.1.0 requires **macOS 14.2 or later** for App Audio capture and App Audio Monitor Output.
+> macOS 12.x and 13.x do not provide the Core Audio Process Tap API used by this app, so App Audio capture will not work on those systems.
+
+- Supported release target: macOS 14.2 or later on Apple Silicon
+- App Audio capture: requires macOS 14.2 or later
+- App Audio Monitor Output: requires macOS 14.2 or later because it uses the same capture backend
+- Windows/Linux: Preparing
+
 ## Developer
 
 - Studio: Non-REM Studio
@@ -42,6 +53,7 @@ The current practical target is macOS because the audio capture path depends on 
 
 ## Important Notes
 
+- App Audio capture depends on Apple's Core Audio Process Tap API. If the app is launched on macOS older than 14.2, App Audio and App Audio monitor preview are not expected to work.
 - Input Device source currently disables Monitor Output controls. This keeps the streaming path stable while input-device monitoring remains separate from the production path.
 - Opus output is constrained to supported sample rates. 44.1 kHz and 96 kHz sources are converted to 48 kHz for stream output.
 - 7.1.2 and 7.1.4 are not part of the standard build. The current production target is up to 7.1 because that maps cleanly to common Opus channel mapping support.
@@ -212,6 +224,7 @@ Build instructions are split by operating system:
 - [Build on macOS](docs/build-macos.md)
 - [Build on Windows](docs/build-windows.md)
 - [Build on Linux](docs/build-linux.md)
+- [Windows Backend Development Guide](docs/windows-backend-development.md)
 - [Windows / Linux Portability Assessment](docs/windows-linux-portability-assessment.md)
 
 macOS is the primary supported build target. Windows and Linux packaging notes are included for future platform work, but the current audio capture path depends on macOS Core Audio.

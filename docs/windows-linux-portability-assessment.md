@@ -120,6 +120,7 @@ Additionally, `electron-builder.yml` packages the macOS helper under `mac.extraR
 
 Minimum viable Windows backend:
 
+- Follow the Windows-specific guide: [Windows Backend Development Guide](windows-backend-development.md).
 - Add `src/main/audio-backends/windows-*`.
 - Implement input-device enumeration and capture.
 - Implement output-device or process/app capture.
