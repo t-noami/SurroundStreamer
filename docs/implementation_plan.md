@@ -67,19 +67,21 @@ Target structure:
 ```text
 src/main/audio-backends/
   index.js
-  backend-contract.js
   macos-core-audio.js
+  macos/
+    core-audio-helper.js
+    device-scanner.js
   windows-wasapi.js
   linux-pipewire.js
   unsupported.js
 
 native/audio-backends/
   macos/
-    SurroundAudioBackend
+    .build/SurroundAudioBackend
   windows/
-    SurroundAudioBackend.exe
+    .build/SurroundAudioBackend.exe
   linux/
-    surround-audio-backend
+    .build/surround-audio-backend
 ```
 
 Electron should select a backend by `process.platform`, read backend capabilities, and expose only supported UI options.

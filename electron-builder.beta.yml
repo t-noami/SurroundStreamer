@@ -25,8 +25,8 @@ mac:
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   extraResources:
-    - from: native/audio-tap-helper/.build/AudioTapHelper
-      to: audio-tap-helper
+    - from: native/audio-backends/macos/.build/SurroundAudioBackend
+      to: audio-backend
   extendInfo:
     NSMicrophoneUsageDescription: SurroundStreamer beta needs microphone access for audio device input.
     NSDocumentsFolderUsageDescription: SurroundStreamer beta needs access to selected audio files.

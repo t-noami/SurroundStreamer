@@ -1,8 +1,11 @@
 import { spawn } from 'child_process'
-import { getFfmpegPath } from './ffmpeg-path'
-import appAudioHelper from './app-audio-helper'
+import { getFfmpegPath } from '../../ffmpeg-path'
 
-class DeviceScanner {
+class MacOSDeviceScanner {
+  constructor(coreAudioHelper) {
+    this.coreAudioHelper = coreAudioHelper
+  }
+
   async listAudioDevices() {
     const devices = await new Promise((resolve) => {
       const ffmpeg = spawn(getFfmpegPath(), [
@@ -23,10 +26,14 @@ class DeviceScanner {
         const devices = this.parseOutput(output)
         resolve(devices)
       })
+
+      ffmpeg.on('error', () => {
+        resolve([])
+      })
     })
 
     try {
-      const result = await appAudioHelper.listInputStreams()
+      const result = await this.coreAudioHelper.listInputStreams()
       return this.mergeCoreAudioInfo(devices, result.devices || [])
     } catch {
       return devices
@@ -50,7 +57,7 @@ class DeviceScanner {
 
       if (isAudioSection) {
         // Example line: [AVFoundation input device @ 0x...] [0] Built-in Microphone
-        const match = line.match(/\[(\d+)\]\s+(.+)$/)
+        const match = line.match(/\[(\d+)]\s+(.+)$/)
         if (match) {
           devices.push({
             index: match[1],
@@ -114,4 +121,4 @@ class DeviceScanner {
   }
 }
 
-export default new DeviceScanner()
+export default MacOSDeviceScanner

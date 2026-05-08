@@ -60,10 +60,8 @@ class FFmpegManager extends EventEmitter {
     this.monitorForwarding = !!config.monitorEnabled
 
     try {
-      if (config.inputType === 'device') {
-        await this.prepareInputDevicePipe(config)
-        this.monitorFormat = this.getMonitorFormat(config)
-      }
+      await this.prepareBackendCapture(config)
+      this.monitorFormat = this.getMonitorFormat(config)
     } catch (error) {
       this.cleanupInputDeviceProcess()
       this.status = 'idle'
@@ -89,11 +87,7 @@ class FFmpegManager extends EventEmitter {
     }
 
     try {
-      if (config.inputType === 'app-audio') {
-        this.startAppAudioPipe(config)
-      } else if (config.inputType === 'device') {
-        this.attachInputDevicePipe()
-      }
+      this.attachBackendInputPipe(config)
 
       await this.waitForStartup()
       this.emit('status', this.getStatus())
@@ -111,6 +105,23 @@ class FFmpegManager extends EventEmitter {
       this.resetMonitorAudioQueue()
       this.emit('monitor-stop')
       throw error
+    }
+  }
+
+  async prepareBackendCapture(config) {
+    if (config.inputType === 'device') {
+      await this.prepareInputDevicePipe(config)
+    }
+  }
+
+  attachBackendInputPipe(config) {
+    if (config.inputType === 'app-audio') {
+      this.startAppAudioPipe(config)
+      return
+    }
+
+    if (config.inputType === 'device') {
+      this.attachInputDevicePipe()
     }
   }
 
@@ -228,25 +239,7 @@ class FFmpegManager extends EventEmitter {
     })
     this.appAudioProcess = audioBackend.spawnAppAudioPCMStream(pid, tapOptions)
 
-    this.appAudioProcess.stdout.on('data', (data) => {
-      if (this.monitorForwarding) {
-        this.queueMonitorAudio(data)
-      }
-
-      if (!this.process?.stdin || this.process.stdin.destroyed) {
-        return
-      }
-
-      const canContinue = this.process.stdin.write(data)
-      if (!canContinue) {
-        this.appAudioProcess.stdout.pause()
-        this.process.stdin.once('drain', () => {
-          if (this.appAudioProcess?.stdout) {
-            this.appAudioProcess.stdout.resume()
-          }
-        })
-      }
-    })
+    this.pipeBackendProcessToFfmpeg(this.appAudioProcess, { forwardMonitor: true })
 
     this.appAudioProcess.stderr.on('data', (data) => {
       const message = data.toString().trim()
@@ -289,6 +282,28 @@ class FFmpegManager extends EventEmitter {
         message: `App audio tap exited with code ${code}`
       })
       this.appAudioProcess = null
+    })
+  }
+
+  pipeBackendProcessToFfmpeg(backendProcess, { forwardMonitor = false } = {}) {
+    backendProcess.stdout.on('data', (data) => {
+      if (forwardMonitor && this.monitorForwarding) {
+        this.queueMonitorAudio(data)
+      }
+
+      if (!this.process?.stdin || this.process.stdin.destroyed) {
+        return
+      }
+
+      const canContinue = this.process.stdin.write(data)
+      if (!canContinue) {
+        backendProcess.stdout.pause()
+        this.process.stdin.once('drain', () => {
+          if (backendProcess.stdout) {
+            backendProcess.stdout.resume()
+          }
+        })
+      }
     })
   }
 
@@ -386,21 +401,7 @@ class FFmpegManager extends EventEmitter {
       throw new Error('Input device capture process is not running')
     }
 
-    this.inputDeviceProcess.stdout.on('data', (data) => {
-      if (!this.process?.stdin || this.process.stdin.destroyed) {
-        return
-      }
-
-      const canContinue = this.process.stdin.write(data)
-      if (!canContinue) {
-        this.inputDeviceProcess.stdout.pause()
-        this.process.stdin.once('drain', () => {
-          if (this.inputDeviceProcess?.stdout) {
-            this.inputDeviceProcess.stdout.resume()
-          }
-        })
-      }
-    })
+    this.pipeBackendProcessToFfmpeg(this.inputDeviceProcess)
     this.inputDeviceProcess.stdout.resume()
   }
 
@@ -853,37 +854,7 @@ class FFmpegManager extends EventEmitter {
     const outputLayout = this.channelLayoutFor(outputChannels, config)
     const monitorEnabled = this.shouldUseFfmpegMonitor(config)
 
-    if (inputType === 'file') {
-      if (loopFile) {
-        args.push('-stream_loop', '-1')
-      }
-      args.push('-re')
-      args.push('-i', inputPath)
-    } else if (inputType === 'device') {
-      const inputChannels = this.getDeviceInputChannels(config)
-      const inputSampleRate = this.getDeviceInputSampleRate(config)
-      const inputLayout = this.channelLayoutFor(inputChannels)
-      args.push('-fflags', 'nobuffer')
-      args.push('-f', 'f32le')
-      args.push('-ar', String(inputSampleRate))
-      args.push('-ac', String(inputChannels))
-      if (inputLayout) {
-        args.push('-channel_layout', inputLayout)
-      }
-      args.push('-i', 'pipe:0')
-    } else if (inputType === 'app-audio') {
-      const appAudioChannels = this.getAppAudioChannels(config)
-      const appAudioSampleRate = this.getAppAudioSampleRate(config)
-      const appAudioLayout = this.channelLayoutFor(appAudioChannels)
-      args.push('-fflags', 'nobuffer')
-      args.push('-f', 'f32le')
-      args.push('-ar', String(appAudioSampleRate))
-      args.push('-ac', String(appAudioChannels))
-      if (appAudioLayout) {
-        args.push('-channel_layout', appAudioLayout)
-      }
-      args.push('-i', 'pipe:0')
-    }
+    args.push(...this.buildInputArgs(config, { inputType, inputPath, loopFile }))
 
     args.push('-vn')
 
@@ -926,6 +897,44 @@ class FFmpegManager extends EventEmitter {
       args.push('pipe:3')
     }
 
+    return args
+  }
+
+  buildInputArgs(config, { inputType, inputPath, loopFile }) {
+    if (inputType === 'file') {
+      const args = []
+      if (loopFile) {
+        args.push('-stream_loop', '-1')
+      }
+      args.push('-re', '-i', inputPath)
+      return args
+    }
+
+    if (inputType === 'device' || inputType === 'app-audio') {
+      return this.buildBackendPcmInputArgs(config)
+    }
+
+    throw new Error(`Unsupported input source: ${inputType || 'unknown'}`)
+  }
+
+  buildBackendPcmInputArgs(config) {
+    const channels = this.getBackendInputChannels(config)
+    const sampleRate = this.getBackendInputSampleRate(config)
+    const layout = this.channelLayoutFor(channels)
+    const args = [
+      '-fflags',
+      'nobuffer',
+      '-f',
+      'f32le',
+      '-ar',
+      String(sampleRate),
+      '-ac',
+      String(channels)
+    ]
+    if (layout) {
+      args.push('-channel_layout', layout)
+    }
+    args.push('-i', 'pipe:0')
     return args
   }
 
@@ -1032,6 +1041,30 @@ class FFmpegManager extends EventEmitter {
       return Math.round(sampleRate)
     }
     return 48000
+  }
+
+  getBackendInputChannels(config) {
+    if (config?.inputType === 'app-audio') {
+      return this.getAppAudioChannels(config)
+    }
+
+    if (config?.inputType === 'device') {
+      return this.getDeviceInputChannels(config)
+    }
+
+    return this.getOutputChannels(config)
+  }
+
+  getBackendInputSampleRate(config) {
+    if (config?.inputType === 'app-audio') {
+      return this.getAppAudioSampleRate(config)
+    }
+
+    if (config?.inputType === 'device') {
+      return this.getDeviceInputSampleRate(config)
+    }
+
+    return this.getOutputSampleRate(config)
   }
 
   getDeviceInputChannels(config) {

@@ -1,5 +1,7 @@
-import appAudioHelper from '../app-audio-helper'
-import deviceScanner from '../device-scanner'
+import coreAudioHelper from './macos/core-audio-helper'
+import MacOSDeviceScanner from './macos/device-scanner'
+
+const deviceScanner = new MacOSDeviceScanner(coreAudioHelper)
 
 class MacOSCoreAudioBackend {
   getCapabilities() {
@@ -23,23 +25,23 @@ class MacOSCoreAudioBackend {
   }
 
   async listAppProcesses() {
-    return await appAudioHelper.listProcesses()
+    return await coreAudioHelper.listProcesses()
   }
 
   async listAppOutputStreams() {
-    return await appAudioHelper.listOutputStreams()
+    return await coreAudioHelper.listOutputStreams()
   }
 
   async listInputStreams() {
-    return await appAudioHelper.listInputStreams()
+    return await coreAudioHelper.listInputStreams()
   }
 
   spawnAppAudioPCMStream(pid, options = {}) {
-    return appAudioHelper.spawnPCMStream(pid, options)
+    return coreAudioHelper.spawnAppPCMStream(pid, options)
   }
 
   spawnInputDevicePCMStream(options = {}) {
-    return appAudioHelper.spawnInputDevicePCMStream(options)
+    return coreAudioHelper.spawnInputDevicePCMStream(options)
   }
 }
 

@@ -3,8 +3,10 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SOURCE_FILE="$ROOT_DIR/native/audio-tap-helper/Sources/AudioTapHelper/main.m"
-OUTPUT_DIR="$ROOT_DIR/native/audio-tap-helper/.build"
-OUTPUT_FILE="$OUTPUT_DIR/AudioTapHelper"
+OUTPUT_DIR="$ROOT_DIR/native/audio-backends/macos/.build"
+OUTPUT_FILE="$OUTPUT_DIR/SurroundAudioBackend"
+LEGACY_OUTPUT_DIR="$ROOT_DIR/native/audio-tap-helper/.build"
+LEGACY_OUTPUT_FILE="$LEGACY_OUTPUT_DIR/AudioTapHelper"
 XCODE_SDK="/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
 XCRUN_SDK="$(xcrun --sdk macosx --show-sdk-path)"
 TAP_HEADER="System/Library/Frameworks/CoreAudio.framework/Headers/AudioHardwareTapping.h"
@@ -19,7 +21,7 @@ else
   exit 1
 fi
 
-mkdir -p "$OUTPUT_DIR"
+mkdir -p "$OUTPUT_DIR" "$LEGACY_OUTPUT_DIR"
 
 xcrun clang \
   -isysroot "$SDKROOT" \
@@ -32,4 +34,6 @@ xcrun clang \
   -o "$OUTPUT_FILE"
 
 chmod +x "$OUTPUT_FILE"
+cp "$OUTPUT_FILE" "$LEGACY_OUTPUT_FILE"
+chmod +x "$LEGACY_OUTPUT_FILE"
 echo "$OUTPUT_FILE"

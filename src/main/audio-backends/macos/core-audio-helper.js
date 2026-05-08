@@ -3,14 +3,24 @@ import { spawn } from 'child_process'
 import { existsSync } from 'fs'
 import { join, resolve } from 'path'
 
-class AppAudioHelper {
+class CoreAudioHelper {
   getHelperPath() {
-    const packagedPath = join(process.resourcesPath, 'audio-tap-helper')
-    if (app.isPackaged && existsSync(packagedPath)) {
-      return packagedPath
+    const packagedPaths = [
+      join(process.resourcesPath, 'audio-backend'),
+      join(process.resourcesPath, 'audio-tap-helper')
+    ]
+    if (app.isPackaged) {
+      const packagedPath = packagedPaths.find((path) => existsSync(path))
+      if (packagedPath) {
+        return packagedPath
+      }
     }
 
-    return resolve(process.cwd(), 'native/audio-tap-helper/.build/AudioTapHelper')
+    const developmentPaths = [
+      resolve(process.cwd(), 'native/audio-backends/macos/.build/SurroundAudioBackend'),
+      resolve(process.cwd(), 'native/audio-tap-helper/.build/AudioTapHelper')
+    ]
+    return developmentPaths.find((path) => existsSync(path)) || developmentPaths[0]
   }
 
   async listProcesses() {
@@ -42,10 +52,10 @@ class AppAudioHelper {
     return await this.runHelper(['--list-output-streams'])
   }
 
-  spawnPCMStream(pid, options = {}) {
+  spawnAppPCMStream(pid, options = {}) {
     const helperPath = this.getHelperPath()
     if (!existsSync(helperPath)) {
-      throw new Error(`Audio tap helper not found: ${helperPath}`)
+      throw new Error(`Audio backend helper not found: ${helperPath}`)
     }
 
     return spawn(
@@ -60,7 +70,7 @@ class AppAudioHelper {
   spawnInputDevicePCMStream(options = {}) {
     const helperPath = this.getHelperPath()
     if (!existsSync(helperPath)) {
-      throw new Error(`Audio tap helper not found: ${helperPath}`)
+      throw new Error(`Audio backend helper not found: ${helperPath}`)
     }
 
     if (!options.deviceUID) {
@@ -94,7 +104,7 @@ class AppAudioHelper {
     return new Promise((resolvePromise, reject) => {
       const helperPath = this.getHelperPath()
       if (!existsSync(helperPath)) {
-        reject(new Error(`Audio tap helper not found: ${helperPath}`))
+        reject(new Error(`Audio backend helper not found: ${helperPath}`))
         return
       }
 
@@ -115,7 +125,7 @@ class AppAudioHelper {
       child.on('close', (code) => {
         if (code !== 0) {
           reject(
-            new Error(stderr.trim() || stdout.trim() || `Audio tap helper exited with code ${code}`)
+            new Error(stderr.trim() || stdout.trim() || `Audio backend exited with code ${code}`)
           )
           return
         }
@@ -123,11 +133,11 @@ class AppAudioHelper {
         try {
           resolvePromise(JSON.parse(stdout))
         } catch (error) {
-          reject(new Error(`Invalid audio tap helper JSON: ${error.message}`))
+          reject(new Error(`Invalid audio backend JSON: ${error.message}`))
         }
       })
     })
   }
 }
 
-export default new AppAudioHelper()
+export default new CoreAudioHelper()

@@ -30,7 +30,8 @@ Files:
 
 - `native/audio-tap-helper/Sources/AudioTapHelper/main.m`
 - `scripts/build-audio-tap-helper.sh`
-- `src/main/app-audio-helper.js`
+- `src/main/audio-backends/macos/core-audio-helper.js`
+- `src/main/audio-backends/macos/device-scanner.js`
 
 The helper is Objective-C and depends on:
 
@@ -58,7 +59,8 @@ Any Windows/Linux implementation needs a new helper or backend with the same con
 Current path:
 
 - Renderer selects App Audio process and output stream.
-- `src/main/app-audio-helper.js` spawns `AudioTapHelper --stream-pcm`.
+- `src/main/audio-backends/macos-core-audio.js` delegates to `src/main/audio-backends/macos/core-audio-helper.js`.
+- The macOS backend helper spawns `SurroundAudioBackend --stream-pcm`.
 - `src/main/ffmpeg-manager.js` reads Float32 PCM from helper stdout.
 - FFmpeg receives `f32le` through `pipe:0`.
 
@@ -73,10 +75,10 @@ Without that backend, App Audio is not functional.
 
 Current path:
 
-- `src/main/device-scanner.js` uses FFmpeg `avfoundation` to list devices.
-- It then merges Core Audio stream metadata from `AudioTapHelper --list-input-streams`.
+- `src/main/audio-backends/macos/device-scanner.js` uses FFmpeg `avfoundation` to list devices.
+- It then merges Core Audio stream metadata from `SurroundAudioBackend --list-input-streams`.
 - `src/main/ffmpeg-manager.js` requires `config.inputDeviceUID`.
-- `AudioTapHelper --stream-input-device --device-uid ...` produces Float32 PCM.
+- `SurroundAudioBackend --stream-input-device --device-uid ...` produces Float32 PCM.
 
 This is also macOS-only. Windows/Linux need separate device enumeration and PCM capture.
 
@@ -86,12 +88,10 @@ Important point: Input Device no longer uses direct FFmpeg capture as the main s
 
 Current path:
 
-- `src/main/monitor-scanner.js` uses FFmpeg `audiotoolbox -list_devices`.
+- `src/renderer/src/renderer.js` uses Chromium `navigator.mediaDevices.enumerateDevices()`.
+- Optional output selection uses `navigator.mediaDevices.selectAudioOutput()` when available.
 
-`audiotoolbox` is macOS-specific. Windows/Linux need alternative enumeration:
-
-- Windows: likely WASAPI/MMDevice enumeration.
-- Linux: likely PipeWire/PulseAudio/PipeWire portal or ALSA/Pulse sink enumeration.
+An earlier unused `src/main/monitor-scanner.js` path used FFmpeg `audiotoolbox -list_devices`, but that macOS-specific module has been removed from the beta backend branch.
 
 Renderer monitor playback itself is WebAudio-based, but selecting a specific output device depends on browser/Electron support and permissions. This needs separate validation per platform.
 
@@ -123,7 +123,7 @@ Minimum viable Windows backend:
 - Add `src/main/audio-backends/windows-*`.
 - Implement input-device enumeration and capture.
 - Implement output-device or process/app capture.
-- Replace `avfoundation` and `audiotoolbox` scanner assumptions.
+- Replace macOS `avfoundation` input-device scanning assumptions.
 - Gate unsupported App Audio features until the backend is ready.
 - Package a Windows helper binary if native APIs are required.
 
@@ -219,16 +219,9 @@ Recommended refactor before Windows/Linux implementation:
 
    Unsupported tabs/options should be disabled with clear labels rather than failing after click.
 
-4. Replace direct calls to:
+4. Keep direct macOS helper and FFmpeg `avfoundation` calls inside the macOS backend.
 
-   - `appAudioHelper.listProcesses`
-   - `appAudioHelper.listOutputStreams`
-   - `appAudioHelper.spawnPCMStream`
-   - `appAudioHelper.spawnInputDevicePCMStream`
-   - FFmpeg `avfoundation`
-   - FFmpeg `audiotoolbox`
-
-   with backend calls.
+   The main process should call the selected backend, not `core-audio-helper` or macOS device scanner modules directly.
 
 5. Keep a stable PCM contract into FFmpeg.
 
@@ -258,7 +251,7 @@ FFmpeg looks attractive because it already supports many platform input APIs, bu
 
 Examples:
 
-- macOS: `avfoundation`, `audiotoolbox`
+- macOS: `avfoundation`
 - Windows: `dshow`, `wasapi`
 - Linux: `alsa`, `pulse`, sometimes PipeWire through Pulse/PipeWire compatibility paths depending on the build
 
@@ -410,13 +403,13 @@ Recommended target structure:
 ```text
 native/audio-backends/
   macos/
-    SurroundAudioBackend
+    .build/SurroundAudioBackend
   windows/
-    SurroundAudioBackend.exe
+    .build/SurroundAudioBackend.exe
   linux/
-    surround-audio-backend
+    .build/surround-audio-backend
 
-src/main/audio-backend.js
+src/main/audio-backends/index.js
   selects packaged helper by process.platform
 ```
 
@@ -425,17 +418,17 @@ Electron Builder resources:
 ```yaml
 mac:
   extraResources:
-    - from: native/audio-backends/macos/SurroundAudioBackend
+    - from: native/audio-backends/macos/.build/SurroundAudioBackend
       to: audio-backend
 
 win:
   extraResources:
-    - from: native/audio-backends/windows/SurroundAudioBackend.exe
+    - from: native/audio-backends/windows/.build/SurroundAudioBackend.exe
       to: audio-backend.exe
 
 linux:
   extraResources:
-    - from: native/audio-backends/linux/surround-audio-backend
+    - from: native/audio-backends/linux/.build/surround-audio-backend
       to: audio-backend
 ```
 

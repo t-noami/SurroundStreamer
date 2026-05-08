@@ -51,8 +51,10 @@ npm run build:audio-helper
 The helper output is:
 
 ```text
-native/audio-tap-helper/.build/AudioTapHelper
+native/audio-backends/macos/.build/SurroundAudioBackend
 ```
+
+A legacy copy is also written to `native/audio-tap-helper/.build/AudioTapHelper` during the transition.
 
 ## Build Regular App
 

@@ -88,9 +88,18 @@ Branch: `beta/cross-platform-backend`
 - [x] Add an unsupported backend for non-macOS platforms.
 - [x] Expose audio backend capabilities to the renderer.
 - [x] Disable unsupported source controls based on backend capabilities.
+- [x] Move macOS helper build output to `native/audio-backends/macos/.build/SurroundAudioBackend`.
+- [x] Package the macOS helper as `audio-backend` while retaining legacy path fallback.
+- [x] Move macOS helper launcher into `src/main/audio-backends/macos/core-audio-helper.js`.
+- [x] Move macOS FFmpeg/Core Audio input device scanner into `src/main/audio-backends/macos/device-scanner.js`.
+- [x] Remove main-level `app-audio-helper.js` and `device-scanner.js`.
+- [x] Remove unused macOS-only `monitor-scanner.js`.
+- [x] Share backend PCM pipe and FFmpeg input argument setup in `ffmpeg-manager.js`.
 - [x] Verify `npm run build`.
 - [x] Verify `npm run build:beta:mac`.
 - [x] Verify `codesign --verify --deep --strict --verbose=2 dist/beta/mac-arm64/SurroundStreamer-beta-0.1.1.app`.
+- [x] Verify `npm run build:mac:dir` packages `Contents/Resources/audio-backend`.
+- [x] Verify `codesign --verify --deep --strict --verbose=2 dist/mac-arm64/SurroundStreamer.app`.
 - [ ] Smoke-test App Audio streaming on the new beta app.
 - [ ] Smoke-test Input Device streaming on the new beta app.
 - [ ] Smoke-test File source streaming on the new beta app.
