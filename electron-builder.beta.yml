@@ -34,6 +34,7 @@ mac:
   notarize: false
 win:
   executableName: SurroundStreamer-beta-0.1.1
+  signAndEditExecutable: false
 nsis:
   artifactName: SurroundStreamer-beta-0.1.1-setup.${ext}
   shortcutName: ${productName}

@@ -9,14 +9,17 @@ Do not treat `npm run build:win` or `npm run build:beta:win` as a supported publ
 ## Current Status
 
 - Official Windows release: not available.
+- Windows beta branch backend: file-only backend selector added as `windows-file-only`.
 - App Audio capture: not implemented on Windows.
 - Input Device capture: not implemented on Windows.
 - Preserve-surround app capture: not implemented on Windows.
-- File source support: likely the first practical Windows target, but not yet validated as a release build.
+- File source support: first practical Windows target, but not yet validated as a release build.
+- Local beta packaging: `npm run build:beta:win` has produced `dist/beta/SurroundStreamer-beta-0.1.1-setup.exe` on Windows.
+- Local app launch smoke test: `dist/beta/win-unpacked/SurroundStreamer-beta-0.1.1.exe` starts on Windows when `ELECTRON_RUN_AS_NODE` is not set.
 
 ## Required Work
 
-Windows support needs a Windows audio backend, likely based on Microsoft Core Audio APIs such as WASAPI, MMDevice API, and Audio Session APIs.
+Windows support now has a conservative file-only backend entry point. Real audio capture still needs a Windows audio backend, likely based on Microsoft Core Audio APIs such as WASAPI, MMDevice API, and Audio Session APIs.
 
 For the current platform assessment, see:
 
@@ -26,6 +29,8 @@ For the current platform assessment, see:
 ## Packaging Note
 
 Electron Builder configuration may still be useful later, but packaging is not the blocker. The blocker is the missing Windows audio capture backend.
+
+The beta config currently disables Windows executable signing/resource editing with `win.signAndEditExecutable: false` so local unsigned development packaging does not require the `winCodeSign` symlink extraction path. Re-enable and retest signing/resource metadata before publishing any Windows build.
 
 The beta packaging target is reserved for development experiments. If a Windows beta executable is generated from `beta/cross-platform-backend`, it should use the incremented beta version line, currently `0.1.1-beta.1`, rather than the stable `0.1.0` version.
 

@@ -21,7 +21,8 @@ Current Windows status:
 
 - Official Windows release: not available.
 - Windows beta packaging script exists: `npm run build:beta:win`
-- File source is expected to be the first Windows validation target.
+- `process.platform === 'win32'` now selects a file-only Windows backend in `src/main/audio-backends/windows-wasapi.js`.
+- File source is the first Windows validation target.
 - App Audio capture is not implemented on Windows.
 - Input Device capture is not implemented on Windows.
 - Preserve-surround App Audio capture is not implemented on Windows.
@@ -159,7 +160,7 @@ Goal: prove that the Electron app can run on Windows without macOS backend calls
 
 Tasks:
 
-- Ensure `process.platform === 'win32'` uses a Windows or file-only backend, not macOS.
+- Ensure `process.platform === 'win32'` uses a Windows or file-only backend, not macOS. Done in `src/main/audio-backends/windows-wasapi.js`.
 - Keep App Audio and Input Device disabled through capabilities.
 - Build with `npm run build:beta:win`.
 - Launch the generated installer/app on Windows.
