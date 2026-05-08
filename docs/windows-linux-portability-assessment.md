@@ -144,7 +144,8 @@ Risk:
 
 Rough difficulty:
 
-- File-only Windows build: low to medium. A `windows-file-only` backend entry point now exists, but still needs real Windows beta validation.
+- File-only Windows build: low to medium. A `windows-dshow-input` backend entry point now exists, but still needs real Windows beta validation.
+- Basic Windows input-device capture: experimental DirectShow bridge exists; long-run pacing and device compatibility still need testing.
 - Basic output-device loopback streaming: medium to high.
 - App-level capture with surround preservation: high.
 - Feature parity with current macOS App Audio behavior: high.
@@ -197,6 +198,7 @@ Recommended refactor before Windows/Linux implementation:
    src/main/audio-backends/
      index.js
      macos-core-audio.js
+     windows-dshow.js
      windows-wasapi.js
      linux-pipewire.js
      unsupported.js
@@ -477,7 +479,7 @@ Do not attempt Windows/Linux full parity immediately.
 Recommended staged approach:
 
 1. Add platform capability gating first.
-2. Make Windows/Linux builds open without presenting broken App Audio/Input Device controls. Windows now has a file-only backend entry point for this path.
+2. Make Windows/Linux builds open without presenting broken App Audio/Input Device controls. Windows now has a DirectShow input-device backend entry point for this path.
 3. Support File source first on Windows/Linux.
 4. Add Windows output-device loopback as a research build.
 5. Add Linux PipeWire/PulseAudio monitor-source capture as a research build.

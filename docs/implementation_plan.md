@@ -71,6 +71,7 @@ src/main/audio-backends/
   macos/
     core-audio-helper.js
     device-scanner.js
+  windows-dshow.js
   windows-wasapi.js
   linux-pipewire.js
   unsupported.js
@@ -199,7 +200,7 @@ Goal: make Windows/Linux app shells useful without pretending full capture suppo
 Tasks:
 
 - Ensure File source does not depend on macOS helper modules.
-- Select `windows-file-only` from `src/main/audio-backends/index.js` when `process.platform === 'win32'`.
+- Select `windows-dshow-input` from `src/main/audio-backends/index.js` when `process.platform === 'win32'`.
 - Disable App Audio and Input Device on Windows/Linux through backend capabilities.
 - Verify FFmpeg binary availability and path resolution for Windows/Linux.
 - Verify settings persistence, Icecast connection UI, channel templates, logs, and About window.
@@ -298,7 +299,7 @@ Exit criteria:
 
 - The stable `0.1.0` build is macOS-first.
 - Windows/Linux builds are not release-ready.
-- Windows currently has a file-only backend entry point, but no real Windows capture backend.
+- Windows currently has an experimental DirectShow input-device bridge, but no production WASAPI/native capture backend.
 - Windows/Linux App Audio capture is not implemented.
 - Windows/Linux Input Device capture is not implemented.
 - Windows/Linux monitor device enumeration is not implemented.
@@ -315,7 +316,8 @@ Exit criteria:
 
 ## Immediate Next Tasks
 
-1. Validate `windows-file-only` on a real Windows beta build.
+1. Validate `windows-dshow-input` on a real Windows beta build.
 2. Verify File source streaming and monitor playback on Windows.
-3. Smoke-test macOS behavior after shared backend changes.
-4. Start Windows Input Device backend research after File source is validated.
+3. Smoke-test Windows Input Device streaming to Icecast.
+4. Smoke-test macOS behavior after shared backend changes.
+5. Start production Windows WASAPI/helper research after DirectShow input validation.

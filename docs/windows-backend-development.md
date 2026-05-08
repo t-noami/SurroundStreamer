@@ -21,10 +21,10 @@ Current Windows status:
 
 - Official Windows release: not available.
 - Windows beta packaging script exists: `npm run build:beta:win`
-- `process.platform === 'win32'` now selects a file-only Windows backend in `src/main/audio-backends/windows-wasapi.js`.
+- `process.platform === 'win32'` now selects a Windows backend in `src/main/audio-backends/windows-dshow.js`.
 - File source is the first Windows validation target.
 - App Audio capture is not implemented on Windows.
-- Input Device capture is not implemented on Windows.
+- Input Device capture has an experimental DirectShow/FFmpeg backend for early Windows validation.
 - Preserve-surround App Audio capture is not implemented on Windows.
 
 ## Do Not Break macOS
@@ -68,7 +68,7 @@ Add Windows support behind the existing backend selector.
 Suggested files:
 
 ```text
-src/main/audio-backends/windows-wasapi.js
+src/main/audio-backends/windows-dshow.js
 src/main/audio-backends/windows/
   windows-backend-helper.js
 
@@ -102,7 +102,7 @@ It is acceptable for early Windows work to return unsupported App Audio and Inpu
 
 Start conservative. Do not expose controls for features that do not work.
 
-File-only Windows beta capabilities should look like this:
+File-only Windows beta capabilities looked like this:
 
 ```js
 {
@@ -121,6 +121,24 @@ File-only Windows beta capabilities should look like this:
 ```
 
 Only change a flag to `true` after the feature is implemented and tested on Windows.
+
+The current experimental DirectShow input backend reports:
+
+```js
+{
+  platform: 'win32',
+  backendName: 'windows-dshow-input',
+  appAudioCapture: false,
+  appAudioPerProcess: false,
+  appAudioSurroundPreserve: false,
+  inputDeviceCapture: true,
+  inputDeviceMonitor: false,
+  fileSource: true,
+  monitorPlayback: true,
+  monitorDeviceEnumeration: false,
+  outputLoopbackCapture: false
+}
+```
 
 ## Backend PCM Contract
 
@@ -160,8 +178,8 @@ Goal: prove that the Electron app can run on Windows without macOS backend calls
 
 Tasks:
 
-- Ensure `process.platform === 'win32'` uses a Windows or file-only backend, not macOS. Done in `src/main/audio-backends/windows-wasapi.js`.
-- Keep App Audio and Input Device disabled through capabilities.
+- Ensure `process.platform === 'win32'` uses a Windows or file-only backend, not macOS. Done in `src/main/audio-backends/windows-dshow.js`.
+- Keep App Audio and Input Device disabled through capabilities. Superseded for Input Device by the experimental DirectShow backend.
 - Build with `npm run build:beta:win`.
 - Launch the generated installer/app on Windows.
 - Verify File source UI, file selection, Icecast settings, logs window, About window, and START/STOP behavior.
@@ -170,13 +188,19 @@ Tasks:
 Exit criteria:
 
 - App launches on Windows.
-- App Audio and Input Device are visibly unavailable.
+- App Audio is visibly unavailable.
 - File source can be tested without macOS helper errors.
 - macOS beta still builds after the Windows changes.
 
 ### Stage 2: Windows Input Device Backend
 
 Goal: capture a selected Windows input device and stream it as PCM to FFmpeg.
+
+Current bootstrap:
+
+- `src/main/audio-backends/windows-dshow.js` enumerates DirectShow audio devices through bundled FFmpeg.
+- The backend captures selected input devices through FFmpeg `dshow`, converts to Float32 PCM, and emits the expected JSON `format` event.
+- This is a validation bridge, not the final WASAPI/native helper.
 
 Likely APIs:
 
@@ -186,13 +210,13 @@ Likely APIs:
 
 Tasks:
 
-- Enumerate input devices.
-- Return stable device IDs and display names.
-- Capture PCM with stable pacing.
-- Emit JSON `format` events.
+- Enumerate input devices. Initial DirectShow path added.
+- Return stable device IDs and display names. Initial DirectShow alternative IDs added.
+- Capture PCM with stable pacing. Initial FFmpeg DirectShow capture added; long-run pacing still needs testing.
+- Emit JSON `format` events. Initial bridge added.
 - Feed Float32 PCM to stdout.
 - Update capabilities:
-  - `inputDeviceCapture: true`
+  - `inputDeviceCapture: true` for the experimental DirectShow path
   - keep `inputDeviceMonitor: false` unless specifically implemented
 
 Exit criteria:

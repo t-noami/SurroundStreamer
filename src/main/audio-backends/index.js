@@ -1,6 +1,6 @@
 import macosCoreAudioBackend from './macos-core-audio'
 import UnsupportedAudioBackend from './unsupported'
-import windowsWasapiBackend from './windows-wasapi'
+import windowsDshowBackend from './windows-dshow'
 
 function selectAudioBackend() {
   if (process.platform === 'darwin') {
@@ -8,7 +8,7 @@ function selectAudioBackend() {
   }
 
   if (process.platform === 'win32') {
-    return windowsWasapiBackend
+    return windowsDshowBackend
   }
 
   return new UnsupportedAudioBackend(process.platform)

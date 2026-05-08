@@ -89,6 +89,7 @@ Branch: `beta/cross-platform-backend`
 - [x] Expose audio backend capabilities to the renderer.
 - [x] Disable unsupported source controls based on backend capabilities.
 - [x] Add a file-only Windows backend selector as the first Windows development entry point.
+- [x] Add an experimental Windows DirectShow Input Device backend.
 - [x] Move macOS helper build output to `native/audio-backends/macos/.build/SurroundAudioBackend`.
 - [x] Package the macOS helper as `audio-backend` while retaining legacy path fallback.
 - [x] Move macOS helper launcher into `src/main/audio-backends/macos/core-audio-helper.js`.
@@ -110,7 +111,8 @@ Branch: `beta/cross-platform-backend`
 - [ ] Smoke-test Input Device streaming on the new beta app.
 - [ ] Smoke-test File source streaming on the new beta app.
 - [ ] Start File-only Windows/Linux packaging validation after macOS behavior is confirmed.
-- [ ] Validate `windows-file-only` capabilities in the Windows beta app.
+- [ ] Validate `windows-dshow-input` capabilities in the Windows beta app.
+- [ ] Smoke-test Windows Input Device streaming to Icecast.
 - [x] Add Windows backend development guide for Windows-side contributors.
 - [x] Document macOS-safe files, Windows-owned files, and required cross-platform checks.
 - [ ] Validate File-only Windows beta on a real Windows environment.
