@@ -38,6 +38,12 @@ Input device listing:
 SurroundAudioBackend.exe --list-input-devices
 ```
 
+Output device listing:
+
+```powershell
+SurroundAudioBackend.exe --list-output-devices
+```
+
 Input device capture:
 
 ```powershell

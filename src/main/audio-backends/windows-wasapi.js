@@ -112,21 +112,42 @@ class WindowsWasapiBackend {
 
   async listAppOutputStreams() {
     this.assertHelperAvailable()
+    const result = await this.runHelper(['--list-output-devices'])
+    const devices = (result.devices || []).map((device, index) => {
+      const sampleRate = Number(device.sampleRate) || DEFAULT_SAMPLE_RATE
+      const channels = Number(device.channels) || DEFAULT_CHANNELS
+      return {
+        name: device.name || `Windows Audio Output ${index + 1}`,
+        deviceUID: device.deviceUID || `wasapi-render-${index}`,
+        streams: [
+          {
+            streamIndex: 0,
+            sampleRate,
+            channels,
+            bitsPerChannel: 32
+          }
+        ]
+      }
+    })
+
     return {
-      devices: [
-        {
-          name: 'WASAPI Process Loopback',
-          deviceUID: 'wasapi-process-loopback',
-          streams: [
-            {
-              streamIndex: 0,
-              sampleRate: DEFAULT_SAMPLE_RATE,
-              channels: DEFAULT_CHANNELS,
-              bitsPerChannel: 32
-            }
-          ]
-        }
-      ]
+      devices:
+        devices.length > 0
+          ? devices
+          : [
+              {
+                name: 'WASAPI Process Loopback',
+                deviceUID: 'wasapi-process-loopback',
+                streams: [
+                  {
+                    streamIndex: 0,
+                    sampleRate: DEFAULT_SAMPLE_RATE,
+                    channels: DEFAULT_CHANNELS,
+                    bitsPerChannel: 32
+                  }
+                ]
+              }
+            ]
     }
   }
 
@@ -193,7 +214,7 @@ class WindowsWasapiBackend {
 
   normalizedChannels(channels) {
     const numeric = Number(channels || DEFAULT_CHANNELS)
-    return Number.isInteger(numeric) && numeric >= 1 ? Math.min(numeric, 2) : DEFAULT_CHANNELS
+    return Number.isInteger(numeric) && numeric >= 1 ? Math.min(numeric, 8) : DEFAULT_CHANNELS
   }
 
   processDisplayName(process) {

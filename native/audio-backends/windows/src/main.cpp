@@ -210,6 +210,32 @@ static int intArg(int argc, wchar_t** argv, const wchar_t* name, int fallback) {
   return _wtoi(value.c_str());
 }
 
+static DWORD channelMaskFor(int channels) {
+  switch (channels) {
+    case 1:
+      return SPEAKER_FRONT_CENTER;
+    case 2:
+      return SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT;
+    case 3:
+      return SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT | SPEAKER_LOW_FREQUENCY;
+    case 4:
+      return SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT | SPEAKER_BACK_LEFT | SPEAKER_BACK_RIGHT;
+    case 5:
+      return SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT | SPEAKER_FRONT_CENTER |
+             SPEAKER_BACK_LEFT | SPEAKER_BACK_RIGHT;
+    case 6:
+      return KSAUDIO_SPEAKER_5POINT1;
+    case 7:
+      return SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT | SPEAKER_FRONT_CENTER |
+             SPEAKER_LOW_FREQUENCY | SPEAKER_BACK_LEFT | SPEAKER_BACK_RIGHT |
+             SPEAKER_BACK_CENTER;
+    case 8:
+      return KSAUDIO_SPEAKER_7POINT1_SURROUND;
+    default:
+      return 0;
+  }
+}
+
 static WAVEFORMATEXTENSIBLE makeFloatFormat(int sampleRate, int channels) {
   WAVEFORMATEXTENSIBLE format = {};
   format.Format.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
@@ -220,7 +246,7 @@ static WAVEFORMATEXTENSIBLE makeFloatFormat(int sampleRate, int channels) {
   format.Format.nAvgBytesPerSec = format.Format.nSamplesPerSec * format.Format.nBlockAlign;
   format.Format.cbSize = sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX);
   format.Samples.wValidBitsPerSample = 32;
-  format.dwChannelMask = channels == 1 ? SPEAKER_FRONT_CENTER : SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT;
+  format.dwChannelMask = channelMaskFor(channels);
   format.SubFormat = KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
   return format;
 }
@@ -405,7 +431,7 @@ static HRESULT getMixFormat(IAudioClient* audioClient, WAVEFORMATEX** format) {
   return audioClient->GetMixFormat(format);
 }
 
-static int listInputDevices() {
+static int listAudioEndpoints(EDataFlow dataFlow, const char* jsonKey) {
   HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
   if (FAILED(hr)) {
     writeError(hrMessage("CoInitializeEx", hr));
@@ -425,16 +451,16 @@ static int listInputDevices() {
   }
 
   ComPtr<IMMDeviceCollection> collection;
-  hr = enumerator->EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE, collection.put());
+  hr = enumerator->EnumAudioEndpoints(dataFlow, DEVICE_STATE_ACTIVE, collection.put());
   if (FAILED(hr)) {
-    writeError(hrMessage("EnumAudioEndpoints(eCapture)", hr));
+    writeError(hrMessage("EnumAudioEndpoints", hr));
     CoUninitialize();
     return 1;
   }
 
   UINT count = 0;
   collection->GetCount(&count);
-  fprintf(stdout, "{\"devices\":[");
+  fprintf(stdout, "{\"%s\":[", jsonKey);
   bool first = true;
   for (UINT index = 0; index < count; ++index) {
     ComPtr<IMMDevice> device;
@@ -443,7 +469,7 @@ static int listInputDevices() {
     LPWSTR id = nullptr;
     if (FAILED(device->GetId(&id))) continue;
 
-    std::string name = "Windows Audio Input";
+    std::string name = dataFlow == eCapture ? "Windows Audio Input" : "Windows Audio Output";
     ComPtr<IPropertyStore> properties;
     if (SUCCEEDED(device->OpenPropertyStore(STGM_READ, properties.put()))) {
       PROPVARIANT friendlyName;
@@ -487,6 +513,14 @@ static int listInputDevices() {
   fprintf(stdout, "]}\n");
   CoUninitialize();
   return 0;
+}
+
+static int listInputDevices() {
+  return listAudioEndpoints(eCapture, "devices");
+}
+
+static int listOutputDevices() {
+  return listAudioEndpoints(eRender, "devices");
 }
 
 static int captureInputDevice(const std::wstring& deviceId) {
@@ -688,6 +722,10 @@ int wmain(int argc, wchar_t** argv) {
     return listInputDevices();
   }
 
+  if (hasArg(argc, argv, L"--list-output-devices")) {
+    return listOutputDevices();
+  }
+
   if (hasArg(argc, argv, L"--stream-input-device")) {
     std::wstring deviceId = argValue(argc, argv, L"--device-id", L"");
     if (deviceId.empty()) {
@@ -699,7 +737,7 @@ int wmain(int argc, wchar_t** argv) {
 
   if (!hasArg(argc, argv, L"--stream-process-loopback")) {
     fprintf(stderr,
-            "Usage: SurroundAudioBackend.exe --list-input-devices | --stream-input-device --device-id <id> | --stream-process-loopback --pid <pid> [--sample-rate 48000] [--channels 2] [--mode include-tree|exclude-tree]\n");
+            "Usage: SurroundAudioBackend.exe --list-input-devices | --list-output-devices | --stream-input-device --device-id <id> | --stream-process-loopback --pid <pid> [--sample-rate 48000] [--channels 2] [--mode include-tree|exclude-tree]\n");
     return 2;
   }
 
@@ -710,7 +748,7 @@ int wmain(int argc, wchar_t** argv) {
   }
 
   int sampleRate = std::max(8000, intArg(argc, argv, L"--sample-rate", 48000));
-  int channels = std::clamp(intArg(argc, argv, L"--channels", 2), 1, 2);
+  int channels = std::clamp(intArg(argc, argv, L"--channels", 2), 1, 8);
   std::wstring modeValue = argValue(argc, argv, L"--mode", L"include-tree");
   PROCESS_LOOPBACK_MODE mode = modeValue == L"exclude-tree"
                                  ? PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE
