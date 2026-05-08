@@ -1,6 +1,6 @@
 # SurroundStreamer Task Status
 
-Last updated: 2026-05-08
+Last updated: 2026-05-09
 
 ## Current Release State
 
@@ -121,6 +121,9 @@ Branch: `beta/cross-platform-backend`
 - [x] Smoke-test Windows MMDevice/WASAPI Input Device capture startup.
 - [x] Probe Windows ASIO drivers and identify 6ch+ virtual devices.
 - [x] Smoke-test 6ch ASIO input capture from Voicemeeter Virtual ASIO.
+- [x] Validate REAPER 5.1 route through Voicemeeter Virtual ASIO into SurroundStreamer ASIO input.
+- [x] Explicitly map selected backend channels before FFmpeg encoding when backend input channels differ from stream output channels.
+- [ ] Investigate Windows WASAPI Process Loopback `IAudioClient::Initialize` failure `0x88890021` observed with REAPER.
 - [ ] Smoke-test Windows WASAPI Process Loopback App Audio streaming to Icecast.
 - [x] Add Windows backend development guide for Windows-side contributors.
 - [x] Document macOS-safe files, Windows-owned files, and required cross-platform checks.

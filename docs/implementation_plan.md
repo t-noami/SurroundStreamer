@@ -1,6 +1,6 @@
 # SurroundStreamer Cross-Platform Backend Plan
 
-Last updated: 2026-05-08
+Last updated: 2026-05-09
 
 Branch: `beta/cross-platform-backend`
 
@@ -287,14 +287,25 @@ Candidate APIs:
 Initial target:
 
 - File-only Windows beta validation first.
-- Input-device capture second. The current bridge uses FFmpeg DirectShow and has passed initial user validation.
+- Input-device capture second. The current native helper can capture MMDevice/WASAPI inputs and ASIO inputs, with DirectShow retained as a fallback.
 - Per-app/process capture third. The current bootstrap uses WASAPI Process Loopback and intentionally requires Windows 10 Build 20348 or later.
 - Native low-latency monitor playback is not part of the first Windows backend target.
+
+Windows validation snapshot, 2026-05-09:
+
+- WASAPI/MMDevice endpoints on the current Windows test machine expose only mono/stereo formats, including Voicemeeter WDM endpoints.
+- Voicemeeter ASIO exposes multichannel virtual devices. `Voicemeeter Virtual ASIO` has been validated as 8 in / 8 out, and the native helper can read 6ch Float32 PCM from it.
+- REAPER multichannel output has been validated through `REAPER -> Voicemeeter Virtual ASIO -> SurroundStreamer ASIO input`. The practical Windows 5.1 route for REAPER is therefore ASIO input, not WASAPI App Audio.
+- REAPER must route Master hardware outputs explicitly: source 1/2 to output 1/2, source 3/4 to output 3/4, and source 5/6 to output 5/6. Setting the Master track to 6ch alone is insufficient.
+- The FFmpeg pre-encode path now explicitly maps selected backend channels when input and output channel counts differ, so an 8ch ASIO input can feed a 5.1 stream without relying on FFmpeg's implicit `-ac` behavior.
+- Voicemeeter itself does not publish to Icecast. The intended chain is `REAPER -> Voicemeeter ASIO -> SurroundStreamer -> Icecast`.
+- WASAPI Process Loopback remains a separate App Audio research path. It is suitable for normal Windows app audio only when the app is actually rendering through WASAPI, and it should not be expected to capture ASIO output from REAPER.
+- On the current test machine, the REAPER WASAPI process-loopback smoke test failed during `IAudioClient::Initialize` with `0x88890021`; this needs separate investigation before Windows App Audio can be treated as usable.
 
 Risks:
 
 - Per-process loopback support depends on Windows version and API behavior.
-- Multichannel preservation depends on endpoint format and driver behavior.
+- Multichannel preservation depends on endpoint format and driver behavior. On Windows, ASIO may be the only visible multichannel path even when the matching WASAPI endpoints are stereo.
 - Windows channel layout names will not map exactly to Core Audio stream concepts.
 - Signing and SmartScreen are release issues separate from backend correctness.
 
@@ -380,8 +391,9 @@ Exit criteria:
 
 - The stable `0.1.0` build is macOS-first.
 - Windows/Linux builds are not release-ready.
-- Windows currently has an experimental DirectShow input-device bridge and a WASAPI Process Loopback helper source for App Audio.
+- Windows currently has native MMDevice/WASAPI input capture, ASIO probing/capture, the older DirectShow input-device bridge as fallback, and a WASAPI Process Loopback helper source for App Audio research.
 - Windows App Audio requires Windows 10 Build 20348 or later and a built native helper executable.
+- Windows REAPER 5.1 validation currently uses ASIO input through Voicemeeter; WASAPI App Audio is not the validated path for ASIO applications.
 - Windows DirectShow loopback support is only a development bridge for loopback-like input devices exposed by the host, not the selected App Audio path.
 - Linux App Audio capture is not implemented.
 - Linux Input Device capture is not implemented.
