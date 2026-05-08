@@ -12,6 +12,7 @@ const api = {
   startInputDeviceMonitor: (config) => ipcRenderer.invoke('monitor:start-input-device', config),
   stopPreviewMonitor: () => ipcRenderer.invoke('monitor:stop-preview'),
   listDevices: () => ipcRenderer.invoke('devices:list'),
+  getAudioBackendCapabilities: () => ipcRenderer.invoke('audio-backend:capabilities'),
   openFile: () => ipcRenderer.invoke('dialog:openFile'),
   listAppAudioProcesses: () => ipcRenderer.invoke('app-audio:list-processes'),
   listAppAudioOutputStreams: () => ipcRenderer.invoke('app-audio:list-output-streams'),

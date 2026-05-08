@@ -85,7 +85,7 @@ npm run build:beta:mac
 Output:
 
 ```text
-dist/beta/mac-arm64/SurroundStreamer-beta-0.1.0.app
+dist/beta/mac-arm64/SurroundStreamer-beta-0.1.1.app
 ```
 
 ## Optional Packaged macOS Artifact
@@ -125,7 +125,7 @@ shasum -a 256 dist/SurroundStreamer-0.1.0.dmg
 For beta builds:
 
 ```bash
-codesign --verify --deep --strict --verbose=2 dist/beta/mac-arm64/SurroundStreamer-beta-0.1.0.app
+codesign --verify --deep --strict --verbose=2 dist/beta/mac-arm64/SurroundStreamer-beta-0.1.1.app
 ```
 
 ## Notes

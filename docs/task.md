@@ -75,3 +75,23 @@ Last updated: 2026-05-08
 - [ ] Investigate optional Ogg Vorbis multichannel streaming up to 7.1.
 - [ ] Revisit 7.1.4 only as a research-mode feature after player compatibility is proven.
 - [ ] Consider KU100 far-field HRIR mode if speaker-layout monitoring needs deeper tuning.
+
+## Cross-Platform Beta Branch
+
+Branch: `beta/cross-platform-backend`
+
+- [x] Define the cross-platform backend plan in `docs/implementation_plan.md`.
+- [x] Increment beta build naming from `0.1.0` to `0.1.1-beta.1`.
+- [x] Add beta packaging scripts for macOS, Windows, and Linux.
+- [x] Add a main-process audio backend selection boundary.
+- [x] Wrap current macOS Core Audio helper access behind a macOS backend.
+- [x] Add an unsupported backend for non-macOS platforms.
+- [x] Expose audio backend capabilities to the renderer.
+- [x] Disable unsupported source controls based on backend capabilities.
+- [x] Verify `npm run build`.
+- [x] Verify `npm run build:beta:mac`.
+- [x] Verify `codesign --verify --deep --strict --verbose=2 dist/beta/mac-arm64/SurroundStreamer-beta-0.1.1.app`.
+- [ ] Smoke-test App Audio streaming on the new beta app.
+- [ ] Smoke-test Input Device streaming on the new beta app.
+- [ ] Smoke-test File source streaming on the new beta app.
+- [ ] Start File-only Windows/Linux packaging validation after macOS behavior is confirmed.

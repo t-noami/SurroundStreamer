@@ -2,7 +2,7 @@ import ffmpeg from 'fluent-ffmpeg'
 import { spawn } from 'child_process'
 import { EventEmitter } from 'events'
 import { getFfmpegPath } from './ffmpeg-path'
-import appAudioHelper from './app-audio-helper'
+import audioBackend from './audio-backends'
 
 const ffmpegPath = getFfmpegPath()
 ffmpeg.setFfmpegPath(ffmpegPath)
@@ -27,10 +27,27 @@ class FFmpegManager extends EventEmitter {
     this.monitorAudioFlushTimer = null
   }
 
+  validateBackendSupport(config) {
+    const capabilities = audioBackend.getCapabilities()
+
+    if (config.inputType === 'app-audio' && !capabilities.appAudioCapture) {
+      throw new Error(`App Audio capture is not implemented on ${capabilities.platform}`)
+    }
+
+    if (config.inputType === 'device' && !capabilities.inputDeviceCapture) {
+      throw new Error(`Input Device capture is not implemented on ${capabilities.platform}`)
+    }
+
+    if (config.inputType === 'file' && capabilities.fileSource === false) {
+      throw new Error(`File source is not available on ${capabilities.platform}`)
+    }
+  }
+
   async startStream(config) {
     if (this.process) {
       throw new Error('Stream is already running')
     }
+    this.validateBackendSupport(config)
     this.stopPreviewMonitor()
 
     this.config = config
@@ -209,7 +226,7 @@ class FFmpegManager extends EventEmitter {
       type: 'system',
       message: `Starting app audio tap for PID ${pid} (preserve surround)`
     })
-    this.appAudioProcess = appAudioHelper.spawnPCMStream(pid, tapOptions)
+    this.appAudioProcess = audioBackend.spawnAppAudioPCMStream(pid, tapOptions)
 
     this.appAudioProcess.stdout.on('data', (data) => {
       if (this.monitorForwarding) {
@@ -277,14 +294,14 @@ class FFmpegManager extends EventEmitter {
 
   prepareInputDevicePipe(config) {
     if (!config.inputDeviceUID) {
-      throw new Error('Input Device streaming requires a Core Audio device UID')
+      throw new Error('Input Device streaming requires a backend device UID')
     }
 
     this.emit('log', {
       type: 'system',
       message: `Starting input device PCM capture (${config.inputDeviceName || config.inputDeviceUID})`
     })
-    this.inputDeviceProcess = appAudioHelper.spawnInputDevicePCMStream({
+    this.inputDeviceProcess = audioBackend.spawnInputDevicePCMStream({
       deviceUID: config.inputDeviceUID,
       streamIndex: config.inputStreamIndex
     })
@@ -327,7 +344,10 @@ class FFmpegManager extends EventEmitter {
         if (parsed?.event === 'error') {
           clearTimeout(startupTimer)
           const error = new Error(parsed.message || 'Input device capture failed')
-          this.emit('log', { type: 'error', message: `Input device capture error: ${error.message}` })
+          this.emit('log', {
+            type: 'error',
+            message: `Input device capture error: ${error.message}`
+          })
           settleReject(error)
           return
         }
@@ -388,6 +408,7 @@ class FFmpegManager extends EventEmitter {
     if (this.process) {
       throw new Error('Preview monitor is only available before streaming')
     }
+    this.validateBackendSupport(config)
 
     const pid = Number(config.appAudioPid || config.inputPath)
     if (!Number.isInteger(pid) || pid <= 0) {
@@ -406,7 +427,7 @@ class FFmpegManager extends EventEmitter {
       message: `Starting app audio preview monitor for PID ${pid}`
     })
 
-    const monitorProcess = appAudioHelper.spawnPCMStream(pid, tapOptions)
+    const monitorProcess = audioBackend.spawnAppAudioPCMStream(pid, tapOptions)
     this.previewMonitorProcess = monitorProcess
 
     monitorProcess.stdout.on('data', (data) => {
@@ -559,13 +580,14 @@ class FFmpegManager extends EventEmitter {
     if (this.process) {
       throw new Error('Preview monitor is only available before streaming')
     }
+    this.validateBackendSupport(config)
 
     if (!config.inputPath) {
       throw new Error('Input Device monitor requires a valid input device')
     }
 
     if (!config.inputDeviceUID) {
-      throw new Error('Input Device monitor requires a Core Audio device UID')
+      throw new Error('Input Device monitor requires a backend device UID')
     }
 
     this.stopPreviewMonitor()
@@ -586,7 +608,7 @@ class FFmpegManager extends EventEmitter {
       message: `Starting input device preview monitor (${channels}ch @ ${this.formatSampleRate(sampleRate)})`
     })
 
-    const monitorProcess = appAudioHelper.spawnInputDevicePCMStream({
+    const monitorProcess = audioBackend.spawnInputDevicePCMStream({
       deviceUID: config.inputDeviceUID,
       streamIndex: config.inputStreamIndex
     })
@@ -619,7 +641,10 @@ class FFmpegManager extends EventEmitter {
       }
 
       if (parsed?.event === 'error') {
-        this.emit('log', { type: 'error', message: `Input device preview error: ${parsed.message}` })
+        this.emit('log', {
+          type: 'error',
+          message: `Input device preview error: ${parsed.message}`
+        })
         return
       }
 
@@ -862,7 +887,10 @@ class FFmpegManager extends EventEmitter {
 
     args.push('-vn')
 
-    args.push('-filter_complex', this.buildStreamFilterGraph(config, outputChannels, monitorEnabled))
+    args.push(
+      '-filter_complex',
+      this.buildStreamFilterGraph(config, outputChannels, monitorEnabled)
+    )
     args.push('-map', '[enc]')
 
     args.push('-ar', String(outputSampleRate))

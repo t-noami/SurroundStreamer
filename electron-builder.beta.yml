@@ -1,9 +1,9 @@
 appId: com.surroundstreamer.beta
-productName: SurroundStreamer-beta-0.1.0
-buildVersion: 0.1.0
+productName: SurroundStreamer-beta-0.1.1
+buildVersion: 0.1.1
 copyright: Copyright © 2026 Non-REM Studio
 extraMetadata:
-  version: 0.1.0-beta.1
+  version: 0.1.1-beta.1
 directories:
   buildResources: build
   output: dist/beta
@@ -32,4 +32,20 @@ mac:
     NSDocumentsFolderUsageDescription: SurroundStreamer beta needs access to selected audio files.
     NSDownloadsFolderUsageDescription: SurroundStreamer beta needs access to selected audio files.
   notarize: false
+win:
+  executableName: SurroundStreamer-beta-0.1.1
+nsis:
+  artifactName: SurroundStreamer-beta-0.1.1-setup.${ext}
+  shortcutName: ${productName}
+  uninstallDisplayName: ${productName}
+  createDesktopShortcut: always
+linux:
+  target:
+    - AppImage
+    - snap
+    - deb
+  maintainer: Non-REM Studio <info@non-rem.com>
+  category: Utility
+appImage:
+  artifactName: SurroundStreamer-beta-0.1.1.${ext}
 npmRebuild: false

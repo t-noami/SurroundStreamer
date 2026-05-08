@@ -1,7 +1,6 @@
 import { ipcMain, dialog, BrowserWindow } from 'electron'
 import ffmpegManager from './ffmpeg-manager'
-import deviceScanner from './device-scanner'
-import appAudioHelper from './app-audio-helper'
+import audioBackend from './audio-backends'
 import mediaProber from './media-prober'
 import logStore from './log-store'
 
@@ -91,15 +90,19 @@ export function setupIpcHandlers() {
   })
 
   ipcMain.handle('devices:list', async () => {
-    return await deviceScanner.listAudioDevices()
+    return await audioBackend.listInputDevices()
   })
 
   ipcMain.handle('app-audio:list-processes', async () => {
-    return await appAudioHelper.listProcesses()
+    return await audioBackend.listAppProcesses()
   })
 
   ipcMain.handle('app-audio:list-output-streams', async () => {
-    return await appAudioHelper.listOutputStreams()
+    return await audioBackend.listAppOutputStreams()
+  })
+
+  ipcMain.handle('audio-backend:capabilities', () => {
+    return audioBackend.getCapabilities()
   })
 
   ipcMain.handle('media:probe-audio', async (_event, path) => {

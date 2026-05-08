@@ -21,20 +21,6 @@ const appAudioList = document.getElementById('app-audio-list')
 const appAudioOutputStream = document.getElementById('app-audio-output-stream')
 const btnRefreshAppAudio = document.getElementById('btn-refresh-app-audio')
 
-const inputSourceFields = [
-  tabFile,
-  tabDevice,
-  tabAppAudio,
-  btnBrowse,
-  filePathInput,
-  loopFileInput,
-  deviceList,
-  btnRefreshDevices,
-  appAudioList,
-  appAudioOutputStream,
-  btnRefreshAppAudio
-]
-
 const bitrateSelect = document.getElementById('bitrate-select')
 const bitrateActualValue = document.getElementById('bitrate-actual-value')
 const sampleRateSelect = document.getElementById('sample-rate-select')
@@ -131,6 +117,15 @@ let monitorSettingsPromise = Promise.resolve()
 let previewMonitorKey = ''
 let pendingPreviewStart = false
 let lastMonitorPeakUpdateAt = 0
+let audioBackendCapabilities = {
+  platform: 'darwin',
+  backendName: 'macos-core-audio',
+  appAudioCapture: true,
+  inputDeviceCapture: true,
+  inputDeviceMonitor: false,
+  fileSource: true,
+  monitorPlayback: true
+}
 const webAudioMonitor = new WebAudioMonitor(addLog)
 
 function addLog(message, type = 'system', options = {}) {
@@ -187,10 +182,69 @@ function setStreamingState(nextIsStreaming) {
 }
 
 function setInputSourceLocked(isLocked) {
-  inputSourceFields.forEach((field) => {
-    if (field) field.disabled = isLocked
-  })
+  btnBrowse.disabled = isLocked || !audioBackendCapabilities.fileSource
+  filePathInput.disabled = isLocked || !audioBackendCapabilities.fileSource
+  loopFileInput.disabled = isLocked || !audioBackendCapabilities.fileSource
+  deviceList.disabled = isLocked || !audioBackendCapabilities.inputDeviceCapture
+  btnRefreshDevices.disabled = isLocked || !audioBackendCapabilities.inputDeviceCapture
+  appAudioList.disabled = isLocked || !audioBackendCapabilities.appAudioCapture
+  appAudioOutputStream.disabled = isLocked || !audioBackendCapabilities.appAudioCapture
+  btnRefreshAppAudio.disabled = isLocked || !audioBackendCapabilities.appAudioCapture
+  tabFile.disabled = isLocked || !audioBackendCapabilities.fileSource
+  tabDevice.disabled = isLocked || !audioBackendCapabilities.inputDeviceCapture
+  tabAppAudio.disabled = isLocked || !audioBackendCapabilities.appAudioCapture
   document.querySelector('.input-panel')?.classList.toggle('disabled-panel', isLocked)
+}
+
+function isSourceSupported(inputType) {
+  if (inputType === 'file') return audioBackendCapabilities.fileSource !== false
+  if (inputType === 'device') return !!audioBackendCapabilities.inputDeviceCapture
+  if (inputType === 'app-audio') return !!audioBackendCapabilities.appAudioCapture
+  return false
+}
+
+function applyAudioBackendCapabilities() {
+  setInputSourceLocked(isStreaming)
+  tabFile.title = audioBackendCapabilities.fileSource ? '' : 'File source is not available'
+  tabDevice.title = audioBackendCapabilities.inputDeviceCapture
+    ? ''
+    : 'Input Device capture is not available on this platform'
+  tabAppAudio.title = audioBackendCapabilities.appAudioCapture
+    ? ''
+    : 'App Audio capture is not available on this platform'
+
+  if (!isSourceSupported(currentInputType)) {
+    const fallback = isSourceSupported('file')
+      ? 'file'
+      : isSourceSupported('app-audio')
+        ? 'app-audio'
+        : 'device'
+    showInputSection(fallback)
+  }
+
+  updateMonitorAvailability()
+}
+
+async function loadAudioBackendCapabilities() {
+  if (!window.api.getAudioBackendCapabilities) {
+    applyAudioBackendCapabilities()
+    return
+  }
+
+  try {
+    audioBackendCapabilities = {
+      ...audioBackendCapabilities,
+      ...(await window.api.getAudioBackendCapabilities())
+    }
+    addLog(
+      `Audio backend: ${audioBackendCapabilities.backendName || 'unknown'} (${audioBackendCapabilities.platform || 'unknown'}).`,
+      'system'
+    )
+  } catch (err) {
+    addLog(`Could not read audio backend capabilities: ${err.message}`, 'error')
+  }
+
+  applyAudioBackendCapabilities()
 }
 
 function setIcecastSettingsLocked(isLocked) {
@@ -264,6 +318,11 @@ function saveIcecastSettings() {
 }
 
 function showInputSection(inputType) {
+  if (!isSourceSupported(inputType)) {
+    addLog(`Input source "${inputType}" is not supported by the current audio backend.`, 'error')
+    return
+  }
+
   const previousInputType = currentInputType
   currentInputType = inputType
 
@@ -285,6 +344,14 @@ function showInputSection(inputType) {
 }
 
 async function refreshDevices() {
+  if (!audioBackendCapabilities.inputDeviceCapture) {
+    inputDevices = []
+    deviceList.innerHTML =
+      '<option value="">Input Device is not available on this platform</option>'
+    addLog('Input Device capture is not available with the current audio backend.', 'system')
+    return
+  }
+
   await ensureMicrophoneAccess('device scan')
   addLog('Scanning audio devices...', 'system')
   try {
@@ -399,6 +466,12 @@ async function refreshMonitorDevices(requestOutputSelection = false) {
 }
 
 async function refreshAppAudioProcesses() {
+  if (!audioBackendCapabilities.appAudioCapture) {
+    appAudioList.innerHTML = '<option value="">App Audio is not available on this platform</option>'
+    addLog('App Audio capture is not available with the current audio backend.', 'system')
+    return
+  }
+
   addLog('Scanning app audio processes...', 'system')
   try {
     const previousValue = appAudioList.value
@@ -425,6 +498,12 @@ async function refreshAppAudioProcesses() {
 }
 
 async function refreshAppAudioOutputStreams() {
+  if (!audioBackendCapabilities.appAudioCapture) {
+    appAudioOutputStream.innerHTML =
+      '<option value="">App output capture is not available on this platform</option>'
+    return
+  }
+
   addLog('Scanning app output capture sources...', 'system')
   try {
     const previousValue = appAudioOutputStream.value
@@ -547,11 +626,17 @@ function selectedPreviewMonitorConfig() {
 }
 
 function supportsPreviewMonitor() {
-  return currentInputType === 'file' || currentInputType === 'app-audio'
+  if (!audioBackendCapabilities.monitorPlayback) return false
+  if (currentInputType === 'file') return audioBackendCapabilities.fileSource !== false
+  if (currentInputType === 'app-audio') return !!audioBackendCapabilities.appAudioCapture
+  if (currentInputType === 'device') return !!audioBackendCapabilities.inputDeviceMonitor
+  return false
 }
 
 function isMonitorAvailable() {
-  return currentInputType !== 'device'
+  if (!audioBackendCapabilities.monitorPlayback) return false
+  if (currentInputType === 'device') return !!audioBackendCapabilities.inputDeviceMonitor
+  return isSourceSupported(currentInputType)
 }
 
 function updateMonitorAvailability() {
@@ -1374,6 +1459,14 @@ btnBrowse.addEventListener('click', async () => {
 })
 
 btnStart.addEventListener('click', async () => {
+  if (!isSourceSupported(currentInputType)) {
+    addLog(
+      'Error: The selected input source is not supported by the current audio backend.',
+      'error'
+    )
+    return
+  }
+
   const appAudioPid = appAudioList.value
   const stream = selectedAppAudioStream()
   const inputDevice = selectedInputDevice()
@@ -1562,6 +1655,7 @@ window.api.onStreamMeter((payload) => {
 
 async function initializeApp() {
   loadIcecastSettings()
+  await loadAudioBackendCapabilities()
   bitrateSelect.value = '128'
   sampleRateSelect.value = '48000'
   updateChannelControls(true)
@@ -1569,7 +1663,9 @@ async function initializeApp() {
   updateMonitorVolumeLabel()
   updateMonitorAvailability()
   renderMonitorPeakMeters(2)
-  await Promise.all([refreshAppAudioProcesses(), refreshAppAudioOutputStreams()])
+  if (audioBackendCapabilities.appAudioCapture) {
+    await Promise.all([refreshAppAudioProcesses(), refreshAppAudioOutputStreams()])
+  }
   refreshMonitorDevices()
   addLog('SurroundStreamer initialized.', 'system')
 }
