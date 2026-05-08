@@ -25,7 +25,7 @@ Current Windows status:
 - File source is the first Windows validation target.
 - App Audio capture uses a native WASAPI Process Loopback helper when built.
 - Windows App Audio support intentionally requires Windows 10 Build 20348 or later.
-- Input Device capture has an experimental DirectShow/FFmpeg backend for early Windows validation.
+- Input Device capture now prefers native MMDevice/WASAPI through the Windows helper, with the earlier DirectShow/FFmpeg backend retained as fallback.
 - The earlier DirectShow loopback-device bridge remains a development reference, but the selected backend targets true per-process capture through WASAPI.
 - Preserve-surround App Audio capture is not implemented on Windows.
 
@@ -252,9 +252,11 @@ Goal: capture a selected Windows input device and stream it as PCM to FFmpeg.
 
 Current bootstrap:
 
+- `native/audio-backends/windows/src/main.cpp` enumerates active capture endpoints through MMDevice and captures them through WASAPI.
+- `src/main/audio-backends/windows-wasapi.js` uses the native helper for Input Device when the helper is available.
 - `src/main/audio-backends/windows-dshow.js` enumerates DirectShow audio devices through bundled FFmpeg.
 - The backend captures selected input devices through FFmpeg `dshow`, converts to Float32 PCM, and emits the expected JSON `format` event.
-- This is a validation bridge, not the final WASAPI/native helper.
+- The DirectShow path is now a fallback bridge, not the preferred Windows Input Device path.
 
 Likely APIs:
 
@@ -264,11 +266,11 @@ Likely APIs:
 
 Tasks:
 
-- Enumerate input devices. Initial DirectShow path added.
-- Return stable device IDs and display names. Initial DirectShow alternative IDs added.
-- Capture PCM with stable pacing. Initial FFmpeg DirectShow capture added; long-run pacing still needs testing.
-- Emit JSON `format` events. Initial bridge added.
-- Feed Float32 PCM to stdout.
+- Enumerate input devices. Initial MMDevice path added.
+- Return stable endpoint IDs and display names. Initial MMDevice endpoint IDs added.
+- Capture PCM with stable pacing. Initial WASAPI shared-mode capture added; long-run pacing still needs testing.
+- Emit JSON `format` events. Initial native helper path added.
+- Feed Float32 PCM to stdout, converting PCM integer mix formats to Float32 when necessary.
 - Update capabilities:
   - `inputDeviceCapture: true` for the experimental DirectShow path
   - `inputDeviceMonitor: true` for the experimental DirectShow preview path

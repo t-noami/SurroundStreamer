@@ -9,11 +9,11 @@ Do not treat `npm run build:win` or `npm run build:beta:win` as a supported publ
 ## Current Status
 
 - Official Windows release: not available.
-- Windows beta branch backend: `windows-wasapi-process-loopback` when the native helper is built, with DirectShow still used for Input Device capture.
+- Windows beta branch backend: `windows-wasapi-process-loopback` when the native helper is built, with MMDevice/WASAPI now preferred for Input Device capture and DirectShow retained as a fallback.
 - Supported Windows baseline: Windows 10 Build 20348 or later. Older Windows builds are intentionally unsupported for App Audio capture.
 - App Audio capture: native WASAPI Process Loopback helper source has been added; local builds require Visual Studio 2022 Desktop development with C++.
-- Input Device capture: experimental FFmpeg DirectShow path is available for validation.
-- Input Device Monitor Output: experimental FFmpeg DirectShow preview path is available for validation.
+- Input Device capture: native MMDevice/WASAPI path is available for validation; the older FFmpeg DirectShow path remains as fallback when the native helper is missing.
+- Input Device Monitor Output: uses the selected Input Device PCM path, including MMDevice/WASAPI on Windows when the helper is available.
 - Output loopback capture: the earlier DirectShow loopback/virtual-device bridge is kept as a development reference, but the selected Windows backend now targets WASAPI per-process capture.
 - Preserve-surround app capture: not implemented on Windows.
 - File source support: first practical Windows target, but not yet validated as a release build.

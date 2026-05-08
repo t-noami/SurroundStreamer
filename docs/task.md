@@ -90,6 +90,7 @@ Branch: `beta/cross-platform-backend`
 - [x] Disable unsupported source controls based on backend capabilities.
 - [x] Add a file-only Windows backend selector as the first Windows development entry point.
 - [x] Add an experimental Windows DirectShow Input Device backend.
+- [x] Add native Windows MMDevice/WASAPI Input Device listing and capture.
 - [x] Move macOS helper build output to `native/audio-backends/macos/.build/SurroundAudioBackend`.
 - [x] Package the macOS helper as `audio-backend` while retaining legacy path fallback.
 - [x] Move macOS helper launcher into `src/main/audio-backends/macos/core-audio-helper.js`.
@@ -115,7 +116,9 @@ Branch: `beta/cross-platform-backend`
 - [x] Smoke-test Windows Input Device streaming to Icecast.
 - [x] Smoke-test Windows Input Device Monitor Output.
 - [x] Add Windows WASAPI Process Loopback helper source and JS backend wiring.
-- [ ] Build Windows WASAPI helper with Visual Studio C++ tools.
+- [x] Build Windows WASAPI helper with Visual Studio C++ tools.
+- [x] Verify Windows MMDevice/WASAPI Input Device listing sees Voicemeeter endpoints.
+- [x] Smoke-test Windows MMDevice/WASAPI Input Device capture startup.
 - [ ] Smoke-test Windows WASAPI Process Loopback App Audio streaming to Icecast.
 - [x] Add Windows backend development guide for Windows-side contributors.
 - [x] Document macOS-safe files, Windows-owned files, and required cross-platform checks.

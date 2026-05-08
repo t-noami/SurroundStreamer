@@ -1,6 +1,7 @@
 # SurroundStreamer Windows Audio Backend
 
-This helper is the native Windows backend for WASAPI process loopback capture.
+This helper is the native Windows backend for WASAPI process loopback capture and
+MMDevice/WASAPI input-device capture.
 
 Supported Windows baseline:
 
@@ -29,6 +30,18 @@ Process loopback capture:
 
 ```powershell
 SurroundAudioBackend.exe --stream-process-loopback --pid 1234 --sample-rate 48000 --channels 2
+```
+
+Input device listing:
+
+```powershell
+SurroundAudioBackend.exe --list-input-devices
+```
+
+Input device capture:
+
+```powershell
+SurroundAudioBackend.exe --stream-input-device --device-id "{0.0.1.00000000}.{...}"
 ```
 
 stdout:

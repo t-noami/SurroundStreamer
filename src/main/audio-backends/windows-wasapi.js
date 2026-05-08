@@ -28,15 +28,58 @@ class WindowsWasapiBackend {
   }
 
   async listInputDevices() {
-    return await windowsDshowBackend.listInputDevices()
+    if (!this.isHelperAvailable()) {
+      return await windowsDshowBackend.listInputDevices()
+    }
+
+    const result = await this.runHelper(['--list-input-devices'])
+    return (result.devices || []).map((device, index) => ({
+      index: String(device.index ?? index),
+      name: device.name || `Windows Audio Input ${index + 1}`,
+      deviceUID: device.deviceUID,
+      sampleRate: Number(device.sampleRate) || DEFAULT_SAMPLE_RATE,
+      channels: Number(device.channels) || DEFAULT_CHANNELS,
+      bitsPerChannel: Number(device.bitsPerChannel) || 32,
+      backend: 'wasapi-mmdevice'
+    }))
   }
 
   async listInputStreams() {
-    return await windowsDshowBackend.listInputStreams()
+    if (!this.isHelperAvailable()) {
+      return await windowsDshowBackend.listInputStreams()
+    }
+
+    const devices = await this.listInputDevices()
+    return {
+      devices: devices.map((device) => ({
+        name: device.name,
+        deviceUID: device.deviceUID,
+        streams: [
+          {
+            streamIndex: 0,
+            sampleRate: device.sampleRate,
+            channels: device.channels,
+            bitsPerChannel: 32
+          }
+        ]
+      }))
+    }
   }
 
   spawnInputDevicePCMStream(options = {}) {
-    return windowsDshowBackend.spawnInputDevicePCMStream(options)
+    if (!this.isHelperAvailable()) {
+      return windowsDshowBackend.spawnInputDevicePCMStream(options)
+    }
+
+    if (!options.deviceUID) {
+      throw new Error('WASAPI input capture requires an MMDevice endpoint id')
+    }
+
+    return spawn(
+      this.getHelperPath(),
+      ['--stream-input-device', '--device-id', String(options.deviceUID)],
+      { stdio: ['ignore', 'pipe', 'pipe'] }
+    )
   }
 
   async listAppProcesses() {
@@ -195,6 +238,39 @@ class WindowsWasapiBackend {
           return
         }
         resolvePromise({ stdout, stderr })
+      })
+    })
+  }
+
+  runHelper(args) {
+    return new Promise((resolvePromise, reject) => {
+      this.assertHelperAvailable()
+      const child = spawn(this.getHelperPath(), args, { stdio: ['ignore', 'pipe', 'pipe'] })
+      let stdout = ''
+      let stderr = ''
+
+      child.stdout.on('data', (data) => {
+        stdout += data.toString()
+      })
+      child.stderr.on('data', (data) => {
+        stderr += data.toString()
+      })
+      child.on('error', reject)
+      child.on('close', (code) => {
+        if (code !== 0) {
+          reject(
+            new Error(
+              stderr.trim() || stdout.trim() || `Windows audio helper exited with code ${code}`
+            )
+          )
+          return
+        }
+
+        try {
+          resolvePromise(JSON.parse(stdout))
+        } catch (error) {
+          reject(new Error(`Invalid Windows audio helper JSON: ${error.message}`))
+        }
       })
     })
   }
