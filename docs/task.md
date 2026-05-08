@@ -115,4 +115,5 @@ Branch: `beta/cross-platform-backend`
 - [ ] Smoke-test Windows Input Device streaming to Icecast.
 - [x] Add Windows backend development guide for Windows-side contributors.
 - [x] Document macOS-safe files, Windows-owned files, and required cross-platform checks.
+- [x] Document native low-latency monitor as an optional backend capability.
 - [ ] Validate File-only Windows beta on a real Windows environment.

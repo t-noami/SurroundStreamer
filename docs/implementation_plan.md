@@ -145,12 +145,66 @@ Proposed capability object:
   inputDeviceMonitor: false,
   fileSource: true,
   monitorPlayback: true,
+  webAudioMonitorPlayback: true,
+  nativeMonitorPlayback: false,
+  lowLatencyAppAudioMonitor: false,
   monitorDeviceEnumeration: true,
   outputLoopbackCapture: false
 }
 ```
 
 Unsupported controls should be disabled before the user clicks them. They should not fail only after streaming starts.
+
+## Monitor Output Architecture
+
+The current monitor path is portable but not the lowest possible latency:
+
+```text
+backend PCM -> Electron main process -> renderer IPC -> WebAudio Worklet -> selected output device
+```
+
+This path should remain the default cross-platform monitor implementation because it works with the existing renderer-side Stereo Pair, Binaural HRTF, volume, meter, and output-device UI.
+
+If App Audio monitoring still feels too delayed on macOS, the next step is a native monitor path:
+
+```text
+macOS Core Audio process tap -> native Core Audio output render path
+```
+
+That must be treated as an optional backend capability, not as shared renderer behavior.
+
+Do not wire a macOS-only native monitor directly into shared renderer or FFmpeg code. Add a backend-level contract first, then implement it per OS only when needed.
+
+Suggested future backend capabilities:
+
+```js
+{
+  monitorPlayback: true,
+  webAudioMonitorPlayback: true,
+  nativeMonitorPlayback: false,
+  nativeMonitorOutputSelection: false,
+  lowLatencyAppAudioMonitor: false
+}
+```
+
+Suggested future backend methods:
+
+```js
+startNativeMonitor(config)
+stopNativeMonitor()
+setNativeMonitorVolume(volume)
+setNativeMonitorOutputDevice(deviceId)
+```
+
+Rules:
+
+- WebAudio monitor stays as the fallback for all platforms.
+- Native monitor is opt-in per backend.
+- macOS native monitor, if implemented, may use Core Audio directly.
+- Windows native monitor, if implemented, must be a separate WASAPI render path, not Core Audio.
+- Linux native monitor, if implemented, must be a separate PipeWire/PulseAudio playback path.
+- Keep streaming output and monitor output independent. Monitor changes must not alter Icecast/FFmpeg stream pacing or channel mapping.
+- Keep Binaural HRTF in the WebAudio path until there is a clear reason to port that DSP into native helpers.
 
 ## Phased Development Plan
 
@@ -236,6 +290,7 @@ Initial target:
 - Input-device capture second.
 - Output-device loopback third.
 - Per-app/process capture is a separate research task after basic Windows capture stability is proven.
+- Native low-latency monitor playback is not part of the first Windows backend target.
 
 Risks:
 
@@ -249,6 +304,33 @@ Exit criteria:
 - Windows backend emits Float32 PCM and format JSON.
 - FFmpeg receives correctly paced PCM.
 - A Windows beta executable can be generated with the incremented beta version.
+
+### Phase 4.5: Optional Native Monitor Backend
+
+Goal: reduce monitor latency without damaging Windows/Linux backend work.
+
+This phase should start only after the platform capture backend boundary is stable.
+
+Implementation order:
+
+- Keep the WebAudio monitor as default.
+- Add the `nativeMonitorPlayback` capability flag.
+- Add backend methods for native monitor start/stop/volume/output-device selection.
+- Implement macOS native monitor first only for App Audio + Stereo Pair.
+- Keep Binaural HRTF and complex downmix modes on WebAudio unless native DSP is explicitly planned.
+- Do not require Windows/Linux to implement native monitor before their capture backends work.
+
+Windows expectation:
+
+- Windows native monitor would be a WASAPI render-client feature.
+- It should be planned separately from WASAPI capture.
+- It must not reuse macOS Core Audio naming, Core Audio stream IDs, or aggregate-device assumptions.
+
+Exit criteria:
+
+- macOS App Audio + Stereo Pair monitor latency improves in real listening tests.
+- WebAudio monitor still works as fallback.
+- Windows file-only and future WASAPI backend work is not blocked by native macOS monitor code.
 
 ### Phase 5: Linux Backend Research Build
 

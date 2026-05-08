@@ -115,6 +115,10 @@ File-only Windows beta capabilities looked like this:
   inputDeviceMonitor: false,
   fileSource: true,
   monitorPlayback: true,
+  webAudioMonitorPlayback: true,
+  nativeMonitorPlayback: false,
+  nativeMonitorOutputSelection: false,
+  lowLatencyAppAudioMonitor: false,
   monitorDeviceEnumeration: false,
   outputLoopbackCapture: false
 }
@@ -140,6 +144,52 @@ The current experimental DirectShow input backend reports:
 }
 ```
 
+## Monitor Output Rules
+
+The current monitor output path is renderer/WebAudio based. It is the shared fallback path for macOS, Windows, and Linux.
+
+Do not copy macOS Core Audio monitor implementation details into Windows code. Windows does not have Apple Core Audio, Core Audio process taps, private aggregate devices, Core Audio device UIDs, or Core Audio stream indexes.
+
+If a future native low-latency monitor is added, treat it as an optional backend feature.
+
+Shared capability flags:
+
+```js
+{
+  webAudioMonitorPlayback: true,
+  nativeMonitorPlayback: false,
+  nativeMonitorOutputSelection: false,
+  lowLatencyAppAudioMonitor: false
+}
+```
+
+Expected contract:
+
+```js
+startNativeMonitor(config)
+stopNativeMonitor()
+setNativeMonitorVolume(volume)
+setNativeMonitorOutputDevice(deviceId)
+```
+
+Windows-specific rule:
+
+- A native Windows monitor must be implemented with a Windows playback API such as WASAPI render-client behavior.
+- It must be separate from Windows capture implementation.
+- It must not be required for Stage 1 File-only Windows beta.
+- It must not be required for Stage 2 Input Device capture.
+- It should be considered only after basic Windows capture and output loopback behavior are stable.
+
+Recommended monitor priority for Windows:
+
+1. Keep WebAudio monitor working for File source.
+2. Implement input capture and stream stability first.
+3. Implement output-device loopback capture.
+4. Research per-process capture.
+5. Add native low-latency monitor only if WebAudio latency is unacceptable on Windows.
+
+Keep Binaural HRTF on the WebAudio path unless there is a separate plan to port DSP into a native Windows helper. The first native monitor target, if any, should be simple Stereo Pair playback.
+
 ## Backend PCM Contract
 
 When Windows capture is implemented, it must feed FFmpeg the same kind of PCM stream as macOS:
@@ -155,13 +205,13 @@ stderr:
 Required format event before or at capture startup:
 
 ```json
-{"event":"format","sampleRate":48000,"channels":2,"layout":"stereo","bitsPerChannel":32}
+{ "event": "format", "sampleRate": 48000, "channels": 2, "layout": "stereo", "bitsPerChannel": 32 }
 ```
 
 Error event:
 
 ```json
-{"event":"error","message":"capture failed"}
+{ "event": "error", "message": "capture failed" }
 ```
 
 The existing `ffmpeg-manager.js` expects backend PCM as:

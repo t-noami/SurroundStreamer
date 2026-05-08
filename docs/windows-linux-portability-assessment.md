@@ -22,6 +22,41 @@ Feature parity on Windows or Linux should be treated as difficult.
 - WebAudio-based monitor playback logic in `src/renderer/src/monitor-audio.js`, assuming the runtime supports the required WebAudio APIs.
 - KU100 near-field HRTF renderer data and channel mapping logic.
 
+## Monitor Output Portability
+
+The current monitor path is portable because it is renderer/WebAudio based:
+
+```text
+backend PCM -> Electron main process -> renderer IPC -> WebAudio Worklet -> output device
+```
+
+That path is not guaranteed to be low enough latency for App Audio monitoring, especially when the user expects near-realtime monitoring. Lowering renderer buffers and PCM forwarding helps, but the remaining latency may come from Electron/WebAudio scheduling and the operating-system audio output path.
+
+If lower latency is required, the next step is not to add more macOS-specific logic to shared files. The correct architecture is an optional native monitor backend:
+
+```text
+platform capture API -> platform native playback API
+```
+
+Platform mapping:
+
+- macOS: Core Audio process tap into Core Audio output render path.
+- Windows: WASAPI capture/loopback into WASAPI render-client playback path.
+- Linux: PipeWire/PulseAudio capture into PipeWire/PulseAudio playback path.
+
+This should be exposed through backend capabilities such as:
+
+```js
+{
+  webAudioMonitorPlayback: true,
+  nativeMonitorPlayback: false,
+  nativeMonitorOutputSelection: false,
+  lowLatencyAppAudioMonitor: false
+}
+```
+
+Native monitor support should be optional per OS. Windows/Linux work must not be blocked by a macOS-only native monitor. WebAudio remains the fallback and should continue to carry Binaural HRTF until native DSP is explicitly planned.
+
 ## Hard macOS Coupling
 
 ### Native Core Audio helper
@@ -229,7 +264,6 @@ Recommended refactor before Windows/Linux implementation:
 5. Keep a stable PCM contract into FFmpeg.
 
    Existing `ffmpeg-manager.js` can remain mostly reusable if each backend emits:
-
    - raw Float32 PCM stdout/stream
    - sample rate
    - channel count
