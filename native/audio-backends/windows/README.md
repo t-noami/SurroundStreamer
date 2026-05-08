@@ -44,10 +44,23 @@ Output device listing:
 SurroundAudioBackend.exe --list-output-devices
 ```
 
+ASIO device listing:
+
+```powershell
+SurroundAudioBackend.exe --list-asio-devices
+SurroundAudioBackend.exe --probe-asio-device --clsid "{...}"
+```
+
 Input device capture:
 
 ```powershell
 SurroundAudioBackend.exe --stream-input-device --device-id "{0.0.1.00000000}.{...}"
+```
+
+ASIO input capture:
+
+```powershell
+SurroundAudioBackend.exe --stream-asio-input --clsid "{...}" --channels 6
 ```
 
 stdout:

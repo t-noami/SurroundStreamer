@@ -24,6 +24,7 @@
 #include <atomic>
 #include <cmath>
 #include <string>
+#include <set>
 #include <vector>
 
 #ifndef VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK
@@ -125,6 +126,100 @@ class ActivationHandler final : public IActivateAudioInterfaceCompletionHandler,
   HANDLE event_ = nullptr;
   HRESULT result_ = E_FAIL;
   ComPtr<IAudioClient> audioClient_;
+};
+
+typedef long ASIOBool;
+typedef long ASIOError;
+typedef double ASIOSampleRate;
+typedef long ASIOSamples;
+
+struct ASIOTimeStamp {
+  ASIOSamples hi;
+  ASIOSamples lo;
+};
+
+struct ASIOTimeInfo {
+  double speed;
+  ASIOTimeStamp systemTime;
+  ASIOTimeStamp samplePosition;
+  ASIOSampleRate sampleRate;
+  long flags;
+  char reserved[12];
+};
+
+struct ASIOTimeCode {
+  double speed;
+  ASIOTimeStamp timeCodeSamples;
+  long flags;
+  char future[64];
+};
+
+struct ASIOTime {
+  long reserved[4];
+  ASIOTimeInfo timeInfo;
+  ASIOTimeCode timeCode;
+};
+
+typedef long ASIOMessageSelector;
+typedef long ASIOChannel;
+
+struct ASIOCallbacks {
+  void (*bufferSwitch)(long doubleBufferIndex, ASIOBool directProcess);
+  void (*sampleRateDidChange)(ASIOSampleRate sRate);
+  long (*asioMessage)(ASIOMessageSelector selector, long value, void* message, double* opt);
+  ASIOTime* (*bufferSwitchTimeInfo)(ASIOTime* params, long doubleBufferIndex, ASIOBool directProcess);
+};
+
+struct ASIOBufferInfo {
+  ASIOBool isInput;
+  ASIOChannel channelNum;
+  void* buffers[2];
+};
+
+struct ASIOChannelInfo {
+  long channel;
+  ASIOBool isInput;
+  ASIOBool isActive;
+  long channelGroup;
+  long type;
+  char name[32];
+};
+
+enum AsioSampleType {
+  ASIOSTInt16LSB = 16,
+  ASIOSTInt24LSB = 17,
+  ASIOSTInt32LSB = 18,
+  ASIOSTFloat32LSB = 19,
+  ASIOSTFloat64LSB = 20,
+  ASIOSTInt32LSB16 = 24,
+  ASIOSTInt32LSB18 = 25,
+  ASIOSTInt32LSB20 = 26,
+  ASIOSTInt32LSB24 = 27
+};
+
+class IASIO : public IUnknown {
+ public:
+  virtual ASIOBool init(void* sysHandle) = 0;
+  virtual void getDriverName(char* name) = 0;
+  virtual long getDriverVersion() = 0;
+  virtual void getErrorMessage(char* string) = 0;
+  virtual ASIOError start() = 0;
+  virtual ASIOError stop() = 0;
+  virtual ASIOError getChannels(long* numInputChannels, long* numOutputChannels) = 0;
+  virtual ASIOError getLatencies(long* inputLatency, long* outputLatency) = 0;
+  virtual ASIOError getBufferSize(long* minSize, long* maxSize, long* preferredSize, long* granularity) = 0;
+  virtual ASIOError canSampleRate(ASIOSampleRate sampleRate) = 0;
+  virtual ASIOError getSampleRate(ASIOSampleRate* sampleRate) = 0;
+  virtual ASIOError setSampleRate(ASIOSampleRate sampleRate) = 0;
+  virtual ASIOError getClockSources(void* clocks, long* numSources) = 0;
+  virtual ASIOError setClockSource(long reference) = 0;
+  virtual ASIOError getSamplePosition(ASIOTimeStamp* samplePosition, ASIOTimeStamp* timeStamp) = 0;
+  virtual ASIOError getChannelInfo(ASIOChannelInfo* info) = 0;
+  virtual ASIOError createBuffers(ASIOBufferInfo* bufferInfos, long numChannels, long bufferSize, ASIOCallbacks* callbacks) = 0;
+  virtual ASIOError disposeBuffers() = 0;
+  virtual ASIOError controlPanel() = 0;
+  virtual ASIOError future(long selector, void* opt) = 0;
+  virtual ASIOError outputReady() = 0;
 };
 
 static void writeJsonEvent(const char* event, const char* message) {
@@ -523,6 +618,363 @@ static int listOutputDevices() {
   return listAudioEndpoints(eRender, "devices");
 }
 
+static std::wstring registryStringValue(HKEY key, const wchar_t* name) {
+  DWORD type = 0;
+  DWORD bytes = 0;
+  if (RegQueryValueExW(key, name, nullptr, &type, nullptr, &bytes) != ERROR_SUCCESS ||
+      (type != REG_SZ && type != REG_EXPAND_SZ) || bytes < sizeof(wchar_t)) {
+    return L"";
+  }
+
+  std::vector<wchar_t> buffer(bytes / sizeof(wchar_t) + 1, L'\0');
+  if (RegQueryValueExW(key,
+                       name,
+                       nullptr,
+                       nullptr,
+                       reinterpret_cast<BYTE*>(buffer.data()),
+                       &bytes) != ERROR_SUCCESS) {
+    return L"";
+  }
+  return buffer.data();
+}
+
+static void collectAsioRegistryDevices(HKEY root,
+                                       REGSAM view,
+                                       std::vector<std::pair<std::wstring, std::wstring>>& devices,
+                                       std::set<std::wstring>& seenClsids) {
+  HKEY asioKey = nullptr;
+  if (RegOpenKeyExW(root, L"SOFTWARE\\ASIO", 0, KEY_READ | view, &asioKey) != ERROR_SUCCESS) {
+    return;
+  }
+
+  DWORD index = 0;
+  wchar_t subkeyName[256];
+  DWORD subkeyNameChars = 256;
+  while (RegEnumKeyExW(asioKey, index, subkeyName, &subkeyNameChars, nullptr, nullptr, nullptr, nullptr) == ERROR_SUCCESS) {
+    HKEY driverKey = nullptr;
+    if (RegOpenKeyExW(asioKey, subkeyName, 0, KEY_READ | view, &driverKey) == ERROR_SUCCESS) {
+      std::wstring clsid = registryStringValue(driverKey, L"CLSID");
+      if (!clsid.empty() && seenClsids.insert(clsid).second) {
+        devices.push_back({subkeyName, clsid});
+      }
+      RegCloseKey(driverKey);
+    }
+    ++index;
+    subkeyNameChars = 256;
+  }
+
+  RegCloseKey(asioKey);
+}
+
+static bool probeAsioDevice(const std::wstring& fallbackName,
+                            const std::wstring& clsidValue,
+                            std::string& outputJson) {
+  CLSID clsid = {};
+  HRESULT hr = CLSIDFromString(clsidValue.c_str(), &clsid);
+  if (FAILED(hr)) return false;
+
+  IASIO* driver = nullptr;
+  hr = CoCreateInstance(clsid, nullptr, CLSCTX_INPROC_SERVER, clsid, reinterpret_cast<void**>(&driver));
+
+  char driverName[128] = {};
+  long inputChannels = 0;
+  long outputChannels = 0;
+  bool initialized = false;
+  ASIOError channelResult = -1;
+  ASIOSampleRate sampleRate = 0;
+  ASIOError rateResult = -1;
+  long minBuffer = 0;
+  long maxBuffer = 0;
+  long preferredBuffer = 0;
+  long granularity = 0;
+  ASIOError bufferResult = -1;
+  HRESULT createResult = hr;
+
+  if (driver) {
+    initialized = driver->init(GetDesktopWindow()) != 0;
+    driver->getDriverName(driverName);
+    channelResult = initialized ? driver->getChannels(&inputChannels, &outputChannels) : -1;
+    rateResult = initialized ? driver->getSampleRate(&sampleRate) : -1;
+    bufferResult =
+      initialized ? driver->getBufferSize(&minBuffer, &maxBuffer, &preferredBuffer, &granularity) : -1;
+    driver->Release();
+  }
+
+  std::string fallbackNameUtf8 = wideToUtf8(fallbackName.c_str());
+  std::string clsidUtf8 = wideToUtf8(clsidValue.c_str());
+  std::string name = driverName[0] ? std::string(driverName) : fallbackNameUtf8;
+  char buffer[2048];
+  snprintf(buffer,
+           sizeof(buffer),
+           "{\"name\":\"%s\",\"deviceUID\":\"asio:%s\",\"driverName\":\"%s\",\"clsid\":\"%s\",\"available\":%s,\"inputChannels\":%ld,\"outputChannels\":%ld,\"sampleRate\":%.0f,\"preferredBufferSize\":%ld,\"createResult\":\"0x%08lx\",\"channelStatus\":%ld,\"sampleRateStatus\":%ld,\"bufferStatus\":%ld}",
+           jsonEscape(fallbackNameUtf8).c_str(),
+           jsonEscape(clsidUtf8).c_str(),
+           jsonEscape(name).c_str(),
+           jsonEscape(clsidUtf8).c_str(),
+           initialized ? "true" : "false",
+           channelResult == 0 ? inputChannels : 0,
+           channelResult == 0 ? outputChannels : 0,
+           rateResult == 0 ? sampleRate : 0.0,
+           bufferResult == 0 ? preferredBuffer : 0,
+           static_cast<unsigned long>(createResult),
+           channelResult,
+           rateResult,
+           bufferResult);
+  outputJson = buffer;
+  return true;
+}
+
+static int listAsioDevices(bool probeDrivers) {
+  HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+  if (FAILED(hr)) {
+    writeError(hrMessage("CoInitializeEx", hr));
+    return 1;
+  }
+
+  std::vector<std::pair<std::wstring, std::wstring>> registryDevices;
+  std::set<std::wstring> seenClsids;
+  collectAsioRegistryDevices(HKEY_LOCAL_MACHINE, KEY_WOW64_64KEY, registryDevices, seenClsids);
+  collectAsioRegistryDevices(HKEY_LOCAL_MACHINE, KEY_WOW64_32KEY, registryDevices, seenClsids);
+
+  fprintf(stdout, "{\"devices\":[");
+  bool first = true;
+  for (const auto& registryDevice : registryDevices) {
+    if (!first) fprintf(stdout, ",");
+    first = false;
+    std::string probedJson;
+    if (probeDrivers && probeAsioDevice(registryDevice.first, registryDevice.second, probedJson)) {
+      fprintf(stdout, "%s", probedJson.c_str());
+    } else {
+      std::string fallbackName = wideToUtf8(registryDevice.first.c_str());
+      std::string clsidValue = wideToUtf8(registryDevice.second.c_str());
+      fprintf(stdout,
+              "{\"name\":\"%s\",\"deviceUID\":\"asio:%s\",\"driverName\":\"%s\",\"clsid\":\"%s\",\"available\":false,\"inputChannels\":0,\"outputChannels\":0,\"sampleRate\":0,\"preferredBufferSize\":0}",
+              jsonEscape(fallbackName).c_str(),
+              jsonEscape(clsidValue).c_str(),
+              jsonEscape(fallbackName).c_str(),
+              jsonEscape(clsidValue).c_str());
+    }
+  }
+  fprintf(stdout, "]}\n");
+  CoUninitialize();
+  return 0;
+}
+
+static int probeAsioDeviceCommand(const std::wstring& clsidValue, const std::wstring& fallbackName) {
+  HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+  if (FAILED(hr)) {
+    writeError(hrMessage("CoInitializeEx", hr));
+    return 1;
+  }
+
+  std::string outputJson;
+  bool ok = probeAsioDevice(fallbackName.empty() ? clsidValue : fallbackName, clsidValue, outputJson);
+  CoUninitialize();
+  if (!ok) {
+    writeError("Invalid ASIO CLSID");
+    return 1;
+  }
+  fprintf(stdout, "%s\n", outputJson.c_str());
+  return 0;
+}
+
+struct AsioCaptureState {
+  IASIO* driver = nullptr;
+  std::vector<ASIOBufferInfo> buffers;
+  std::vector<ASIOChannelInfo> channelInfos;
+  long channels = 0;
+  long bufferSize = 0;
+  ASIOSampleRate sampleRate = 48000.0;
+  volatile LONG running = 0;
+};
+
+static AsioCaptureState* gAsioCaptureState = nullptr;
+
+static float asioSampleToFloat(const void* sample, long type) {
+  const uint8_t* bytes = static_cast<const uint8_t*>(sample);
+  switch (type) {
+    case ASIOSTFloat32LSB:
+      return *static_cast<const float*>(sample);
+    case ASIOSTFloat64LSB:
+      return static_cast<float>(*static_cast<const double*>(sample));
+    case ASIOSTInt16LSB:
+      return pcmSampleToFloat(bytes, 2, 16);
+    case ASIOSTInt24LSB:
+      return pcmSampleToFloat(bytes, 3, 24);
+    case ASIOSTInt32LSB:
+      return pcmSampleToFloat(bytes, 4, 32);
+    case ASIOSTInt32LSB16:
+      return pcmSampleToFloat(bytes + 2, 2, 16);
+    case ASIOSTInt32LSB18:
+      return pcmSampleToFloat(bytes, 4, 18);
+    case ASIOSTInt32LSB20:
+      return pcmSampleToFloat(bytes, 4, 20);
+    case ASIOSTInt32LSB24:
+      return pcmSampleToFloat(bytes, 4, 24);
+    default:
+      return 0.0f;
+  }
+}
+
+static int asioSampleBytes(long type) {
+  switch (type) {
+    case ASIOSTInt16LSB:
+      return 2;
+    case ASIOSTInt24LSB:
+      return 3;
+    case ASIOSTFloat64LSB:
+      return 8;
+    default:
+      return 4;
+  }
+}
+
+static void asioBufferSwitch(long doubleBufferIndex, ASIOBool) {
+  AsioCaptureState* state = gAsioCaptureState;
+  if (!state || InterlockedCompareExchange(&state->running, 1, 1) == 0) return;
+
+  static std::vector<float> interleaved;
+  interleaved.resize(static_cast<size_t>(state->bufferSize) * state->channels);
+
+  for (long frame = 0; frame < state->bufferSize; ++frame) {
+    for (long channel = 0; channel < state->channels; ++channel) {
+      const ASIOChannelInfo& info = state->channelInfos[static_cast<size_t>(channel)];
+      const int sampleBytes = asioSampleBytes(info.type);
+      const uint8_t* channelBuffer =
+        static_cast<const uint8_t*>(state->buffers[static_cast<size_t>(channel)].buffers[doubleBufferIndex]);
+      interleaved[(static_cast<size_t>(frame) * state->channels) + channel] =
+        asioSampleToFloat(channelBuffer + (static_cast<size_t>(frame) * sampleBytes), info.type);
+    }
+  }
+
+  if (!writeAll(interleaved.data(), interleaved.size() * sizeof(float))) {
+    InterlockedExchange(&state->running, 0);
+  }
+}
+
+static void asioSampleRateDidChange(ASIOSampleRate) {}
+
+static long asioMessage(ASIOMessageSelector, long, void*, double*) {
+  return 0;
+}
+
+static ASIOTime* asioBufferSwitchTimeInfo(ASIOTime* params, long doubleBufferIndex, ASIOBool directProcess) {
+  asioBufferSwitch(doubleBufferIndex, directProcess);
+  return params;
+}
+
+static int streamAsioInput(const std::wstring& clsidValue, int requestedChannels) {
+  HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+  if (FAILED(hr)) {
+    writeError(hrMessage("CoInitializeEx", hr));
+    return 1;
+  }
+
+  CLSID clsid = {};
+  hr = CLSIDFromString(clsidValue.c_str(), &clsid);
+  if (FAILED(hr)) {
+    writeError("Invalid ASIO CLSID");
+    CoUninitialize();
+    return 1;
+  }
+
+  IASIO* driver = nullptr;
+  hr = CoCreateInstance(clsid, nullptr, CLSCTX_INPROC_SERVER, clsid, reinterpret_cast<void**>(&driver));
+  if (FAILED(hr) || !driver) {
+    writeError(hrMessage("CoCreateInstance(ASIO)", hr));
+    CoUninitialize();
+    return 1;
+  }
+
+  if (!driver->init(GetDesktopWindow())) {
+    driver->Release();
+    writeError("ASIO driver init failed");
+    CoUninitialize();
+    return 1;
+  }
+
+  long inputChannels = 0;
+  long outputChannels = 0;
+  ASIOError error = driver->getChannels(&inputChannels, &outputChannels);
+  if (error != 0 || inputChannels <= 0) {
+    driver->Release();
+    writeError("ASIO driver has no input channels");
+    CoUninitialize();
+    return 1;
+  }
+
+  long minBuffer = 0;
+  long maxBuffer = 0;
+  long preferredBuffer = 0;
+  long granularity = 0;
+  error = driver->getBufferSize(&minBuffer, &maxBuffer, &preferredBuffer, &granularity);
+  if (error != 0 || preferredBuffer <= 0) {
+    preferredBuffer = 512;
+  }
+
+  ASIOSampleRate sampleRate = 0;
+  if (driver->getSampleRate(&sampleRate) != 0 || sampleRate <= 0) {
+    sampleRate = 44100.0;
+  }
+
+  AsioCaptureState state;
+  state.driver = driver;
+  state.channels = std::clamp<long>(requestedChannels > 0 ? requestedChannels : inputChannels, 1, inputChannels);
+  state.bufferSize = preferredBuffer;
+  state.sampleRate = sampleRate;
+  state.buffers.resize(static_cast<size_t>(state.channels));
+  state.channelInfos.resize(static_cast<size_t>(state.channels));
+
+  for (long channel = 0; channel < state.channels; ++channel) {
+    state.buffers[static_cast<size_t>(channel)] = {1, channel, {nullptr, nullptr}};
+    ASIOChannelInfo info = {};
+    info.channel = channel;
+    info.isInput = 1;
+    if (driver->getChannelInfo(&info) != 0) {
+      info.type = ASIOSTFloat32LSB;
+    }
+    state.channelInfos[static_cast<size_t>(channel)] = info;
+  }
+
+  ASIOCallbacks callbacks = {};
+  callbacks.bufferSwitch = asioBufferSwitch;
+  callbacks.sampleRateDidChange = asioSampleRateDidChange;
+  callbacks.asioMessage = asioMessage;
+  callbacks.bufferSwitchTimeInfo = asioBufferSwitchTimeInfo;
+
+  error = driver->createBuffers(state.buffers.data(), state.channels, state.bufferSize, &callbacks);
+  if (error != 0) {
+    driver->Release();
+    writeError("ASIO createBuffers failed");
+    CoUninitialize();
+    return 1;
+  }
+
+  gAsioCaptureState = &state;
+  InterlockedExchange(&state.running, 1);
+  writeFormatEvent(static_cast<int>(sampleRate), static_cast<int>(state.channels));
+  error = driver->start();
+  if (error != 0) {
+    gAsioCaptureState = nullptr;
+    driver->disposeBuffers();
+    driver->Release();
+    writeError("ASIO start failed");
+    CoUninitialize();
+    return 1;
+  }
+
+  while (InterlockedCompareExchange(&state.running, 1, 1) != 0) {
+    Sleep(100);
+  }
+
+  driver->stop();
+  gAsioCaptureState = nullptr;
+  driver->disposeBuffers();
+  driver->Release();
+  CoUninitialize();
+  return 1;
+}
+
 static int captureInputDevice(const std::wstring& deviceId) {
   HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
   if (FAILED(hr)) {
@@ -726,6 +1178,30 @@ int wmain(int argc, wchar_t** argv) {
     return listOutputDevices();
   }
 
+  if (hasArg(argc, argv, L"--list-asio-devices")) {
+    return listAsioDevices(hasArg(argc, argv, L"--probe"));
+  }
+
+  if (hasArg(argc, argv, L"--probe-asio-device")) {
+    std::wstring clsid = argValue(argc, argv, L"--clsid", L"");
+    std::wstring name = argValue(argc, argv, L"--name", L"");
+    if (clsid.empty()) {
+      writeError("Missing --clsid");
+      return 2;
+    }
+    return probeAsioDeviceCommand(clsid, name);
+  }
+
+  if (hasArg(argc, argv, L"--stream-asio-input")) {
+    std::wstring clsid = argValue(argc, argv, L"--clsid", L"");
+    if (clsid.empty()) {
+      writeError("Missing --clsid");
+      return 2;
+    }
+    int channels = std::clamp(intArg(argc, argv, L"--channels", 2), 1, 64);
+    return streamAsioInput(clsid, channels);
+  }
+
   if (hasArg(argc, argv, L"--stream-input-device")) {
     std::wstring deviceId = argValue(argc, argv, L"--device-id", L"");
     if (deviceId.empty()) {
@@ -737,7 +1213,7 @@ int wmain(int argc, wchar_t** argv) {
 
   if (!hasArg(argc, argv, L"--stream-process-loopback")) {
     fprintf(stderr,
-            "Usage: SurroundAudioBackend.exe --list-input-devices | --list-output-devices | --stream-input-device --device-id <id> | --stream-process-loopback --pid <pid> [--sample-rate 48000] [--channels 2] [--mode include-tree|exclude-tree]\n");
+            "Usage: SurroundAudioBackend.exe --list-input-devices | --list-output-devices | --list-asio-devices | --stream-input-device --device-id <id> | --stream-process-loopback --pid <pid> [--sample-rate 48000] [--channels 2] [--mode include-tree|exclude-tree]\n");
     return 2;
   }
 

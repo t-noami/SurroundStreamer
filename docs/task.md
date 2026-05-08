@@ -119,6 +119,8 @@ Branch: `beta/cross-platform-backend`
 - [x] Build Windows WASAPI helper with Visual Studio C++ tools.
 - [x] Verify Windows MMDevice/WASAPI Input Device listing sees Voicemeeter endpoints.
 - [x] Smoke-test Windows MMDevice/WASAPI Input Device capture startup.
+- [x] Probe Windows ASIO drivers and identify 6ch+ virtual devices.
+- [x] Smoke-test 6ch ASIO input capture from Voicemeeter Virtual ASIO.
 - [ ] Smoke-test Windows WASAPI Process Loopback App Audio streaming to Icecast.
 - [x] Add Windows backend development guide for Windows-side contributors.
 - [x] Document macOS-safe files, Windows-owned files, and required cross-platform checks.

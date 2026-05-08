@@ -26,6 +26,7 @@ Current Windows status:
 - App Audio capture uses a native WASAPI Process Loopback helper when built.
 - Windows App Audio support intentionally requires Windows 10 Build 20348 or later.
 - Input Device capture now prefers native MMDevice/WASAPI through the Windows helper, with the earlier DirectShow/FFmpeg backend retained as fallback.
+- ASIO driver probing and ASIO input capture have an initial native helper path for multichannel virtual devices such as Voicemeeter.
 - The earlier DirectShow loopback-device bridge remains a development reference, but the selected backend targets true per-process capture through WASAPI.
 - Preserve-surround App Audio capture is not implemented on Windows.
 
@@ -253,6 +254,7 @@ Goal: capture a selected Windows input device and stream it as PCM to FFmpeg.
 Current bootstrap:
 
 - `native/audio-backends/windows/src/main.cpp` enumerates active capture endpoints through MMDevice and captures them through WASAPI.
+- The same helper can probe registered ASIO drivers and capture ASIO input channels as Float32 PCM.
 - `src/main/audio-backends/windows-wasapi.js` uses the native helper for Input Device when the helper is available.
 - `src/main/audio-backends/windows-dshow.js` enumerates DirectShow audio devices through bundled FFmpeg.
 - The backend captures selected input devices through FFmpeg `dshow`, converts to Float32 PCM, and emits the expected JSON `format` event.
@@ -271,6 +273,7 @@ Tasks:
 - Capture PCM with stable pacing. Initial WASAPI shared-mode capture added; long-run pacing still needs testing.
 - Emit JSON `format` events. Initial native helper path added.
 - Feed Float32 PCM to stdout, converting PCM integer mix formats to Float32 when necessary.
+- Expose ASIO devices when they can be probed, because Voicemeeter exposes multichannel virtual I/O through ASIO even when its WASAPI endpoints are stereo.
 - Update capabilities:
   - `inputDeviceCapture: true` for the experimental DirectShow path
   - `inputDeviceMonitor: true` for the experimental DirectShow preview path

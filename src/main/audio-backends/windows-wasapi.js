@@ -33,7 +33,7 @@ class WindowsWasapiBackend {
     }
 
     const result = await this.runHelper(['--list-input-devices'])
-    return (result.devices || []).map((device, index) => ({
+    const wasapiDevices = (result.devices || []).map((device, index) => ({
       index: String(device.index ?? index),
       name: device.name || `Windows Audio Input ${index + 1}`,
       deviceUID: device.deviceUID,
@@ -42,6 +42,21 @@ class WindowsWasapiBackend {
       bitsPerChannel: Number(device.bitsPerChannel) || 32,
       backend: 'wasapi-mmdevice'
     }))
+    const asioDevices = await this.listAsioDevices()
+    return [
+      ...asioDevices
+        .filter((device) => device.available && device.inputChannels > 0)
+        .map((device, index) => ({
+          index: `asio-${index}`,
+          name: `${device.name} (ASIO)`,
+          deviceUID: device.deviceUID,
+          sampleRate: Number(device.sampleRate) || 44100,
+          channels: Number(device.inputChannels) || DEFAULT_CHANNELS,
+          bitsPerChannel: 32,
+          backend: 'asio'
+        })),
+      ...wasapiDevices
+    ]
   }
 
   async listInputStreams() {
@@ -73,6 +88,20 @@ class WindowsWasapiBackend {
 
     if (!options.deviceUID) {
       throw new Error('WASAPI input capture requires an MMDevice endpoint id')
+    }
+
+    if (this.isAsioDeviceUID(options.deviceUID)) {
+      return spawn(
+        this.getHelperPath(),
+        [
+          '--stream-asio-input',
+          '--clsid',
+          this.asioClsidFromDeviceUID(options.deviceUID),
+          '--channels',
+          String(this.normalizedAsioChannels(options.channels || options.inputChannels))
+        ],
+        { stdio: ['ignore', 'pipe', 'pipe'] }
+      )
     }
 
     return spawn(
@@ -113,22 +142,39 @@ class WindowsWasapiBackend {
   async listAppOutputStreams() {
     this.assertHelperAvailable()
     const result = await this.runHelper(['--list-output-devices'])
-    const devices = (result.devices || []).map((device, index) => {
-      const sampleRate = Number(device.sampleRate) || DEFAULT_SAMPLE_RATE
-      const channels = Number(device.channels) || DEFAULT_CHANNELS
-      return {
-        name: device.name || `Windows Audio Output ${index + 1}`,
-        deviceUID: device.deviceUID || `wasapi-render-${index}`,
-        streams: [
-          {
-            streamIndex: 0,
-            sampleRate,
-            channels,
-            bitsPerChannel: 32
-          }
-        ]
-      }
-    })
+    const asioDevices = await this.listAsioDevices()
+    const devices = [
+      ...asioDevices
+        .filter((device) => device.available && device.outputChannels > 0)
+        .map((device, index) => ({
+          name: `${device.name} (ASIO)`,
+          deviceUID: device.deviceUID || `asio-output-${index}`,
+          streams: [
+            {
+              streamIndex: 0,
+              sampleRate: Number(device.sampleRate) || 44100,
+              channels: Number(device.outputChannels) || DEFAULT_CHANNELS,
+              bitsPerChannel: 32
+            }
+          ]
+        })),
+      ...(result.devices || []).map((device, index) => {
+        const sampleRate = Number(device.sampleRate) || DEFAULT_SAMPLE_RATE
+        const channels = Number(device.channels) || DEFAULT_CHANNELS
+        return {
+          name: device.name || `Windows Audio Output ${index + 1}`,
+          deviceUID: device.deviceUID || `wasapi-render-${index}`,
+          streams: [
+            {
+              streamIndex: 0,
+              sampleRate,
+              channels,
+              bitsPerChannel: 32
+            }
+          ]
+        }
+      })
+    ]
 
     return {
       devices:
@@ -153,6 +199,20 @@ class WindowsWasapiBackend {
 
   spawnAppAudioPCMStream(pid, options = {}) {
     this.assertHelperAvailable()
+    if (this.isAsioDeviceUID(options.deviceUID)) {
+      return spawn(
+        this.getHelperPath(),
+        [
+          '--stream-asio-input',
+          '--clsid',
+          this.asioClsidFromDeviceUID(options.deviceUID),
+          '--channels',
+          String(this.normalizedAsioChannels(options.channels))
+        ],
+        { stdio: ['ignore', 'pipe', 'pipe'] }
+      )
+    }
+
     const numericPid = Number(pid)
     if (!Number.isInteger(numericPid) || numericPid <= 0) {
       throw new Error('WASAPI process loopback requires a valid process id')
@@ -217,6 +277,19 @@ class WindowsWasapiBackend {
     return Number.isInteger(numeric) && numeric >= 1 ? Math.min(numeric, 8) : DEFAULT_CHANNELS
   }
 
+  normalizedAsioChannels(channels) {
+    const numeric = Number(channels || DEFAULT_CHANNELS)
+    return Number.isInteger(numeric) && numeric >= 1 ? Math.min(numeric, 64) : DEFAULT_CHANNELS
+  }
+
+  isAsioDeviceUID(deviceUID) {
+    return String(deviceUID || '').startsWith('asio:')
+  }
+
+  asioClsidFromDeviceUID(deviceUID) {
+    return String(deviceUID || '').replace(/^asio:/, '')
+  }
+
   processDisplayName(process) {
     const title = String(process.MainWindowTitle || '').trim()
     const name = String(process.ProcessName || '').trim()
@@ -263,12 +336,32 @@ class WindowsWasapiBackend {
     })
   }
 
-  runHelper(args) {
+  runHelper(args, { timeoutMs = 0 } = {}) {
     return new Promise((resolvePromise, reject) => {
       this.assertHelperAvailable()
       const child = spawn(this.getHelperPath(), args, { stdio: ['ignore', 'pipe', 'pipe'] })
       let stdout = ''
       let stderr = ''
+      let settled = false
+      const settleReject = (error) => {
+        if (settled) return
+        settled = true
+        if (timer) clearTimeout(timer)
+        reject(error)
+      }
+      const settleResolve = (value) => {
+        if (settled) return
+        settled = true
+        if (timer) clearTimeout(timer)
+        resolvePromise(value)
+      }
+      const timer =
+        timeoutMs > 0
+          ? setTimeout(() => {
+              if (!child.killed) child.kill('SIGKILL')
+              settleReject(new Error(`Windows audio helper timed out: ${args.join(' ')}`))
+            }, timeoutMs)
+          : null
 
       child.stdout.on('data', (data) => {
         stdout += data.toString()
@@ -276,10 +369,10 @@ class WindowsWasapiBackend {
       child.stderr.on('data', (data) => {
         stderr += data.toString()
       })
-      child.on('error', reject)
+      child.on('error', settleReject)
       child.on('close', (code) => {
         if (code !== 0) {
-          reject(
+          settleReject(
             new Error(
               stderr.trim() || stdout.trim() || `Windows audio helper exited with code ${code}`
             )
@@ -288,12 +381,29 @@ class WindowsWasapiBackend {
         }
 
         try {
-          resolvePromise(JSON.parse(stdout))
+          settleResolve(JSON.parse(stdout))
         } catch (error) {
-          reject(new Error(`Invalid Windows audio helper JSON: ${error.message}`))
+          settleReject(new Error(`Invalid Windows audio helper JSON: ${error.message}`))
         }
       })
     })
+  }
+
+  async listAsioDevices() {
+    const registry = await this.runHelper(['--list-asio-devices'])
+    const devices = []
+    for (const device of registry.devices || []) {
+      try {
+        const probed = await this.runHelper(
+          ['--probe-asio-device', '--clsid', device.clsid, '--name', device.name],
+          { timeoutMs: 3000 }
+        )
+        devices.push(probed)
+      } catch {
+        devices.push(device)
+      }
+    }
+    return devices
   }
 }
 

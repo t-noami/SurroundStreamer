@@ -320,7 +320,9 @@ class FFmpegManager extends EventEmitter {
     })
     this.inputDeviceProcess = audioBackend.spawnInputDevicePCMStream({
       deviceUID: config.inputDeviceUID,
-      streamIndex: config.inputStreamIndex
+      streamIndex: config.inputStreamIndex,
+      channels: this.getDeviceInputChannels(config),
+      sampleRate: this.getDeviceInputSampleRate(config)
     })
     this.inputDeviceProcess.stdout.pause()
 
@@ -619,7 +621,9 @@ class FFmpegManager extends EventEmitter {
 
     const monitorProcess = audioBackend.spawnInputDevicePCMStream({
       deviceUID: config.inputDeviceUID,
-      streamIndex: config.inputStreamIndex
+      streamIndex: config.inputStreamIndex,
+      channels,
+      sampleRate
     })
     this.previewMonitorProcess = monitorProcess
 
