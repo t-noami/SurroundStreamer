@@ -12,7 +12,9 @@ const api = {
   startNativeInputDeviceMonitor: (config) =>
     ipcRenderer.invoke('monitor:start-native-input-device', config),
   stopPreviewMonitor: () => ipcRenderer.invoke('monitor:stop-preview'),
+  setMonitorOutput: (config) => ipcRenderer.invoke('monitor:set-output', config),
   listDevices: () => ipcRenderer.invoke('devices:list'),
+  listMonitorOutputDevices: () => ipcRenderer.invoke('devices:list-monitor-outputs'),
   getAudioBackendCapabilities: () => ipcRenderer.invoke('audio-backend:capabilities'),
   openFile: () => ipcRenderer.invoke('dialog:openFile'),
   probeAudio: (path) => ipcRenderer.invoke('media:probe-audio', path),
@@ -50,6 +52,11 @@ const api = {
     const listener = (_event, payload) => callback(payload)
     ipcRenderer.on('monitor:audio', listener)
     return () => ipcRenderer.removeListener('monitor:audio', listener)
+  },
+  onMonitorPeaks: (callback) => {
+    const listener = (_event, payload) => callback(payload)
+    ipcRenderer.on('monitor:peaks', listener)
+    return () => ipcRenderer.removeListener('monitor:peaks', listener)
   },
   onMonitorStop: (callback) => {
     const listener = () => callback()

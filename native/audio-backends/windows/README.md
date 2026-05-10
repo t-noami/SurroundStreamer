@@ -9,6 +9,8 @@ Current app scope:
 - ASIO is the primary validation path for surround/multichannel Audio Input on Windows.
 - MMDevice/WASAPI is supported for generic mono/stereo Audio Input and may support more channels
   only when a specific driver exposes them that way.
+- Windows ASIO Audio Input monitor output can be routed through the backend-owned FFmpeg/WASAPI
+  renderer path in the beta app.
 - App Audio has been removed from the beta line.
 - WASAPI Process Loopback is retained as research/reference code only.
 - DirectShow fallback lives in the Electron/FFmpeg backend, not in this helper executable.
@@ -32,6 +34,14 @@ Expected output:
 
 ```text
 native/audio-backends/windows/.build/SurroundAudioBackend.exe
+```
+
+## Recent Investigation Log
+
+The Windows ASIO monitor/output-routing investigation and fix history is recorded in:
+
+```text
+docs/windows-asio-monitor-fix-log.md
 ```
 
 ## Supported Runtime Contract
@@ -61,6 +71,19 @@ ASIO input capture:
 SurroundAudioBackend.exe --stream-asio-input --clsid "{...}" --channels 6
 ```
 
+Output device listing for ASIO monitor routing:
+
+```powershell
+SurroundAudioBackend.exe --list-output-devices
+```
+
+WASAPI output playback for backend-owned ASIO monitor routing:
+
+```powershell
+SurroundAudioBackend.exe --play-wasapi-output --sample-rate 48000 --channels 2
+SurroundAudioBackend.exe --play-wasapi-output --device-id "{0.0.0.00000000}.{...}" --sample-rate 48000 --channels 2
+```
+
 stdout:
 
 ```text
@@ -81,16 +104,17 @@ That fallback is useful for development but should not be treated as the preferr
 
 ## Research-Only Commands
 
-Output device listing:
-
-```powershell
-SurroundAudioBackend.exe --list-output-devices
-```
-
 Process loopback capture:
 
 ```powershell
 SurroundAudioBackend.exe --stream-process-loopback --pid 1234 --sample-rate 48000 --channels 2
+```
+
+ASIO output and duplex diagnostic commands:
+
+```powershell
+SurroundAudioBackend.exe --play-asio-output --clsid "{...}" --channels 2
+SurroundAudioBackend.exe --stream-asio-input-monitor-output --clsid "{...}" --input-channels 6 --monitor-channels 2
 ```
 
 Do not describe this path as supported App Audio or Preserve Surround. Multichannel preservation in

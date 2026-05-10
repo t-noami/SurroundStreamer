@@ -125,7 +125,7 @@ const channelTemplates = [
     label: '5.1',
     channels: ['FL', 'FR', 'FC', 'LFE', 'SL', 'SR'],
     displayLabels: ['L', 'R', 'C', 'LFE', 'LS', 'RS'],
-    layout: '5.1'
+    layout: '5.1(side)'
   },
   {
     id: '7.1',
@@ -492,6 +492,32 @@ function warnIfLoopbackInputDevice(device) {
 async function refreshMonitorDevices(requestOutputSelection = false) {
   addLog('Scanning monitor output devices...', 'system')
   try {
+    if (shouldUseBackendMonitorOutputDevices()) {
+      const result = await window.api.listMonitorOutputDevices()
+      const outputs = result.devices || []
+      monitorDeviceList.innerHTML = ''
+
+      const defaultOpt = document.createElement('option')
+      defaultOpt.value = ''
+      defaultOpt.textContent = 'System Default'
+      monitorDeviceList.appendChild(defaultOpt)
+
+      outputs.forEach((device, index) => {
+        const opt = document.createElement('option')
+        opt.value = device.deviceId || ''
+        opt.textContent = device.name || `Windows Audio Output ${index + 1}`
+        opt.dataset.backendOutput = 'true'
+        opt.dataset.deviceName = opt.textContent
+        monitorDeviceList.appendChild(opt)
+      })
+
+      addLog(`Found ${outputs.length} WASAPI monitor output devices.`, 'system')
+      if (isStreaming && monitorEnabled.checked) {
+        applyMonitorSettings('device')
+      }
+      return
+    }
+
     if (!navigator.mediaDevices?.enumerateDevices) {
       monitorDeviceList.innerHTML = '<option value="">System Default</option>'
       addLog('Monitor device enumeration is not available. Using system default output.', 'system')
@@ -569,11 +595,17 @@ function selectedInputDeviceMonitorConfig() {
     inputSampleRate: inputInfo.sampleRate,
     inputDeviceUID: selectedInputDevice()?.deviceUID,
     inputStreamIndex: selectedInputDevice()?.streamIndex,
+    selectedChannels: selectedChannelIndexes(),
+    streamChannelLayout: selectedStreamLayout(),
+    streamChannelLabels: selectedStreamChannelLabels(),
     sampleRate: inputInfo.sampleRate || Number(sampleRateSelect.value),
+    monitorEnabled: true,
+    directInputMonitor: false,
     monitorMode: monitorMode.value,
     monitorPairStart: Number(monitorSourcePair.value || 0),
     monitorLatencyMs: effectiveMonitorLatencyMs('device', monitorMode.value),
     monitorLowLatency: lowLatencyMonitor,
+    monitorOutputDeviceId: selectedMonitorOutputDeviceId(),
     monitorOutputDeviceName: selectedMonitorOutputDeviceName(),
     monitorVolume: monitorVolumePercent()
   }
@@ -587,6 +619,53 @@ function selectedPreviewMonitorConfig() {
     return selectedInputDeviceMonitorConfig()
   }
   return null
+}
+
+async function startBackendAsioPreviewMonitor(config, reason = 'settings') {
+  const key = JSON.stringify({
+    source: 'backend-asio-output',
+    inputPath: config.inputPath || '',
+    deviceUID: config.inputDeviceUID || '',
+    streamIndex: config.inputStreamIndex ?? '',
+    selectedChannels: config.selectedChannels || [],
+    streamChannelLayout: config.streamChannelLayout || '',
+    outputDeviceId: config.monitorOutputDeviceId || '',
+    outputDeviceName: config.monitorOutputDeviceName || '',
+    monitorMode: config.monitorMode,
+    pairStart: config.monitorPairStart,
+    latencyMs: config.monitorLatencyMs,
+    lowLatency: config.monitorLowLatency
+  })
+
+  if (previewMonitorSource === 'backend-asio-output' && previewMonitorKey === key) {
+    monitorMeterState.textContent = isStreaming ? 'LIVE' : 'PREVIEW'
+    return
+  }
+
+  await stopPreviewMonitor()
+  await webAudioMonitor.stop().catch(() => {})
+  const result = await window.api.startInputDeviceMonitor({
+    ...config,
+    monitorEnabled: true,
+    directInputMonitor: false
+  })
+  if (!result.success) {
+    throw new Error(result.error || 'Failed to start ASIO backend preview monitor.')
+  }
+
+  previewMonitorKey = key
+  previewMonitorSource = 'backend-asio-output'
+  currentMonitorFormat = {
+    mode: config.monitorMode || 'stereo-pair',
+    latencyMs: config.monitorLatencyMs,
+    lowLatency: !!config.monitorLowLatency,
+    sampleRate: config.inputSampleRate || config.sampleRate || 48000,
+    channels: 2
+  }
+  updateMonitorRoutingControls()
+  monitorMeterState.textContent = isStreaming ? 'LIVE' : 'PREVIEW'
+  renderMonitorPeakMeters(2)
+  addLog(`ASIO backend preview monitor active (${monitorModeLabel(config.monitorMode)}, ${reason}).`, 'system')
 }
 
 function supportsPreviewMonitor() {
@@ -656,7 +735,31 @@ function selectedInputDevicePath() {
 
 function selectedMonitorOutputDeviceName() {
   const option = monitorDeviceList.options[monitorDeviceList.selectedIndex]
-  return option?.textContent || 'System Default'
+  if (!option?.value) return ''
+  return option?.dataset.deviceName || option?.textContent || ''
+}
+
+function selectedMonitorOutputDeviceId() {
+  const option = monitorDeviceList.options[monitorDeviceList.selectedIndex]
+  return option?.dataset.backendOutput === 'true' ? option.value || '' : ''
+}
+
+function isAsioInputConfig(config = null) {
+  const device = selectedInputDevice()
+  const deviceUID = config?.inputDeviceUID || device?.deviceUID || ''
+  return currentInputType === 'device' && (device?.backend === 'asio' || String(deviceUID).startsWith('asio:'))
+}
+
+function shouldUseBackendAsioOutputMonitor(config = null) {
+  return audioBackendCapabilities.platform === 'win32' && isAsioInputConfig(config)
+}
+
+function shouldUseBackendMonitorOutputDevices() {
+  return (
+    audioBackendCapabilities.platform === 'win32' &&
+    isAsioInputConfig() &&
+    typeof window.api.listMonitorOutputDevices === 'function'
+  )
 }
 
 function normalizeAudioDeviceName(value = '') {
@@ -757,7 +860,7 @@ async function startBrowserInputMonitor(config, reason = 'settings') {
     deviceUID: config.inputDeviceUID || '',
     streamIndex: config.inputStreamIndex ?? '',
     inputName: selectedInputDevice()?.name || '',
-    outputDeviceId: monitorDeviceList.value || '',
+    outputDeviceId: selectedBrowserMonitorOutputDeviceId(),
     monitorMode: config.monitorMode,
     pairStart: config.monitorPairStart,
     latencyMs: config.monitorLatencyMs,
@@ -804,7 +907,7 @@ async function startBrowserInputMonitor(config, reason = 'settings') {
     await webAudioMonitor.startMediaStream(
       {
         mode: format.mode,
-        deviceId: monitorDeviceList.value,
+        deviceId: selectedBrowserMonitorOutputDeviceId(),
         pairStart: format.pairStart,
         latencyMs: format.latencyMs,
         lowLatency: format.lowLatency,
@@ -859,6 +962,7 @@ async function startNativeInputMonitor(config, reason = 'settings') {
   await webAudioMonitor.stop().catch(() => {})
   const result = await window.api.startNativeInputDeviceMonitor({
     ...config,
+    monitorOutputDeviceId: selectedMonitorOutputDeviceId(),
     monitorOutputDeviceName: selectedMonitorOutputDeviceName()
   })
   if (!result.success) {
@@ -1260,7 +1364,7 @@ function selectedMonitorFormat() {
   const lowLatencyMonitor = shouldUseLowLatencyMonitor(currentInputType, monitorMode.value)
   return {
     mode: monitorMode.value,
-    deviceId: monitorDeviceList.value,
+    deviceId: selectedBrowserMonitorOutputDeviceId(),
     pairStart: Number(monitorSourcePair.value || 0),
     latencyMs: effectiveMonitorLatencyMs(currentInputType, monitorMode.value),
     lowLatency: lowLatencyMonitor,
@@ -1269,6 +1373,11 @@ function selectedMonitorFormat() {
     channels: sourceChannels,
     channelLabels: selectedTemplateChannelLabels(sourceChannels)
   }
+}
+
+function selectedBrowserMonitorOutputDeviceId() {
+  const option = monitorDeviceList.options[monitorDeviceList.selectedIndex]
+  return option?.dataset.backendOutput === 'true' ? '' : monitorDeviceList.value || ''
 }
 
 function shouldUseLowLatencyMonitor(inputType = currentInputType, mode = monitorMode.value) {
@@ -1393,6 +1502,14 @@ function applyMonitorSettings(reason = 'settings') {
       }
 
       if (currentInputType === 'device') {
+        if (previewMonitorSource === 'backend-asio-output') {
+          const config = selectedInputDeviceMonitorConfig()
+          await window.api.setMonitorOutput(config)
+          await window.api.setMonitorActive(true)
+          addLog(`ASIO backend monitor output updated (${reason}).`, 'system')
+          return
+        }
+
         if (previewMonitorSource === 'backend-stream') {
           const format = selectedMonitorFormat()
           await webAudioMonitor.start(format)
@@ -1431,6 +1548,23 @@ async function startInitialMonitor(config, channels) {
   if (!config.monitorEnabled) return
 
   if (config.inputType === 'device') {
+    if (shouldUseBackendAsioOutputMonitor(config)) {
+      config.directInputMonitor = false
+      previewMonitorSource = 'backend-asio-output'
+      currentMonitorFormat = {
+        mode: config.monitorMode || 'stereo-pair',
+        latencyMs: config.monitorLatencyMs || 80,
+        lowLatency: !!config.monitorLowLatency,
+        sampleRate: streamingMonitorSampleRate(config),
+        channels: 2,
+        channelLabels: ['FL', 'FR']
+      }
+      monitorMeterState.textContent = 'LIVE'
+      renderMonitorPeakMeters(2)
+      addLog('Using ASIO backend monitor output for Audio Input.', 'system')
+      return
+    }
+
     if (audioBackendCapabilities.nativeInputDeviceMonitor) {
       try {
         await startNativeInputMonitor(config, 'stream-start')
@@ -1521,6 +1655,15 @@ async function startPreviewMonitor(reason = 'settings') {
   }
 
   if (config.inputType === 'device') {
+    if (shouldUseBackendAsioOutputMonitor(config)) {
+      try {
+        await startBackendAsioPreviewMonitor(config, reason)
+        return
+      } catch (error) {
+        addLog(`ASIO backend preview monitor unavailable: ${error.message}`, 'error')
+      }
+    }
+
     if (audioBackendCapabilities.nativeInputDeviceMonitor) {
       try {
         await startNativeInputMonitor(config, reason)
@@ -1549,7 +1692,7 @@ async function startPreviewMonitor(reason = 'settings') {
     sampleRate: config.sampleRate || '',
     deviceUID: config.inputDeviceUID || '',
     streamIndex: config.inputStreamIndex ?? '',
-    outputDeviceId: monitorDeviceList.value || '',
+    outputDeviceId: selectedBrowserMonitorOutputDeviceId(),
     monitorMode: config.monitorMode,
     pairStart: config.monitorPairStart,
     latencyMs: config.monitorLatencyMs,
@@ -1570,7 +1713,7 @@ async function startPreviewMonitor(reason = 'settings') {
   try {
     await webAudioMonitor.start({
       mode: format.mode,
-      deviceId: monitorDeviceList.value,
+      deviceId: selectedBrowserMonitorOutputDeviceId(),
       pairStart: format.pairStart,
       latencyMs: format.latencyMs,
       lowLatency: format.lowLatency,
@@ -1687,7 +1830,7 @@ btnRefreshDevices.addEventListener('click', refreshDevices)
 deviceList.addEventListener('change', () => {
   syncInputSettings(true)
   warnIfLoopbackInputDevice(selectedInputDevice())
-  applyMonitorSettings('device-input')
+  refreshMonitorDevices(false).finally(() => applyMonitorSettings('device-input'))
 })
 btnRefreshMonitorDevices.addEventListener('click', () => refreshMonitorDevices(true))
 monitorEnabled.addEventListener('change', () => applyMonitorSettings('enabled'))
@@ -1776,7 +1919,9 @@ btnStart.addEventListener('click', async () => {
     monitorEnabled: isMonitorAvailable() && monitorEnabled.checked,
     directInputMonitor:
       currentInputType === 'device' && isMonitorAvailable() && monitorEnabled.checked,
-    monitorDeviceId: isMonitorAvailable() && monitorEnabled.checked ? monitorDeviceList.value : '',
+    monitorDeviceId:
+      isMonitorAvailable() && monitorEnabled.checked ? selectedBrowserMonitorOutputDeviceId() : '',
+    monitorOutputDeviceId: selectedMonitorOutputDeviceId(),
     monitorOutputDeviceName: selectedMonitorOutputDeviceName(),
     monitorMode: monitorMode.value,
     monitorPairStart: Number(monitorSourcePair.value || 0),
@@ -1801,6 +1946,10 @@ btnStart.addEventListener('click', async () => {
     loopFile: currentInputType === 'file' && loopFileInput.checked
   }
   saveIcecastSettings()
+
+  if (config.monitorEnabled && shouldUseBackendAsioOutputMonitor(config)) {
+    config.directInputMonitor = false
+  }
 
   if (selectedChannels.length === 0) {
     addLog('Error: At least one stream channel must be enabled.', 'error')
@@ -1944,6 +2093,10 @@ window.api.onMonitorAudio((payload) => {
       updateMonitorPeakMeters(monitorPeaks)
     }
   }
+})
+
+window.api.onMonitorPeaks((payload) => {
+  updateMonitorPeakMeters(payload)
 })
 
 window.api.onMonitorStop(() => {

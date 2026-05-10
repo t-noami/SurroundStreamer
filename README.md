@@ -4,9 +4,9 @@
 
 # SurroundStreamer
 
-SurroundStreamer is a macOS Electron app for sending Ogg Opus audio streams to an Icecast server.
+SurroundStreamer is a macOS-first Electron app for sending Ogg Opus audio streams to an Icecast server.
 It supports audio-input capture, file playback, stream channel templates up to 7.1, and monitor output for previewing supported sources.
-The current practical target is macOS because the audio capture path depends on Core Audio.
+The public stable target is macOS. The beta branch also contains a validated Windows ASIO/MMDevice Audio Input backend.
 
 <h2 align="center">DOWNLOAD</h2>
 
@@ -19,7 +19,7 @@ The current practical target is macOS because the audio capture path depends on 
 | Platform            | Download                                                                                                                      |
 | ------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | macOS Apple Silicon | [SurroundStreamer-0.1.0.dmg](https://github.com/t-noami/SurroundStreamer/releases/download/v0.1.0/SurroundStreamer-0.1.0.dmg) |
-| Windows             | Preparing                                                                                                                     |
+| Windows             | Beta preparing for publication                                                                                                |
 | Linux               | Preparing                                                                                                                     |
 
 ## System Requirements
@@ -31,7 +31,8 @@ The current practical target is macOS because the audio capture path depends on 
 - Supported release target: macOS 14.2 or later on Apple Silicon
 - Audio Input capture: Core Audio helper path on macOS
 - File source: FFmpeg file playback path
-- Windows/Linux: Preparing
+- Windows: beta branch only
+- Linux: Preparing
 
 ## Developer
 
@@ -53,11 +54,11 @@ The current practical target is macOS because the audio capture path depends on 
 ## Important Notes
 
 - App Audio capture has been removed from the current beta line. Use Audio Input capture with a physical, virtual, or loopback device when application audio needs to be routed into SurroundStreamer.
-- Audio Input Monitor Output uses the shared WebAudio direct monitor path when browser audio-device access is available. Native backend monitor paths are not treated as release-ready.
+- Audio Input Monitor Output uses the shared WebAudio direct monitor path when browser audio-device access is available. The Windows beta also has an ASIO-specific backend/WASAPI monitor path, but it is not part of the stable macOS release line.
 - Opus output is constrained to supported sample rates. 44.1 kHz and 96 kHz sources are converted to 48 kHz for stream output.
 - 7.1.2 and 7.1.4 are not part of the standard build. The current production target is up to 7.1 because that maps cleanly to common Opus channel mapping support.
 - KU100 near-field HRIR data is included under CC BY 4.0. Attribution is listed below.
-- Public release capture is macOS-first. Windows beta development has started, but Windows downloads remain `Preparing` until a real beta is validated. For Windows surround input, ASIO is the primary validation target; WASAPI/MMDevice remains useful for generic mono/stereo inputs.
+- Public release capture is macOS-first. The Windows beta has been validated locally for ASIO Audio Input, MMDevice/WASAPI Audio Input, File source, monitor output routing, and Icecast Opus streaming, but public Windows downloads remain beta/pre-release until signing, compatibility, and long-run checks are complete. For Windows surround input, ASIO is the primary validation target; WASAPI/MMDevice remains useful for generic mono/stereo inputs.
 - Linux build notes are kept for future platform work; Linux Audio Input capture is not implemented yet.
 
 ## User Manual
@@ -116,7 +117,7 @@ Use Audio Input when streaming from an audio interface, virtual input, or microp
 2. Select the audio input in `Audio Input`.
 3. Use `Refresh` if the device list needs to be updated.
 
-Monitor Output is available for Audio Input source through the shared WebAudio direct monitor path when browser audio-device access is available. Native backend monitor paths remain experimental and are not treated as release-ready.
+Monitor Output is available for Audio Input source through the shared WebAudio direct monitor path when browser audio-device access is available. The Windows beta also supports ASIO Audio Input monitoring through the backend-owned FFmpeg/WASAPI renderer path; this remains beta/pre-release and is not part of the stable macOS release line.
 
 On macOS, audio-input streaming requires microphone permission. If streaming does not capture input audio, confirm that macOS Privacy settings allow microphone access for SurroundStreamer.
 

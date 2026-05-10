@@ -16,8 +16,10 @@ files:
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml,test_streamconfig.txt}'
 asarUnpack:
   - resources/**
+  - native/audio-backends/windows/.build/**
 win:
   executableName: SurroundStreamer
+  signAndEditExecutable: false
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}

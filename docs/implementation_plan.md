@@ -1,6 +1,6 @@
 # SurroundStreamer Cross-Platform Backend Plan
 
-Last updated: 2026-05-09
+Last updated: 2026-05-11
 
 Branch: `beta/cross-platform-backend`
 
@@ -22,13 +22,14 @@ Beta builds from this branch must use the next version number:
 - Next beta version: `0.1.1-beta.10`
 - Beta app name target: `SurroundStreamer-beta-0.1.1`
 - macOS beta app target: `dist/beta/mac-arm64/SurroundStreamer-beta-0.1.1.app`
-- Windows beta installer target, once buildable: `SurroundStreamer-beta-0.1.1-setup.exe`
+- Windows beta installer target: `SurroundStreamer-beta-0.1.1-setup.exe`
+- Latest local Windows beta output used during validation: `dist/beta-stream-live-fix`
 
 Rule: when generating a beta app or Windows beta executable, do not reuse the stable `0.1.0` version number. Increment the beta line first.
 
 ## Architecture Summary
 
-SurroundStreamer is structured as a cross-platform Electron app, but the release-quality audio capture layer is still macOS-first. The beta line also contains experimental Windows WASAPI/DirectShow Audio Input paths; Linux Audio Input capture is not implemented yet.
+SurroundStreamer is structured as a cross-platform Electron app. The stable public release line is still macOS-first, while the beta line now contains a locally validated Windows Audio Input backend. Linux Audio Input capture is not implemented yet.
 
 Current beta direction: App Audio is no longer a supported input source. Cross-platform work should focus on Audio Input capture and File source first. Previous App Audio and process-loopback work remains useful as research/reference code only.
 
@@ -56,8 +57,10 @@ Windows beta backend parts:
 
 - WASAPI/MMDevice endpoint enumeration and PCM capture.
 - ASIO driver probing and ASIO input capture.
+- Backend-owned ASIO monitor output routing through FFmpeg monitor PCM and WASAPI render playback.
 - DirectShow audio-input capture for beta validation.
-- No validated native Audio Input monitor playback; `nativeInputDeviceMonitor` must remain `false`.
+- `nativeInputDeviceMonitor` remains `false`; the Windows ASIO monitor path is a separate
+  capability-gated backend monitor renderer rather than the generic native input monitor API.
 
 The current macOS native helper source is:
 
@@ -253,7 +256,8 @@ Tasks:
 - Update Electron Builder resources to use platform-specific backend paths.
 - Keep existing macOS helper build command functional during the transition.
 - Add placeholder packaging paths for Windows/Linux only after placeholders do not break packaging.
-- Keep Windows/Linux public docs marked as "Preparing" until real validation.
+- Keep Linux public docs marked as "Preparing" until real validation. Windows docs may describe the
+  validated beta path, but stable public release wording should remain conservative.
 
 Exit criteria:
 
@@ -301,11 +305,13 @@ Candidate APIs:
 
 Initial target:
 
-- File-only Windows beta validation first.
-- Input-device capture second. The current native helper can capture MMDevice/WASAPI inputs and ASIO inputs, with DirectShow retained as a fallback.
+- File source and input-device Windows beta validation first.
+- Input-device capture is implemented for MMDevice/WASAPI inputs and ASIO inputs, with DirectShow retained as a fallback.
 - Treat ASIO as the primary Windows surround-input path. WASAPI/MMDevice may be sufficient for mono/stereo devices, but it should not be assumed to expose 5.1 or 7.1 capture endpoints.
 - Per-app/process capture is research only and is not exposed as a supported source.
-- Native low-latency monitor playback is not part of the first Windows backend target.
+- Generic native low-latency monitor playback is not part of the first Windows backend target.
+- ASIO monitor output routing is implemented as a beta backend-owned FFmpeg/WASAPI path, not as
+  generic native monitor parity.
 
 Windows validation snapshot, 2026-05-09:
 
@@ -314,6 +320,9 @@ Windows validation snapshot, 2026-05-09:
 - REAPER multichannel output has been validated through `REAPER -> Voicemeeter Virtual ASIO -> SurroundStreamer ASIO input`.
 - REAPER must route Master hardware outputs explicitly: source 1/2 to output 1/2, source 3/4 to output 3/4, and source 5/6 to output 5/6. Setting the Master track to 6ch alone is insufficient.
 - The FFmpeg pre-encode path now explicitly maps selected backend channels when input and output channel counts differ, so an 8ch ASIO input can feed a 5.1 stream without relying on FFmpeg's implicit `-ac` behavior.
+- FFmpeg child processes clear inherited proxy variables before streaming so Icecast output is not
+  accidentally routed through development proxy settings.
+- Opus output uses an Opus-compatible `5.1` layout even when the UI/monitor path uses `5.1(side)`.
 - Voicemeeter itself does not publish to Icecast. The intended chain is `REAPER -> Voicemeeter ASIO -> SurroundStreamer -> Icecast`.
 - WASAPI Process Loopback remains a separate research path. It should not be expected to capture ASIO output from REAPER.
 - On the current test machine, the REAPER WASAPI process-loopback smoke test failed during `IAudioClient::Initialize` with `0x88890021`.
@@ -406,23 +415,24 @@ Exit criteria:
 ## Current Known Limitations
 
 - The stable `0.1.0` build is macOS-first.
-- Windows/Linux builds are not release-ready.
+- Windows stable release is not ready, but the Windows beta backend is locally validated for ASIO Audio Input, MMDevice/WASAPI Audio Input, File source, ASIO monitor output routing, and Icecast Opus streaming.
+- Linux builds are not release-ready.
 - Windows currently has native MMDevice/WASAPI input capture, ASIO probing/capture, and the older DirectShow audio-input bridge as fallback.
 - Windows surround-input validation currently assumes ASIO, because tested WASAPI/MMDevice endpoints exposed only mono/stereo formats.
 - WASAPI Process Loopback and DirectShow loopback work are retained as research/reference paths, not as supported App Audio sources.
 - Windows REAPER 5.1 validation currently uses ASIO input through Voicemeeter.
 - Linux application-audio capture is not in scope for the current beta line.
 - Linux Audio Input capture is not implemented.
-- Windows/Linux monitor device enumeration is not implemented.
+- Windows ASIO monitor output device enumeration is implemented through the Windows helper.
 - 7.1.2 and 7.1.4 remain research-only.
-- Audio Input monitor output uses the shared WebAudio direct monitor path when browser audio-device access is available. Native per-backend monitor paths remain experimental and should stay capability-gated until validated.
+- Audio Input monitor output uses the shared WebAudio direct monitor path when browser audio-device access is available. Windows ASIO has a validated beta backend/WASAPI monitor path; other native per-backend monitor paths remain experimental and should stay capability-gated until validated.
 - macOS release is ad-hoc signed and not notarized.
 
 ## Documentation Tasks
 
-- Keep `README.md` focused on the stable macOS release until Windows/Linux beta behavior is verified.
-- Keep `docs/build-windows.md` and `docs/build-linux.md` in "Preparing" state until real platform
-  beta workflows are validated.
+- Keep `README.md` focused on the stable macOS release while noting the validated Windows beta.
+- Keep `docs/build-linux.md` in "Preparing" state until real Linux beta workflows are validated.
+- Keep `docs/build-windows.md` aligned with the validated Windows beta workflow and latest local artifact path.
 - Use `docs/windows-linux-portability-assessment.md` as the architecture reference for cross-platform decisions.
 - Add beta release notes when `0.1.1-beta.10` is built.
 
@@ -431,5 +441,5 @@ Exit criteria:
 1. Smoke-test macOS File source after App Audio removal.
 2. Smoke-test macOS Audio Input streaming and Monitor Output.
 3. Re-run `npm run lint` and `npm run build`.
-4. Validate Windows Audio Input behavior on a real Windows environment.
+4. Retest packaged Windows beta end-to-end after install, including File source and MP3 modes.
 5. Keep loopback/process-capture research separate from supported input-source UI.

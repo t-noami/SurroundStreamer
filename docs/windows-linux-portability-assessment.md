@@ -97,13 +97,13 @@ What the Windows backend should not do:
 - It should not own Shoutcast 1 networking.
 - It should not hide driver-dependent channel order behind macOS/Core Audio labels.
 
-Windows validation still required:
+Windows validation status and remaining checks:
 
 - Build the Windows helper with `npm run build:audio-helper:win` before Windows beta packaging.
-- Confirm the packaged app can find `native/audio-backends/windows/.build/SurroundAudioBackend.exe` from the unpacked app resources.
+- Confirm the packaged app can find `native/audio-backends/windows/.build/SurroundAudioBackend.exe` from the unpacked app resources. This has been verified for the local beta package.
 - Confirm the Windows packaged FFmpeg binary has `libmp3lame` encoding and the `headphone` audio filter available.
 - Confirm `resources/ku100-hrir/**` is unpacked and reachable from the packaged Windows app.
-- Confirm the Windows backend reports real channel count and sample rate for multichannel input devices.
+- Confirm the Windows backend reports real channel count and sample rate for multichannel input devices. This has been validated with Voicemeeter Virtual ASIO in the local beta workflow.
 - Confirm long-run PCM pacing with WASAPI/ASIO and DirectShow fallback.
 - Confirm firewall and server behavior for Shoutcast 1 direct TCP relay.
 
@@ -112,7 +112,8 @@ Risk:
 - The current Windows build scripts and stable packaging config are packaging scaffolds, not a complete release pipeline for the Windows helper.
 - DirectShow fallback may expose only stereo or driver-dependent layouts.
 - ASIO/WASAPI channel ordering may not match the macOS/Core Audio labels. If labels are unavailable, the UI should clearly treat the mapping as backend-reported or default-order only.
-- Stable Windows Audio Input is still a backend quality issue, not an MP3 pipeline issue.
+- Stable Windows Audio Input is now mainly a release-hardening issue: signing, broader device
+  compatibility, channel-order documentation, long-run capture stability, and fallback coverage.
 
 ### Linux backend requirements
 
@@ -354,10 +355,10 @@ Risk:
 
 Rough difficulty from the current branch:
 
-- File-only Windows build: low to medium; still needs release validation.
-- Basic Windows audio-input capture: initial WASAPI/MMDevice and ASIO paths exist; ASIO is the
-  practical surround path, while WASAPI/MMDevice remains a generic input path. Long-run pacing and
-  device compatibility still need testing.
+- File source Windows beta: implemented in the beta app; still needs a final packaged-app smoke test.
+- Basic Windows audio-input capture: WASAPI/MMDevice and ASIO paths exist; ASIO is the practical
+  surround path, while WASAPI/MMDevice remains a generic input path. Local ASIO/Icecast validation
+  has passed; long-run pacing and broader device compatibility still need testing.
 - Basic output-device loopback streaming: medium to high.
 - App-level capture with surround preservation: high.
 - Reintroducing App Audio with parity to the old macOS process-tap behavior: high.
@@ -708,4 +709,6 @@ Recommended staged approach:
 
 Windows/Linux support is not impossible, but the current implementation makes it a significant backend rewrite.
 
-The app should continue to be described as macOS-primary. Windows/Linux should remain "Preparing" in public docs until platform backend boundaries and at least one real capture backend are implemented and tested.
+The app should continue to be described as macOS-primary for stable public releases. Windows can now
+be described as a validated beta on the beta branch. Linux should remain "Preparing" in public docs
+until a real Linux capture backend is implemented and tested.

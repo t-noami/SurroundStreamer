@@ -442,6 +442,93 @@ static float pcmSampleToFloat(const uint8_t* sample, int bytesPerSample, int bit
   return 0.0f;
 }
 
+static float rightAlignedInt32SampleToFloat(const uint8_t* sample, int bitsPerSample) {
+  const int validBits = std::clamp(bitsPerSample, 1, 31);
+  const uint32_t raw =
+    static_cast<uint32_t>(sample[0]) |
+    (static_cast<uint32_t>(sample[1]) << 8) |
+    (static_cast<uint32_t>(sample[2]) << 16) |
+    (static_cast<uint32_t>(sample[3]) << 24);
+  const uint32_t mask = (uint32_t{1} << validBits) - 1;
+  const uint32_t signBit = uint32_t{1} << (validBits - 1);
+  uint32_t value = raw & mask;
+  if (value & signBit) value |= ~mask;
+  return std::max(-1.0f, static_cast<int32_t>(value) / std::ldexp(1.0f, validBits - 1));
+}
+
+static int32_t floatToSignedInt(float sample, int bitsPerSample) {
+  const float clipped = std::max(-1.0f, std::min(1.0f, sample));
+  const double scale = std::ldexp(1.0, std::clamp(bitsPerSample, 1, 31) - 1);
+  return static_cast<int32_t>(std::lrint(std::max(-scale, std::min(scale - 1.0, clipped * scale))));
+}
+
+static int32_t floatToInt32Sample(float sample) {
+  const double clipped = std::max(-1.0, std::min(1.0, static_cast<double>(sample)));
+  const double scaled = clipped * 2147483648.0;
+  return static_cast<int32_t>(std::llround(std::max(-2147483648.0, std::min(2147483647.0, scaled))));
+}
+
+struct FloatRing {
+  std::vector<float> data;
+  std::atomic<size_t> readIndex{0};
+  std::atomic<size_t> writeIndex{0};
+};
+
+static void initFloatRing(FloatRing& ring, size_t capacity) {
+  ring.data.assign(std::max<size_t>(1, capacity), 0.0f);
+  ring.readIndex.store(0, std::memory_order_relaxed);
+  ring.writeIndex.store(0, std::memory_order_relaxed);
+}
+
+static size_t floatRingAvailable(const FloatRing& ring) {
+  const size_t read = ring.readIndex.load(std::memory_order_acquire);
+  const size_t write = ring.writeIndex.load(std::memory_order_acquire);
+  return write - read;
+}
+
+static size_t writeFloatRing(FloatRing& ring, const float* input, size_t count, bool dropOldest) {
+  const size_t capacity = ring.data.size();
+  if (capacity == 0 || count == 0) return 0;
+
+  if (count > capacity) {
+    input += count - capacity;
+    count = capacity;
+  }
+
+  size_t read = ring.readIndex.load(std::memory_order_acquire);
+  size_t write = ring.writeIndex.load(std::memory_order_relaxed);
+  const size_t used = write - read;
+  const size_t writable = capacity > used ? capacity - used : 0;
+  if (count > writable) {
+    if (!dropOldest) {
+      count = writable;
+    } else {
+      read += count - writable;
+      ring.readIndex.store(read, std::memory_order_release);
+    }
+  }
+
+  for (size_t index = 0; index < count; ++index) {
+    ring.data[(write + index) % capacity] = input[index];
+  }
+  ring.writeIndex.store(write + count, std::memory_order_release);
+  return count;
+}
+
+static size_t readFloatRing(FloatRing& ring, float* output, size_t count) {
+  const size_t capacity = ring.data.size();
+  if (capacity == 0 || count == 0) return 0;
+
+  const size_t read = ring.readIndex.load(std::memory_order_relaxed);
+  const size_t write = ring.writeIndex.load(std::memory_order_acquire);
+  const size_t available = std::min(count, write - read);
+  for (size_t index = 0; index < available; ++index) {
+    output[index] = ring.data[(read + index) % capacity];
+  }
+  ring.readIndex.store(read + available, std::memory_order_release);
+  return available;
+}
+
 static bool writeFloatFrames(const BYTE* data, UINT32 frames, DWORD flags, const WAVEFORMATEX* format) {
   const int channels = format->nChannels;
   const size_t sampleCount = static_cast<size_t>(frames) * channels;
@@ -476,6 +563,13 @@ static bool writeFloatFrames(const BYTE* data, UINT32 frames, DWORD flags, const
 
   return writeAll(converted.data(), converted.size() * sizeof(float));
 }
+
+static HRESULT getMixFormat(IAudioClient* audioClient, WAVEFORMATEX** format);
+static float sanitizeFloatSample(float value);
+static HRESULT findRenderDevice(IMMDeviceEnumerator* enumerator,
+                                const std::wstring& deviceId,
+                                const std::wstring& deviceName,
+                                IMMDevice** device);
 
 static int runCaptureLoop(IAudioClient* audioClient, IAudioCaptureClient* captureClient, const WAVEFORMATEX* format) {
   writeFormatEvent(static_cast<int>(format->nSamplesPerSec), static_cast<int>(format->nChannels));
@@ -519,6 +613,188 @@ static int runCaptureLoop(IAudioClient* audioClient, IAudioCaptureClient* captur
   audioClient->Stop();
   if (mmcssTask) AvRevertMmThreadCharacteristics(mmcssTask);
   return 1;
+}
+
+static void writeFloatToRenderBuffer(BYTE* data,
+                                     UINT32 frames,
+                                     const std::vector<float>& input,
+                                     int inputChannels,
+                                     const WAVEFORMATEX* format) {
+  const int outputChannels = std::max<int>(1, format->nChannels);
+  const int bytesPerSample = std::max<int>(1, format->nBlockAlign / outputChannels);
+  const int bitsPerSample = validBitsPerSample(format);
+  const bool floatFormat = isFloatFormat(format);
+  const bool pcmFormat = isPcmFormat(format);
+
+  for (UINT32 frame = 0; frame < frames; ++frame) {
+    BYTE* frameData = data + (static_cast<size_t>(frame) * format->nBlockAlign);
+    for (int channel = 0; channel < outputChannels; ++channel) {
+      const float value =
+        channel < inputChannels
+          ? sanitizeFloatSample(input[(static_cast<size_t>(frame) * inputChannels) + channel])
+          : 0.0f;
+      BYTE* sample = frameData + (static_cast<size_t>(channel) * bytesPerSample);
+      if (floatFormat && bytesPerSample == 4) {
+        *reinterpret_cast<float*>(sample) = value;
+      } else if (floatFormat && bytesPerSample == 8) {
+        *reinterpret_cast<double*>(sample) = static_cast<double>(value);
+      } else if (pcmFormat && bytesPerSample == 2) {
+        const int32_t converted = floatToSignedInt(value, 16);
+        sample[0] = static_cast<BYTE>(converted & 0xff);
+        sample[1] = static_cast<BYTE>((converted >> 8) & 0xff);
+      } else if (pcmFormat && bytesPerSample == 3) {
+        const int32_t converted = floatToSignedInt(value, 24);
+        sample[0] = static_cast<BYTE>(converted & 0xff);
+        sample[1] = static_cast<BYTE>((converted >> 8) & 0xff);
+        sample[2] = static_cast<BYTE>((converted >> 16) & 0xff);
+      } else if (pcmFormat && bytesPerSample >= 4) {
+        const int32_t converted = bitsPerSample >= 32 ? floatToInt32Sample(value) : floatToSignedInt(value, bitsPerSample);
+        memcpy(sample, &converted, sizeof(converted));
+      } else {
+        memset(sample, 0, static_cast<size_t>(bytesPerSample));
+      }
+    }
+  }
+}
+
+static int playWasapiOutput(const std::wstring& deviceId,
+                            const std::wstring& deviceName,
+                            int inputSampleRate,
+                            int inputChannels) {
+  HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+  if (FAILED(hr)) {
+    writeError(hrMessage("CoInitializeEx", hr));
+    return 1;
+  }
+
+  ComPtr<IMMDeviceEnumerator> enumerator;
+  hr = CoCreateInstance(__uuidof(MMDeviceEnumerator),
+                        nullptr,
+                        CLSCTX_ALL,
+                        __uuidof(IMMDeviceEnumerator),
+                        reinterpret_cast<void**>(enumerator.put()));
+  if (FAILED(hr)) {
+    writeError(hrMessage("CoCreateInstance(MMDeviceEnumerator)", hr));
+    CoUninitialize();
+    return 1;
+  }
+
+  ComPtr<IMMDevice> device;
+  hr = findRenderDevice(enumerator.get(), deviceId, deviceName, device.put());
+  if (FAILED(hr) || !device.get()) {
+    writeError(hrMessage("Find render device", FAILED(hr) ? hr : E_FAIL));
+    CoUninitialize();
+    return 1;
+  }
+
+  ComPtr<IAudioClient> audioClient;
+  hr = device->Activate(__uuidof(IAudioClient),
+                        CLSCTX_ALL,
+                        nullptr,
+                        reinterpret_cast<void**>(audioClient.put()));
+  if (FAILED(hr)) {
+    writeError(hrMessage("IMMDevice::Activate(IAudioClient)", hr));
+    CoUninitialize();
+    return 1;
+  }
+
+  WAVEFORMATEX* mixFormat = nullptr;
+  hr = getMixFormat(audioClient.get(), &mixFormat);
+  if (FAILED(hr) || !mixFormat) {
+    writeError(hrMessage("IAudioClient::GetMixFormat", FAILED(hr) ? hr : E_FAIL));
+    CoUninitialize();
+    return 1;
+  }
+
+  hr = audioClient->Initialize(AUDCLNT_SHAREMODE_SHARED, 0, 1000000, 0, mixFormat, nullptr);
+  if (FAILED(hr)) {
+    CoTaskMemFree(mixFormat);
+    writeError(hrMessage("IAudioClient::Initialize", hr));
+    CoUninitialize();
+    return 1;
+  }
+
+  ComPtr<IAudioRenderClient> renderClient;
+  hr = audioClient->GetService(__uuidof(IAudioRenderClient), reinterpret_cast<void**>(renderClient.put()));
+  if (FAILED(hr)) {
+    CoTaskMemFree(mixFormat);
+    writeError(hrMessage("IAudioClient::GetService(IAudioRenderClient)", hr));
+    CoUninitialize();
+    return 1;
+  }
+
+  UINT32 bufferFrameCount = 0;
+  hr = audioClient->GetBufferSize(&bufferFrameCount);
+  if (FAILED(hr) || bufferFrameCount == 0) {
+    CoTaskMemFree(mixFormat);
+    writeError(hrMessage("IAudioClient::GetBufferSize", FAILED(hr) ? hr : E_FAIL));
+    CoUninitialize();
+    return 1;
+  }
+
+  inputChannels = std::clamp(inputChannels, 1, 8);
+  writeFormatEvent(static_cast<int>(mixFormat->nSamplesPerSec), static_cast<int>(mixFormat->nChannels));
+
+  hr = audioClient->Start();
+  if (FAILED(hr)) {
+    CoTaskMemFree(mixFormat);
+    writeError(hrMessage("IAudioClient::Start", hr));
+    CoUninitialize();
+    return 1;
+  }
+
+  DWORD mmcssTaskIndex = 0;
+  HANDLE mmcssTask = AvSetMmThreadCharacteristicsW(L"Audio", &mmcssTaskIndex);
+  std::vector<float> input;
+
+  while (true) {
+    UINT32 padding = 0;
+    hr = audioClient->GetCurrentPadding(&padding);
+    if (FAILED(hr)) {
+      writeError(hrMessage("IAudioClient::GetCurrentPadding", hr));
+      break;
+    }
+
+    UINT32 availableFrames = bufferFrameCount > padding ? bufferFrameCount - padding : 0;
+    if (availableFrames == 0) {
+      Sleep(5);
+      continue;
+    }
+
+    availableFrames = std::min<UINT32>(availableFrames, 512);
+    input.resize(static_cast<size_t>(availableFrames) * static_cast<size_t>(inputChannels));
+    const size_t read = fread(input.data(), sizeof(float), input.size(), stdin);
+    if (read == 0) {
+      break;
+    }
+    const UINT32 framesRead = static_cast<UINT32>(read / static_cast<size_t>(inputChannels));
+    if (framesRead == 0) {
+      continue;
+    }
+    if (framesRead < availableFrames) {
+      input.resize(static_cast<size_t>(framesRead) * static_cast<size_t>(inputChannels));
+    }
+
+    BYTE* buffer = nullptr;
+    hr = renderClient->GetBuffer(framesRead, &buffer);
+    if (FAILED(hr)) {
+      writeError(hrMessage("IAudioRenderClient::GetBuffer", hr));
+      break;
+    }
+
+    writeFloatToRenderBuffer(buffer, framesRead, input, inputChannels, mixFormat);
+    hr = renderClient->ReleaseBuffer(framesRead, 0);
+    if (FAILED(hr)) {
+      writeError(hrMessage("IAudioRenderClient::ReleaseBuffer", hr));
+      break;
+    }
+  }
+
+  audioClient->Stop();
+  if (mmcssTask) AvRevertMmThreadCharacteristics(mmcssTask);
+  CoTaskMemFree(mixFormat);
+  CoUninitialize();
+  return 0;
 }
 
 static HRESULT getMixFormat(IAudioClient* audioClient, WAVEFORMATEX** format) {
@@ -616,6 +892,57 @@ static int listInputDevices() {
 
 static int listOutputDevices() {
   return listAudioEndpoints(eRender, "devices");
+}
+
+static bool deviceFriendlyName(IMMDevice* device, std::wstring& name) {
+  name.clear();
+  ComPtr<IPropertyStore> properties;
+  if (FAILED(device->OpenPropertyStore(STGM_READ, properties.put()))) return false;
+
+  PROPVARIANT friendlyName;
+  PropVariantInit(&friendlyName);
+  bool ok = false;
+  if (SUCCEEDED(properties->GetValue(PKEY_Device_FriendlyName, &friendlyName)) &&
+      friendlyName.vt == VT_LPWSTR &&
+      friendlyName.pwszVal) {
+    name = friendlyName.pwszVal;
+    ok = true;
+  }
+  PropVariantClear(&friendlyName);
+  return ok;
+}
+
+static HRESULT findRenderDevice(IMMDeviceEnumerator* enumerator,
+                                const std::wstring& deviceId,
+                                const std::wstring& deviceName,
+                                IMMDevice** device) {
+  *device = nullptr;
+  if (!deviceId.empty()) {
+    HRESULT hr = enumerator->GetDevice(deviceId.c_str(), device);
+    if (SUCCEEDED(hr) && *device) return hr;
+  }
+
+  if (!deviceName.empty() && deviceName != L"System Default") {
+    ComPtr<IMMDeviceCollection> collection;
+    HRESULT hr = enumerator->EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE, collection.put());
+    if (SUCCEEDED(hr)) {
+      UINT count = 0;
+      collection->GetCount(&count);
+      for (UINT index = 0; index < count; ++index) {
+        ComPtr<IMMDevice> candidate;
+        if (FAILED(collection->Item(index, candidate.put()))) continue;
+        std::wstring name;
+        if (!deviceFriendlyName(candidate.get(), name)) continue;
+        if (name == deviceName || name.find(deviceName) != std::wstring::npos ||
+            deviceName.find(name) != std::wstring::npos) {
+          *device = candidate.detach();
+          return S_OK;
+        }
+      }
+    }
+  }
+
+  return enumerator->GetDefaultAudioEndpoint(eRender, eConsole, device);
 }
 
 static std::wstring registryStringValue(HKEY key, const wchar_t* name) {
@@ -790,6 +1117,43 @@ struct AsioCaptureState {
 
 static AsioCaptureState* gAsioCaptureState = nullptr;
 
+struct AsioOutputState {
+  IASIO* driver = nullptr;
+  std::vector<ASIOBufferInfo> buffers;
+  std::vector<ASIOChannelInfo> channelInfos;
+  long channels = 0;
+  long bufferSize = 0;
+  ASIOSampleRate sampleRate = 48000.0;
+  volatile LONG running = 0;
+  bool outputReadySupported = false;
+};
+
+static AsioOutputState* gAsioOutputState = nullptr;
+
+struct AsioDuplexState {
+  IASIO* driver = nullptr;
+  std::vector<ASIOBufferInfo> buffers;
+  std::vector<ASIOChannelInfo> inputInfos;
+  std::vector<ASIOChannelInfo> outputInfos;
+  std::vector<float> inputScratch;
+  std::vector<float> outputScratch;
+  FloatRing inputRing;
+  FloatRing monitorRing;
+  HANDLE stdinThread = nullptr;
+  HANDLE stdoutThread = nullptr;
+  long inputChannels = 0;
+  long outputChannels = 0;
+  long bufferSize = 0;
+  ASIOSampleRate sampleRate = 48000.0;
+  volatile LONG running = 0;
+  bool outputReadySupported = false;
+};
+
+static AsioDuplexState* gAsioDuplexState = nullptr;
+
+static void signalAsioOutputReady(AsioOutputState* state);
+static void signalAsioOutputReady(AsioDuplexState* state);
+
 static float asioSampleToFloat(const void* sample, long type) {
   const uint8_t* bytes = static_cast<const uint8_t*>(sample);
   switch (type) {
@@ -804,13 +1168,13 @@ static float asioSampleToFloat(const void* sample, long type) {
     case ASIOSTInt32LSB:
       return pcmSampleToFloat(bytes, 4, 32);
     case ASIOSTInt32LSB16:
-      return pcmSampleToFloat(bytes + 2, 2, 16);
+      return rightAlignedInt32SampleToFloat(bytes, 16);
     case ASIOSTInt32LSB18:
-      return pcmSampleToFloat(bytes, 4, 18);
+      return rightAlignedInt32SampleToFloat(bytes, 18);
     case ASIOSTInt32LSB20:
-      return pcmSampleToFloat(bytes, 4, 20);
+      return rightAlignedInt32SampleToFloat(bytes, 20);
     case ASIOSTInt32LSB24:
-      return pcmSampleToFloat(bytes, 4, 24);
+      return rightAlignedInt32SampleToFloat(bytes, 24);
     default:
       return 0.0f;
   }
@@ -826,6 +1190,55 @@ static int asioSampleBytes(long type) {
       return 8;
     default:
       return 4;
+  }
+}
+
+static float sanitizeFloatSample(float value) {
+  if (!std::isfinite(value)) return 0.0f;
+  return std::max(-1.0f, std::min(1.0f, value));
+}
+
+static void asioFloatToSample(float value, void* sample, long type) {
+  value = sanitizeFloatSample(value);
+  uint8_t* bytes = static_cast<uint8_t*>(sample);
+  switch (type) {
+    case ASIOSTFloat32LSB:
+      *static_cast<float*>(sample) = value;
+      return;
+    case ASIOSTFloat64LSB:
+      *static_cast<double*>(sample) = static_cast<double>(value);
+      return;
+    case ASIOSTInt16LSB: {
+      const int32_t v = floatToSignedInt(value, 16);
+      bytes[0] = static_cast<uint8_t>(v & 0xff);
+      bytes[1] = static_cast<uint8_t>((v >> 8) & 0xff);
+      return;
+    }
+    case ASIOSTInt24LSB: {
+      const int32_t v = floatToSignedInt(value, 24);
+      bytes[0] = static_cast<uint8_t>(v & 0xff);
+      bytes[1] = static_cast<uint8_t>((v >> 8) & 0xff);
+      bytes[2] = static_cast<uint8_t>((v >> 16) & 0xff);
+      return;
+    }
+    case ASIOSTInt32LSB: {
+      const int32_t v = floatToInt32Sample(value);
+      memcpy(bytes, &v, sizeof(v));
+      return;
+    }
+    case ASIOSTInt32LSB16:
+    case ASIOSTInt32LSB18:
+    case ASIOSTInt32LSB20:
+    case ASIOSTInt32LSB24: {
+      const int bits =
+        type == ASIOSTInt32LSB16 ? 16 : type == ASIOSTInt32LSB18 ? 18 : type == ASIOSTInt32LSB20 ? 20 : 24;
+      const int32_t v = floatToSignedInt(value, bits);
+      memcpy(bytes, &v, sizeof(v));
+      return;
+    }
+    default:
+      memset(bytes, 0, static_cast<size_t>(asioSampleBytes(type)));
+      return;
   }
 }
 
@@ -860,6 +1273,160 @@ static long asioMessage(ASIOMessageSelector, long, void*, double*) {
 
 static ASIOTime* asioBufferSwitchTimeInfo(ASIOTime* params, long doubleBufferIndex, ASIOBool directProcess) {
   asioBufferSwitch(doubleBufferIndex, directProcess);
+  return params;
+}
+
+static void asioOutputBufferSwitch(long doubleBufferIndex, ASIOBool) {
+  AsioOutputState* state = gAsioOutputState;
+  if (!state || InterlockedCompareExchange(&state->running, 1, 1) == 0) return;
+
+  static std::vector<float> interleaved;
+  const size_t sampleCount = static_cast<size_t>(state->bufferSize) * state->channels;
+  interleaved.resize(sampleCount);
+  const size_t read = fread(interleaved.data(), sizeof(float), sampleCount, stdin);
+  if (read < sampleCount) {
+    std::fill(interleaved.begin() + static_cast<ptrdiff_t>(read), interleaved.end(), 0.0f);
+    InterlockedExchange(&state->running, 0);
+  }
+
+  for (long frame = 0; frame < state->bufferSize; ++frame) {
+    for (long channel = 0; channel < state->channels; ++channel) {
+      const ASIOChannelInfo& info = state->channelInfos[static_cast<size_t>(channel)];
+      const int sampleBytes = asioSampleBytes(info.type);
+      uint8_t* channelBuffer =
+        static_cast<uint8_t*>(state->buffers[static_cast<size_t>(channel)].buffers[doubleBufferIndex]);
+      const float value = interleaved[(static_cast<size_t>(frame) * state->channels) + channel];
+      asioFloatToSample(value, channelBuffer + (static_cast<size_t>(frame) * sampleBytes), info.type);
+    }
+  }
+  signalAsioOutputReady(state);
+}
+
+static ASIOTime* asioOutputBufferSwitchTimeInfo(ASIOTime* params, long doubleBufferIndex, ASIOBool directProcess) {
+  asioOutputBufferSwitch(doubleBufferIndex, directProcess);
+  return params;
+}
+
+static void clearAsioOutputBuffers(const std::vector<ASIOBufferInfo>& buffers,
+                                   const std::vector<ASIOChannelInfo>& infos,
+                                   size_t bufferOffset,
+                                   long channels,
+                                   long bufferSize) {
+  for (long channel = 0; channel < channels; ++channel) {
+    const ASIOChannelInfo& info = infos[static_cast<size_t>(channel)];
+    const int sampleBytes = asioSampleBytes(info.type);
+    for (int half = 0; half < 2; ++half) {
+      uint8_t* channelBuffer =
+        static_cast<uint8_t*>(buffers[bufferOffset + static_cast<size_t>(channel)].buffers[half]);
+      if (!channelBuffer) continue;
+      for (long frame = 0; frame < bufferSize; ++frame) {
+        asioFloatToSample(0.0f, channelBuffer + (static_cast<size_t>(frame) * sampleBytes), info.type);
+      }
+    }
+  }
+}
+
+static void signalAsioOutputReady(AsioOutputState* state) {
+  if (state && state->outputReadySupported && state->driver) {
+    state->driver->outputReady();
+  }
+}
+
+static void signalAsioOutputReady(AsioDuplexState* state) {
+  if (state && state->outputReadySupported && state->driver) {
+    state->driver->outputReady();
+  }
+}
+
+static DWORD WINAPI asioDuplexStdinReader(LPVOID param) {
+  AsioDuplexState* state = static_cast<AsioDuplexState*>(param);
+  std::vector<float> chunk;
+  const size_t samplesPerRead = static_cast<size_t>(std::max<long>(1, state->outputChannels)) * 512;
+  chunk.resize(samplesPerRead);
+
+  while (InterlockedCompareExchange(&state->running, 1, 1) != 0) {
+    const size_t read = fread(chunk.data(), sizeof(float), chunk.size(), stdin);
+    if (read == 0) {
+      InterlockedExchange(&state->running, 0);
+      break;
+    }
+
+    const size_t frameSamples = static_cast<size_t>(std::max<long>(1, state->outputChannels));
+    const size_t alignedRead = read - (read % frameSamples);
+    writeFloatRing(state->monitorRing, chunk.data(), alignedRead, true);
+  }
+  return 0;
+}
+
+static DWORD WINAPI asioDuplexStdoutWriter(LPVOID param) {
+  AsioDuplexState* state = static_cast<AsioDuplexState*>(param);
+  std::vector<float> chunk;
+  const size_t samplesPerRead =
+    static_cast<size_t>(std::max<long>(1, state->inputChannels)) *
+    static_cast<size_t>(std::max<long>(1, state->bufferSize)) *
+    4;
+  chunk.resize(samplesPerRead);
+
+  while (InterlockedCompareExchange(&state->running, 1, 1) != 0 || floatRingAvailable(state->inputRing) > 0) {
+    const size_t read = readFloatRing(state->inputRing, chunk.data(), chunk.size());
+    if (read == 0) {
+      Sleep(1);
+      continue;
+    }
+    if (!writeAll(chunk.data(), read * sizeof(float))) {
+      InterlockedExchange(&state->running, 0);
+      break;
+    }
+  }
+  return 0;
+}
+
+static void popDuplexMonitorSamples(AsioDuplexState* state, std::vector<float>& output, size_t sampleCount) {
+  output.assign(sampleCount, 0.0f);
+  readFloatRing(state->monitorRing, output.data(), sampleCount);
+}
+
+static void asioDuplexBufferSwitch(long doubleBufferIndex, ASIOBool) {
+  AsioDuplexState* state = gAsioDuplexState;
+  if (!state || InterlockedCompareExchange(&state->running, 1, 1) == 0) return;
+
+  std::vector<float>& inputInterleaved = state->inputScratch;
+  for (long frame = 0; frame < state->bufferSize; ++frame) {
+    for (long channel = 0; channel < state->inputChannels; ++channel) {
+      const ASIOChannelInfo& info = state->inputInfos[static_cast<size_t>(channel)];
+      const int sampleBytes = asioSampleBytes(info.type);
+      const uint8_t* channelBuffer =
+        static_cast<const uint8_t*>(state->buffers[static_cast<size_t>(channel)].buffers[doubleBufferIndex]);
+      inputInterleaved[(static_cast<size_t>(frame) * state->inputChannels) + channel] =
+        asioSampleToFloat(channelBuffer + (static_cast<size_t>(frame) * sampleBytes), info.type);
+    }
+  }
+
+  if (writeFloatRing(state->inputRing, inputInterleaved.data(), inputInterleaved.size(), false) < inputInterleaved.size()) {
+    InterlockedExchange(&state->running, 0);
+  }
+
+  std::vector<float>& outputInterleaved = state->outputScratch;
+  popDuplexMonitorSamples(
+    state,
+    outputInterleaved,
+    static_cast<size_t>(state->bufferSize) * static_cast<size_t>(state->outputChannels));
+
+  for (long frame = 0; frame < state->bufferSize; ++frame) {
+    for (long channel = 0; channel < state->outputChannels; ++channel) {
+      const ASIOChannelInfo& info = state->outputInfos[static_cast<size_t>(channel)];
+      const int sampleBytes = asioSampleBytes(info.type);
+      uint8_t* channelBuffer =
+        static_cast<uint8_t*>(state->buffers[static_cast<size_t>(state->inputChannels + channel)].buffers[doubleBufferIndex]);
+      const float value = outputInterleaved[(static_cast<size_t>(frame) * state->outputChannels) + channel];
+      asioFloatToSample(value, channelBuffer + (static_cast<size_t>(frame) * sampleBytes), info.type);
+    }
+  }
+  signalAsioOutputReady(state);
+}
+
+static ASIOTime* asioDuplexBufferSwitchTimeInfo(ASIOTime* params, long doubleBufferIndex, ASIOBool directProcess) {
+  asioDuplexBufferSwitch(doubleBufferIndex, directProcess);
   return params;
 }
 
@@ -973,6 +1540,283 @@ static int streamAsioInput(const std::wstring& clsidValue, int requestedChannels
   driver->Release();
   CoUninitialize();
   return 1;
+}
+
+static int playAsioOutput(const std::wstring& clsidValue, int requestedChannels) {
+  HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+  if (FAILED(hr)) {
+    writeError(hrMessage("CoInitializeEx", hr));
+    return 1;
+  }
+
+  CLSID clsid = {};
+  hr = CLSIDFromString(clsidValue.c_str(), &clsid);
+  if (FAILED(hr)) {
+    writeError("Invalid ASIO CLSID");
+    CoUninitialize();
+    return 1;
+  }
+
+  IASIO* driver = nullptr;
+  hr = CoCreateInstance(clsid, nullptr, CLSCTX_INPROC_SERVER, clsid, reinterpret_cast<void**>(&driver));
+  if (FAILED(hr) || !driver) {
+    writeError(hrMessage("CoCreateInstance(ASIO)", hr));
+    CoUninitialize();
+    return 1;
+  }
+
+  if (!driver->init(GetDesktopWindow())) {
+    driver->Release();
+    writeError("ASIO driver init failed");
+    CoUninitialize();
+    return 1;
+  }
+
+  long inputChannels = 0;
+  long outputChannels = 0;
+  ASIOError error = driver->getChannels(&inputChannels, &outputChannels);
+  if (error != 0 || outputChannels <= 0) {
+    driver->Release();
+    writeError("ASIO driver has no output channels");
+    CoUninitialize();
+    return 1;
+  }
+
+  long minBuffer = 0;
+  long maxBuffer = 0;
+  long preferredBuffer = 0;
+  long granularity = 0;
+  error = driver->getBufferSize(&minBuffer, &maxBuffer, &preferredBuffer, &granularity);
+  if (error != 0 || preferredBuffer <= 0) {
+    preferredBuffer = 512;
+  }
+
+  ASIOSampleRate sampleRate = 0;
+  if (driver->getSampleRate(&sampleRate) != 0 || sampleRate <= 0) {
+    sampleRate = 44100.0;
+  }
+
+  AsioOutputState state;
+  state.driver = driver;
+  state.channels = std::clamp<long>(requestedChannels > 0 ? requestedChannels : 2, 1, outputChannels);
+  state.bufferSize = preferredBuffer;
+  state.sampleRate = sampleRate;
+  state.buffers.resize(static_cast<size_t>(state.channels));
+  state.channelInfos.resize(static_cast<size_t>(state.channels));
+
+  for (long channel = 0; channel < state.channels; ++channel) {
+    state.buffers[static_cast<size_t>(channel)] = {0, channel, {nullptr, nullptr}};
+    ASIOChannelInfo info = {};
+    info.channel = channel;
+    info.isInput = 0;
+    if (driver->getChannelInfo(&info) != 0) {
+      info.type = ASIOSTFloat32LSB;
+    }
+    state.channelInfos[static_cast<size_t>(channel)] = info;
+  }
+
+  ASIOCallbacks callbacks = {};
+  callbacks.bufferSwitch = asioOutputBufferSwitch;
+  callbacks.sampleRateDidChange = asioSampleRateDidChange;
+  callbacks.asioMessage = asioMessage;
+  callbacks.bufferSwitchTimeInfo = asioOutputBufferSwitchTimeInfo;
+
+  error = driver->createBuffers(state.buffers.data(), state.channels, state.bufferSize, &callbacks);
+  if (error != 0) {
+    driver->Release();
+    writeError("ASIO create output buffers failed");
+    CoUninitialize();
+    return 1;
+  }
+  clearAsioOutputBuffers(state.buffers, state.channelInfos, 0, state.channels, state.bufferSize);
+  state.outputReadySupported = driver->outputReady() == 0;
+
+  gAsioOutputState = &state;
+  InterlockedExchange(&state.running, 1);
+  writeFormatEvent(static_cast<int>(sampleRate), static_cast<int>(state.channels));
+  error = driver->start();
+  if (error != 0) {
+    gAsioOutputState = nullptr;
+    driver->disposeBuffers();
+    driver->Release();
+    writeError("ASIO output start failed");
+    CoUninitialize();
+    return 1;
+  }
+
+  while (InterlockedCompareExchange(&state.running, 1, 1) != 0) {
+    Sleep(20);
+  }
+
+  driver->stop();
+  gAsioOutputState = nullptr;
+  driver->disposeBuffers();
+  driver->Release();
+  CoUninitialize();
+  return 0;
+}
+
+static int streamAsioInputWithMonitorOutput(const std::wstring& clsidValue,
+                                            int requestedInputChannels,
+                                            int requestedOutputChannels) {
+  HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+  if (FAILED(hr)) {
+    writeError(hrMessage("CoInitializeEx", hr));
+    return 1;
+  }
+
+  CLSID clsid = {};
+  hr = CLSIDFromString(clsidValue.c_str(), &clsid);
+  if (FAILED(hr)) {
+    writeError("Invalid ASIO CLSID");
+    CoUninitialize();
+    return 1;
+  }
+
+  IASIO* driver = nullptr;
+  hr = CoCreateInstance(clsid, nullptr, CLSCTX_INPROC_SERVER, clsid, reinterpret_cast<void**>(&driver));
+  if (FAILED(hr) || !driver) {
+    writeError(hrMessage("CoCreateInstance(ASIO)", hr));
+    CoUninitialize();
+    return 1;
+  }
+
+  if (!driver->init(GetDesktopWindow())) {
+    driver->Release();
+    writeError("ASIO driver init failed");
+    CoUninitialize();
+    return 1;
+  }
+
+  long inputChannels = 0;
+  long outputChannels = 0;
+  ASIOError error = driver->getChannels(&inputChannels, &outputChannels);
+  if (error != 0 || inputChannels <= 0 || outputChannels <= 0) {
+    driver->Release();
+    writeError("ASIO driver needs input and output channels for monitor mode");
+    CoUninitialize();
+    return 1;
+  }
+
+  long minBuffer = 0;
+  long maxBuffer = 0;
+  long preferredBuffer = 0;
+  long granularity = 0;
+  error = driver->getBufferSize(&minBuffer, &maxBuffer, &preferredBuffer, &granularity);
+  if (error != 0 || preferredBuffer <= 0) {
+    preferredBuffer = 512;
+  }
+
+  ASIOSampleRate sampleRate = 0;
+  if (driver->getSampleRate(&sampleRate) != 0 || sampleRate <= 0) {
+    sampleRate = 44100.0;
+  }
+
+  AsioDuplexState state;
+  state.driver = driver;
+  state.inputChannels = std::clamp<long>(requestedInputChannels > 0 ? requestedInputChannels : inputChannels, 1, inputChannels);
+  state.outputChannels = std::clamp<long>(requestedOutputChannels > 0 ? requestedOutputChannels : 2, 1, outputChannels);
+  state.bufferSize = preferredBuffer;
+  state.sampleRate = sampleRate;
+  state.inputScratch.resize(static_cast<size_t>(state.bufferSize) * static_cast<size_t>(state.inputChannels));
+  state.outputScratch.resize(static_cast<size_t>(state.bufferSize) * static_cast<size_t>(state.outputChannels));
+  const size_t inputRingSamples =
+    static_cast<size_t>(state.inputChannels) *
+    static_cast<size_t>(std::max<int>(static_cast<int>(sampleRate), 48000)) *
+    2;
+  const size_t monitorRingSamples =
+    static_cast<size_t>(state.outputChannels) *
+    static_cast<size_t>(std::max<int>(static_cast<int>(sampleRate), 48000));
+  initFloatRing(state.inputRing, inputRingSamples);
+  initFloatRing(state.monitorRing, monitorRingSamples);
+
+  const long totalChannels = state.inputChannels + state.outputChannels;
+  state.buffers.resize(static_cast<size_t>(totalChannels));
+  state.inputInfos.resize(static_cast<size_t>(state.inputChannels));
+  state.outputInfos.resize(static_cast<size_t>(state.outputChannels));
+
+  for (long channel = 0; channel < state.inputChannels; ++channel) {
+    state.buffers[static_cast<size_t>(channel)] = {1, channel, {nullptr, nullptr}};
+    ASIOChannelInfo info = {};
+    info.channel = channel;
+    info.isInput = 1;
+    if (driver->getChannelInfo(&info) != 0) info.type = ASIOSTFloat32LSB;
+    state.inputInfos[static_cast<size_t>(channel)] = info;
+  }
+
+  for (long channel = 0; channel < state.outputChannels; ++channel) {
+    const size_t bufferIndex = static_cast<size_t>(state.inputChannels + channel);
+    state.buffers[bufferIndex] = {0, channel, {nullptr, nullptr}};
+    ASIOChannelInfo info = {};
+    info.channel = channel;
+    info.isInput = 0;
+    if (driver->getChannelInfo(&info) != 0) info.type = ASIOSTFloat32LSB;
+    state.outputInfos[static_cast<size_t>(channel)] = info;
+  }
+
+  ASIOCallbacks callbacks = {};
+  callbacks.bufferSwitch = asioDuplexBufferSwitch;
+  callbacks.sampleRateDidChange = asioSampleRateDidChange;
+  callbacks.asioMessage = asioMessage;
+  callbacks.bufferSwitchTimeInfo = asioDuplexBufferSwitchTimeInfo;
+
+  error = driver->createBuffers(state.buffers.data(), totalChannels, state.bufferSize, &callbacks);
+  if (error != 0) {
+    driver->Release();
+    writeError("ASIO create duplex buffers failed");
+    CoUninitialize();
+    return 1;
+  }
+  clearAsioOutputBuffers(
+    state.buffers,
+    state.outputInfos,
+    static_cast<size_t>(state.inputChannels),
+    state.outputChannels,
+    state.bufferSize);
+  state.outputReadySupported = driver->outputReady() == 0;
+
+  gAsioDuplexState = &state;
+  InterlockedExchange(&state.running, 1);
+  state.stdinThread = CreateThread(nullptr, 0, asioDuplexStdinReader, &state, 0, nullptr);
+  state.stdoutThread = CreateThread(nullptr, 0, asioDuplexStdoutWriter, &state, 0, nullptr);
+  writeFormatEvent(static_cast<int>(sampleRate), static_cast<int>(state.inputChannels));
+  error = driver->start();
+  if (error != 0) {
+    InterlockedExchange(&state.running, 0);
+    if (state.stdinThread) {
+      WaitForSingleObject(state.stdinThread, 500);
+      CloseHandle(state.stdinThread);
+    }
+    if (state.stdoutThread) {
+      WaitForSingleObject(state.stdoutThread, 500);
+      CloseHandle(state.stdoutThread);
+    }
+    gAsioDuplexState = nullptr;
+    driver->disposeBuffers();
+    driver->Release();
+    writeError("ASIO duplex start failed");
+    CoUninitialize();
+    return 1;
+  }
+
+  while (InterlockedCompareExchange(&state.running, 1, 1) != 0) {
+    Sleep(20);
+  }
+
+  driver->stop();
+  if (state.stdinThread) {
+    WaitForSingleObject(state.stdinThread, 1000);
+    CloseHandle(state.stdinThread);
+  }
+  if (state.stdoutThread) {
+    WaitForSingleObject(state.stdoutThread, 1000);
+    CloseHandle(state.stdoutThread);
+  }
+  gAsioDuplexState = nullptr;
+  driver->disposeBuffers();
+  driver->Release();
+  CoUninitialize();
+  return 0;
 }
 
 static int captureInputDevice(const std::wstring& deviceId) {
@@ -1161,6 +2005,7 @@ static int captureProcessLoopback(DWORD pid, int sampleRate, int channels, PROCE
 }
 
 int wmain(int argc, wchar_t** argv) {
+  _setmode(_fileno(stdin), _O_BINARY);
   _setmode(_fileno(stdout), _O_BINARY);
   _setmode(_fileno(stderr), _O_TEXT);
 
@@ -1202,6 +2047,35 @@ int wmain(int argc, wchar_t** argv) {
     return streamAsioInput(clsid, channels);
   }
 
+  if (hasArg(argc, argv, L"--stream-asio-input-monitor-output")) {
+    std::wstring clsid = argValue(argc, argv, L"--clsid", L"");
+    if (clsid.empty()) {
+      writeError("Missing --clsid");
+      return 2;
+    }
+    int inputChannelsArg = std::clamp(intArg(argc, argv, L"--input-channels", 2), 1, 64);
+    int outputChannelsArg = std::clamp(intArg(argc, argv, L"--monitor-channels", 2), 1, 64);
+    return streamAsioInputWithMonitorOutput(clsid, inputChannelsArg, outputChannelsArg);
+  }
+
+  if (hasArg(argc, argv, L"--play-asio-output")) {
+    std::wstring clsid = argValue(argc, argv, L"--clsid", L"");
+    if (clsid.empty()) {
+      writeError("Missing --clsid");
+      return 2;
+    }
+    int channels = std::clamp(intArg(argc, argv, L"--channels", 2), 1, 64);
+    return playAsioOutput(clsid, channels);
+  }
+
+  if (hasArg(argc, argv, L"--play-wasapi-output")) {
+    std::wstring deviceId = argValue(argc, argv, L"--device-id", L"");
+    std::wstring deviceName = argValue(argc, argv, L"--device-name", L"");
+    int sampleRate = std::clamp(intArg(argc, argv, L"--sample-rate", 48000), 8000, 384000);
+    int channels = std::clamp(intArg(argc, argv, L"--channels", 2), 1, 8);
+    return playWasapiOutput(deviceId, deviceName, sampleRate, channels);
+  }
+
   if (hasArg(argc, argv, L"--stream-input-device")) {
     std::wstring deviceId = argValue(argc, argv, L"--device-id", L"");
     if (deviceId.empty()) {
@@ -1213,7 +2087,7 @@ int wmain(int argc, wchar_t** argv) {
 
   if (!hasArg(argc, argv, L"--stream-process-loopback")) {
     fprintf(stderr,
-            "Usage: SurroundAudioBackend.exe --list-input-devices | --list-output-devices | --list-asio-devices | --stream-input-device --device-id <id> | --stream-process-loopback --pid <pid> [--sample-rate 48000] [--channels 2] [--mode include-tree|exclude-tree]\n");
+            "Usage: SurroundAudioBackend.exe --list-input-devices | --list-output-devices | --list-asio-devices | --stream-input-device --device-id <id> | --stream-asio-input --clsid <clsid> | --stream-asio-input-monitor-output --clsid <clsid> [--input-channels 8] [--monitor-channels 2] | --play-asio-output --clsid <clsid> [--channels 2] | --play-wasapi-output [--device-id <id>] [--device-name <name>] [--sample-rate 48000] [--channels 2] | --stream-process-loopback --pid <pid> [--sample-rate 48000] [--channels 2] [--mode include-tree|exclude-tree]\n");
     return 2;
   }
 

@@ -22,7 +22,7 @@ class WindowsWasapiBackend {
       nativeInputDeviceMonitor: false,
       fileSource: true,
       monitorPlayback: true,
-      monitorDeviceEnumeration: false,
+      monitorDeviceEnumeration: true,
       outputLoopbackCapture: false,
       minimumWindowsBuild: MINIMUM_WINDOWS_BUILD
     }
@@ -92,6 +92,21 @@ class WindowsWasapiBackend {
     }
 
     if (this.isAsioDeviceUID(options.deviceUID)) {
+      if (options.monitorOutput) {
+        return spawn(
+          this.getHelperPath(),
+          [
+            '--stream-asio-input-monitor-output',
+            '--clsid',
+            this.asioClsidFromDeviceUID(options.deviceUID),
+            '--input-channels',
+            String(this.normalizedAsioChannels(options.channels || options.inputChannels)),
+            '--monitor-channels',
+            String(this.normalizedAsioChannels(options.monitorChannels || DEFAULT_CHANNELS))
+          ],
+          { stdio: ['pipe', 'pipe', 'pipe'] }
+        )
+      }
       return spawn(
         this.getHelperPath(),
         [
@@ -110,6 +125,24 @@ class WindowsWasapiBackend {
       ['--stream-input-device', '--device-id', String(options.deviceUID)],
       { stdio: ['ignore', 'pipe', 'pipe'] }
     )
+  }
+
+  spawnOutputPCMPlayback(options = {}) {
+    this.assertHelperAvailable()
+    const args = [
+      '--play-wasapi-output',
+      '--sample-rate',
+      String(Number(options.sampleRate) || DEFAULT_SAMPLE_RATE),
+      '--channels',
+      String(this.normalizedAsioChannels(options.channels || DEFAULT_CHANNELS))
+    ]
+    if (options.deviceUID) {
+      args.push('--device-id', String(options.deviceUID))
+    }
+    if (options.deviceName && options.deviceName !== 'System Default') {
+      args.push('--device-name', String(options.deviceName))
+    }
+    return spawn(this.getHelperPath(), args, { stdio: ['pipe', 'ignore', 'pipe'] })
   }
 
   async listAppProcesses() {
@@ -194,7 +227,22 @@ class WindowsWasapiBackend {
                   }
                 ]
               }
-            ]
+          ]
+    }
+  }
+
+  async listMonitorOutputDevices() {
+    this.assertHelperAvailable()
+    const result = await this.runHelper(['--list-output-devices'])
+    return {
+      devices: (result.devices || []).map((device, index) => ({
+        deviceId: device.deviceUID || '',
+        name: device.name || `Windows Audio Output ${index + 1}`,
+        sampleRate: Number(device.sampleRate) || DEFAULT_SAMPLE_RATE,
+        channels: Number(device.channels) || DEFAULT_CHANNELS,
+        bitsPerChannel: Number(device.bitsPerChannel) || 32,
+        backend: 'wasapi-render'
+      }))
     }
   }
 

@@ -355,7 +355,8 @@ Do not promise macOS parity until real tests prove:
 
 ## Packaging Rules
 
-Do not make Windows downloads public until at least Stage 1 is tested.
+Do not present Windows as a stable public release until signing, compatibility, and long-run checks
+are complete. The beta branch now has a locally validated Windows package path.
 
 Build the helper first when validating native Audio Input:
 
@@ -369,10 +370,16 @@ Beta build command:
 npm run build:beta:win
 ```
 
-Expected future artifact name:
+Expected beta artifact name:
 
 ```text
 dist/beta/SurroundStreamer-beta-0.1.1-setup.exe
+```
+
+The latest local validation build used during the Windows ASIO stream-live fix was:
+
+```text
+dist/beta-stream-live-fix/SurroundStreamer-beta-0.1.1-setup.exe
 ```
 
 Current beta packaging uses `asarUnpack` for:
@@ -447,4 +454,5 @@ docs/build-windows.md
 README.md
 ```
 
-Keep README conservative. Do not change Windows from `Preparing` until a real Windows beta has been tested.
+Keep README conservative for the stable macOS release, but it may now describe Windows as a validated
+beta branch target rather than generic `Preparing`.

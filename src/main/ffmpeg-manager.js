@@ -11,12 +11,25 @@ import audioBackend from './audio-backends'
 const ffmpegPath = getFfmpegPath()
 ffmpeg.setFfmpegPath(ffmpegPath)
 
+const ASIO_MONITOR_HRTF_GAIN_DB = 8.881361
+const FFMPEG_PROXY_ENV_KEYS = [
+  'HTTP_PROXY',
+  'HTTPS_PROXY',
+  'ALL_PROXY',
+  'http_proxy',
+  'https_proxy',
+  'all_proxy',
+  'GIT_HTTP_PROXY',
+  'GIT_HTTPS_PROXY'
+]
+
 class FFmpegManager extends EventEmitter {
   constructor() {
     super()
     this.process = null
     this.inputDeviceProcess = null
     this.previewMonitorProcess = null
+    this.previewFfmpegProcess = null
     this.previewMonitorKind = null
     this.status = 'idle' // 'idle' | 'streaming' | 'error'
     this.config = null
@@ -29,6 +42,8 @@ class FFmpegManager extends EventEmitter {
     this.monitorAudioBuffers = []
     this.monitorAudioBytes = 0
     this.monitorAudioFlushTimer = null
+    this.monitorPlaybackProcess = null
+    this.lastMonitorPeakEmitAt = 0
     this.shoutcast1RelaySocket = null
     this.shoutcast1RelayPipe = null
     this.shoutcast1RelayActive = false
@@ -55,8 +70,11 @@ class FFmpegManager extends EventEmitter {
       throw new Error('Stream is already running')
     }
     this.validateBackendSupport(config)
+    if (this.shouldUseAsioOutputMonitor(config)) {
+      config.directInputMonitor = false
+    }
     if (!(config.directInputMonitor && this.previewMonitorKind === 'native-input')) {
-      this.stopPreviewMonitor()
+      await this.stopPreviewMonitor({ waitForExit: true })
     }
 
     this.config = config
@@ -82,6 +100,7 @@ class FFmpegManager extends EventEmitter {
       }
     } catch (error) {
       this.cleanupInputDeviceProcess()
+      this.cleanupMonitorPlaybackProcess()
       this.closeShoutcast1Relay()
       this.status = 'idle'
       this.monitorForwarding = false
@@ -97,7 +116,7 @@ class FFmpegManager extends EventEmitter {
     })
 
     const stdio = this.buildFfmpegStdio({ shoutcast1RelayPipeIndex })
-    this.process = spawn(ffmpegPath, args, { stdio })
+    this.process = this.spawnFfmpeg(args, { stdio })
     this.attachFfmpegEvents()
     this.attachShoutcast1RelayPipe(shoutcast1RelayPipeIndex)
     if (this.monitorFormat && !this.monitorPipeEnabled) {
@@ -120,6 +139,7 @@ class FFmpegManager extends EventEmitter {
       this.monitorFormat = null
       this.monitorForwarding = false
       this.monitorPipeEnabled = false
+      this.cleanupMonitorPlaybackProcess()
       this.resetMonitorAudioQueue()
       this.emit('monitor-stop')
       throw error
@@ -135,6 +155,24 @@ class FFmpegManager extends EventEmitter {
       stdio[shoutcast1RelayPipeIndex] = 'pipe'
     }
     return stdio
+  }
+
+  spawnFfmpeg(args, options = {}) {
+    return spawn(ffmpegPath, args, {
+      ...options,
+      env: this.ffmpegChildEnv(options.env)
+    })
+  }
+
+  ffmpegChildEnv(extraEnv = null) {
+    const env = {
+      ...process.env,
+      ...(extraEnv || {})
+    }
+    for (const key of FFMPEG_PROXY_ENV_KEYS) {
+      delete env[key]
+    }
+    return env
   }
 
   async prepareBackendCapture(config) {
@@ -163,9 +201,14 @@ class FFmpegManager extends EventEmitter {
 
     if (this.monitorPipeEnabled && this.monitorFormat && this.process.stdio[3]) {
       this.emit('monitor-format', this.monitorFormat)
+      this.startMonitorPlaybackProcess()
       this.process.stdio[3].on('data', (data) => {
         const chunk = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)
-        if (this.monitorForwarding) {
+        if (this.monitorPlaybackProcess) {
+          this.writeMonitorPlayback(data)
+        } else if (this.shouldUseAsioOutputMonitor(this.config)) {
+          return
+        } else if (this.monitorForwarding) {
           this.queueMonitorAudio(chunk)
         }
       })
@@ -186,11 +229,13 @@ class FFmpegManager extends EventEmitter {
         message: `FFmpeg exited with code ${code}`
       })
       this.cleanupInputDeviceProcess()
+      this.cleanupMonitorPlaybackProcess()
       this.closeShoutcast1Relay()
       this.process = null
       this.status = 'idle'
       this.monitorForwarding = false
       this.monitorPipeEnabled = false
+      this.cleanupMonitorPlaybackProcess()
       this.resetMonitorAudioQueue()
       this.emit('status', this.getStatus())
       this.emit('monitor-stop')
@@ -201,6 +246,115 @@ class FFmpegManager extends EventEmitter {
       this.status = 'error'
       this.emit('status', this.getStatus())
     })
+  }
+
+  startMonitorPlaybackProcess() {
+    if (!this.shouldUseAsioOutputMonitor(this.config) || this.monitorPlaybackProcess) return
+    this.monitorPlaybackProcess = audioBackend.spawnOutputPCMPlayback({
+      deviceUID: this.config?.monitorOutputDeviceId,
+      deviceName: this.config?.monitorOutputDeviceName,
+      sampleRate: this.getMonitorSampleRate(this.config),
+      channels: this.getMonitorChannels(this.config, this.getOutputChannels(this.config))
+    })
+    this.monitorPlaybackProcess.stderr.on('data', (data) => {
+      const message = data.toString().trim()
+      if (!message) return
+      const parsed = this.tryParseJSON(message)
+      if (parsed?.event === 'format') {
+        this.emit('log', {
+          type: 'system',
+          message: `WASAPI backend monitor format: ${parsed.channels}ch @ ${this.formatSampleRate(parsed.sampleRate)}`
+        })
+        return
+      }
+      if (parsed?.event === 'error') {
+        this.emit('log', { type: 'error', message: `WASAPI backend monitor error: ${parsed.message}` })
+        return
+      }
+      this.emit('log', { type: 'system', message: `WASAPI backend monitor: ${message}` })
+    })
+    this.monitorPlaybackProcess.on('error', (error) => {
+      this.emit('log', { type: 'error', message: `WASAPI backend monitor process error: ${error.message}` })
+    })
+    this.attachMonitorPlaybackStdinHandlers(this.monitorPlaybackProcess, 'WASAPI backend monitor')
+    this.emit('log', { type: 'system', message: 'ASIO monitor output attached to WASAPI backend renderer.' })
+  }
+
+  writeMonitorPlayback(data) {
+    this.emitMonitorPeaks(data, this.monitorFormat?.channels || 2)
+    if (!this.monitorForwarding) return
+    const playbackProcess = this.monitorPlaybackProcess
+    if (
+      !playbackProcess?.stdin ||
+      playbackProcess.stdin.destroyed ||
+      playbackProcess.stdin.writableEnded
+    ) {
+      return
+    }
+    if (playbackProcess.stdin.writableLength > 1024 * 1024) {
+      return
+    }
+
+    try {
+      playbackProcess.stdin.write(data, (error) => {
+        if (error && error.code !== 'EPIPE' && error.code !== 'EOF') {
+          this.emit('log', { type: 'error', message: `ASIO monitor output write error: ${error.message}` })
+        }
+      })
+    } catch (error) {
+      if (error.code !== 'EPIPE' && error.code !== 'EOF') {
+        this.emit('log', { type: 'error', message: `ASIO monitor output write error: ${error.message}` })
+      }
+    }
+  }
+
+  attachMonitorPlaybackStdinHandlers(playbackProcess, label) {
+    if (!playbackProcess?.stdin) return
+    playbackProcess.stdin.on('error', (error) => {
+      if (error.code !== 'EPIPE' && error.code !== 'EOF') {
+        this.emit('log', { type: 'error', message: `${label} stdin error: ${error.message}` })
+      }
+    })
+    playbackProcess.on('close', () => {
+      if (this.monitorPlaybackProcess === playbackProcess) {
+        this.monitorPlaybackProcess = null
+      }
+    })
+  }
+
+  emitMonitorPeaks(data, channels) {
+    const now = Date.now()
+    if (now - this.lastMonitorPeakEmitAt < 100) return
+    this.lastMonitorPeakEmitAt = now
+
+    const channelCount = Math.max(1, Number(channels || 2))
+    const samples = new Float32Array(data.buffer, data.byteOffset, Math.floor(data.byteLength / 4))
+    const frameCount = Math.floor(samples.length / channelCount)
+    if (frameCount <= 0) return
+
+    const peaks = {}
+    for (let channel = 0; channel < channelCount; channel += 1) {
+      let peak = 0
+      for (let frame = 0; frame < frameCount; frame += 1) {
+        const sample = Math.abs(samples[frame * channelCount + channel] || 0)
+        if (sample > peak) peak = sample
+      }
+      peaks[channel] = peak <= 0 ? -120 : 20 * Math.log10(peak)
+    }
+    this.emit('monitor-peaks', { channels: channelCount, peaks })
+  }
+
+  cleanupMonitorPlaybackProcess() {
+    if (!this.monitorPlaybackProcess) return
+    if (this.monitorPlaybackProcess === this.inputDeviceProcess) {
+      this.monitorPlaybackProcess = null
+      return
+    }
+    const processToStop = this.monitorPlaybackProcess
+    this.monitorPlaybackProcess = null
+    if (!processToStop.killed) {
+      processToStop.kill('SIGTERM')
+    }
   }
 
   attachShoutcast1RelayPipe(pipeIndex) {
@@ -421,11 +575,19 @@ class FFmpegManager extends EventEmitter {
         this.queueMonitorAudio(data)
       }
 
-      if (!this.process?.stdin || this.process.stdin.destroyed) {
+      if (!this.process?.stdin || this.process.stdin.destroyed || this.process.stdin.writableEnded) {
         return
       }
 
-      const canContinue = this.process.stdin.write(data)
+      let canContinue = true
+      try {
+        canContinue = this.process.stdin.write(data)
+      } catch (error) {
+        if (error.code !== 'EPIPE') {
+          this.emit('log', { type: 'error', message: `FFmpeg stdin write error: ${error.message}` })
+        }
+        return
+      }
       if (!canContinue) {
         backendProcess.stdout.pause()
         this.process.stdin.once('drain', () => {
@@ -450,7 +612,9 @@ class FFmpegManager extends EventEmitter {
       deviceUID: config.inputDeviceUID,
       streamIndex: config.inputStreamIndex,
       channels: this.getDeviceInputChannels(config),
-      sampleRate: this.getDeviceInputSampleRate(config)
+      sampleRate: this.getDeviceInputSampleRate(config),
+      monitorOutput: false,
+      monitorChannels: this.getMonitorChannels(config, this.getOutputChannels(config))
     })
     this.inputDeviceProcess.stdout.pause()
 
@@ -469,7 +633,7 @@ class FFmpegManager extends EventEmitter {
 
       const startupTimer = setTimeout(() => {
         settleReject(new Error('Timed out waiting for audio input format'))
-      }, 1500)
+      }, 5000)
 
       this.inputDeviceProcess.stderr.on('data', (data) => {
         const message = data.toString().trim()
@@ -579,7 +743,7 @@ class FFmpegManager extends EventEmitter {
     }
     args.push('-c:a', 'pcm_f32le', '-f', 'f32le', 'pipe:1')
 
-    const monitorProcess = spawn(ffmpegPath, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    const monitorProcess = this.spawnFfmpeg(args, { stdio: ['ignore', 'pipe', 'pipe'] })
     this.previewMonitorProcess = monitorProcess
 
     monitorProcess.stdout.on('data', (data) => {
@@ -621,7 +785,7 @@ class FFmpegManager extends EventEmitter {
     return { success: true }
   }
 
-  startInputDeviceMonitor(config) {
+  async startInputDeviceMonitor(config) {
     if (this.process) {
       throw new Error('Preview monitor is only available before streaming')
     }
@@ -635,7 +799,11 @@ class FFmpegManager extends EventEmitter {
       throw new Error('Audio Input monitor requires a backend device UID')
     }
 
-    this.stopPreviewMonitor()
+    if (this.shouldUseAsioOutputMonitor(config)) {
+      return await this.startAsioInputDeviceMonitor(config)
+    }
+
+    await this.stopPreviewMonitor({ waitForExit: true })
 
     const sampleRate = this.getOutputSampleRate(config)
     const inputChannels = this.getDeviceInputChannels(config)
@@ -725,6 +893,187 @@ class FFmpegManager extends EventEmitter {
       }
     })
 
+    return { success: true }
+  }
+
+  async startAsioInputDeviceMonitor(config) {
+    await this.stopPreviewMonitor({ waitForExit: true })
+
+    const outputChannels = this.getOutputChannels(config)
+    const monitorChannels = this.getMonitorChannels(config, outputChannels)
+    const sampleRate = this.getMonitorSampleRate(config)
+    this.monitorFormat = {
+      mode: config.monitorMode || 'stereo-pair',
+      latencyMs: this.getMonitorLatencyMs(config),
+      lowLatency: this.shouldUseLowLatencyMonitor(config),
+      sampleRate,
+      channels: monitorChannels
+    }
+    this.monitorPipeEnabled = true
+    this.monitorForwarding = true
+    this.previewMonitorKind = 'asio-backend'
+    this.emit('monitor-format', this.monitorFormat)
+    this.emit('log', {
+      type: 'system',
+      message: `Starting ASIO backend preview monitor (${monitorChannels}ch @ ${this.formatSampleRate(sampleRate)})`
+    })
+
+    const inputProcess = audioBackend.spawnInputDevicePCMStream({
+      deviceUID: config.inputDeviceUID,
+      streamIndex: config.inputStreamIndex,
+      channels: this.getDeviceInputChannels(config),
+      sampleRate: this.getDeviceInputSampleRate(config),
+      monitorOutput: false,
+      monitorChannels
+    })
+    inputProcess.stdout.pause()
+
+    const hrtfLabels =
+      (config.monitorMode || 'stereo-pair') === 'binaural'
+        ? this.mp3HrtfLabels(config, outputChannels)
+        : []
+    const filterGraph = `[0:a]${this.buildMonitorFilter(config, outputChannels, {
+      hrtfLabels,
+      hrtfInputStart: 1
+    })}[mon]`
+    const args = [
+      '-hide_banner',
+      '-loglevel',
+      'warning',
+      ...this.buildBackendPcmInputArgs(config),
+      ...this.buildHrtfInputArgs(hrtfLabels),
+      '-vn',
+      '-filter_complex',
+      filterGraph,
+      '-map',
+      '[mon]',
+      '-ar',
+      String(sampleRate),
+      '-ac',
+      String(monitorChannels),
+      '-c:a',
+      'pcm_f32le',
+      '-flush_packets',
+      '1',
+      '-f',
+      'f32le',
+      'pipe:3'
+    ]
+    const ffmpegProcess = this.spawnFfmpeg(args, { stdio: ['pipe', 'ignore', 'pipe', 'pipe'] })
+
+    this.previewMonitorProcess = inputProcess
+    this.previewFfmpegProcess = ffmpegProcess
+    this.monitorPlaybackProcess = audioBackend.spawnOutputPCMPlayback({
+      deviceUID: config.monitorOutputDeviceId,
+      deviceName: config.monitorOutputDeviceName,
+      sampleRate,
+      channels: monitorChannels
+    })
+
+    this.monitorPlaybackProcess.stderr.on('data', (data) => {
+      const message = data.toString().trim()
+      if (!message) return
+      const parsed = this.tryParseJSON(message)
+      if (parsed?.event === 'format') {
+        this.emit('log', {
+          type: 'system',
+          message: `ASIO preview WASAPI output format: ${parsed.channels}ch @ ${this.formatSampleRate(parsed.sampleRate)}`
+        })
+        return
+      }
+      if (parsed?.event === 'error') {
+        this.emit('log', { type: 'error', message: `ASIO preview WASAPI output error: ${parsed.message}` })
+        return
+      }
+      this.emit('log', { type: 'system', message: `ASIO preview WASAPI output: ${message}` })
+    })
+    this.monitorPlaybackProcess.on('error', (error) => {
+      this.emit('log', { type: 'error', message: `ASIO preview WASAPI output process error: ${error.message}` })
+    })
+    this.attachMonitorPlaybackStdinHandlers(this.monitorPlaybackProcess, 'ASIO preview WASAPI output')
+
+    inputProcess.stderr.on('data', (data) => {
+      const message = data.toString().trim()
+      if (!message) return
+
+      const parsed = this.tryParseJSON(message)
+      if (parsed?.event === 'format') {
+        config.inputSampleRate = parsed.sampleRate || config.inputSampleRate
+        config.inputChannels = parsed.channels || config.inputChannels
+        this.emit('log', {
+          type: 'system',
+          message: `ASIO preview input format: ${parsed.channels}ch @ ${this.formatSampleRate(parsed.sampleRate)}`
+        })
+        return
+      }
+
+      if (parsed?.event === 'error') {
+        this.emit('log', { type: 'error', message: `ASIO preview input error: ${parsed.message}` })
+        return
+      }
+
+      this.emit('log', { type: 'system', message: `ASIO preview input: ${message}` })
+    })
+
+    inputProcess.stdout.on('data', (data) => {
+      if (!ffmpegProcess.stdin || ffmpegProcess.stdin.destroyed || ffmpegProcess.stdin.writableEnded) {
+        return
+      }
+      try {
+        const canContinue = ffmpegProcess.stdin.write(data)
+        if (!canContinue) {
+          inputProcess.stdout.pause()
+          ffmpegProcess.stdin.once('drain', () => {
+            if (inputProcess.stdout && this.previewMonitorProcess === inputProcess) {
+              inputProcess.stdout.resume()
+            }
+          })
+        }
+      } catch (error) {
+        if (error.code !== 'EPIPE') {
+          this.emit('log', { type: 'error', message: `ASIO preview FFmpeg stdin error: ${error.message}` })
+        }
+      }
+    })
+
+    ffmpegProcess.stdio[3].on('data', (data) => {
+      this.writeMonitorPlayback(data)
+    })
+
+    ffmpegProcess.stderr.on('data', (data) => {
+      const message = data.toString().trim()
+      if (message) {
+        this.emit('log', { type: 'ffmpeg', message })
+      }
+    })
+
+    inputProcess.on('error', (error) => {
+      this.emit('log', { type: 'error', message: `ASIO preview input process error: ${error.message}` })
+    })
+
+    ffmpegProcess.on('error', (error) => {
+      this.emit('log', { type: 'error', message: `ASIO preview FFmpeg process error: ${error.message}` })
+    })
+
+    inputProcess.on('close', (code) => {
+      if (this.previewMonitorProcess !== inputProcess) return
+      this.emit('log', {
+        type: code === 0 ? 'system' : 'error',
+        message: `ASIO preview input exited with code ${code}`
+      })
+      this.stopPreviewMonitor()
+    })
+
+    ffmpegProcess.on('close', (code) => {
+      if (this.previewFfmpegProcess !== ffmpegProcess) return
+      this.emit('log', {
+        type: code === 0 ? 'system' : 'error',
+        message: `ASIO preview FFmpeg exited with code ${code}`
+      })
+      this.stopPreviewMonitor()
+    })
+
+    inputProcess.stdout.resume()
     return { success: true }
   }
 
@@ -821,7 +1170,7 @@ class FFmpegManager extends EventEmitter {
 
   waitForStartup() {
     return new Promise((resolve, reject) => {
-      const startupTimer = setTimeout(resolve, 1500)
+      const startupTimer = setTimeout(resolve, 5000)
 
       this.process.once('error', (error) => {
         clearTimeout(startupTimer)
@@ -851,6 +1200,7 @@ class FFmpegManager extends EventEmitter {
         resolve()
       })
       this.cleanupInputDeviceProcess()
+      this.cleanupMonitorPlaybackProcess()
       this.closeShoutcast1Relay()
       this.process.kill('SIGTERM')
       this.monitorForwarding = false
@@ -861,11 +1211,17 @@ class FFmpegManager extends EventEmitter {
   }
 
   async shutdown() {
-    const processes = [this.previewMonitorProcess, this.inputDeviceProcess, this.process].filter(
-      Boolean
-    )
+    const processes = [
+      this.previewMonitorProcess,
+      this.previewFfmpegProcess,
+      this.monitorPlaybackProcess,
+      this.inputDeviceProcess,
+      this.process
+    ].filter(Boolean)
 
     this.previewMonitorProcess = null
+    this.previewFfmpegProcess = null
+    this.monitorPlaybackProcess = null
     this.previewMonitorKind = null
     this.inputDeviceProcess = null
     this.process = null
@@ -881,19 +1237,32 @@ class FFmpegManager extends EventEmitter {
     await Promise.all(processes.map((processToStop) => this.terminateProcess(processToStop)))
   }
 
-  stopPreviewMonitor() {
-    if (!this.previewMonitorProcess) {
+  async stopPreviewMonitor({ waitForExit = false } = {}) {
+    if (!this.previewMonitorProcess && !this.previewFfmpegProcess && !this.monitorPlaybackProcess) {
       return { success: true }
     }
 
     const processToStop = this.previewMonitorProcess
+    const ffmpegToStop = this.previewFfmpegProcess
+    const playbackToStop = this.monitorPlaybackProcess
+    const processesToStop = [processToStop, ffmpegToStop, playbackToStop].filter(
+      (processItem, index, items) => processItem && items.indexOf(processItem) === index
+    )
     this.previewMonitorProcess = null
+    this.previewFfmpegProcess = null
+    this.monitorPlaybackProcess = null
     this.previewMonitorKind = null
     this.monitorForwarding = false
     this.monitorPipeEnabled = false
     this.resetMonitorAudioQueue()
-    if (!processToStop.killed) {
-      processToStop.kill('SIGTERM')
+    if (waitForExit) {
+      await Promise.all(processesToStop.map((processItem) => this.terminateProcess(processItem, 3000)))
+    } else {
+      for (const processItem of processesToStop) {
+        if (!processItem.killed) {
+          processItem.kill('SIGTERM')
+        }
+      }
     }
     return { success: true }
   }
@@ -902,6 +1271,22 @@ class FFmpegManager extends EventEmitter {
     this.monitorForwarding = !!isActive
     if (!this.monitorForwarding) {
       this.resetMonitorAudioQueue()
+    }
+  }
+
+  setMonitorOutput(config = {}) {
+    if (!this.config) return
+    this.config = {
+      ...this.config,
+      monitorOutputDeviceId: config.monitorOutputDeviceId || '',
+      monitorOutputDeviceName: config.monitorOutputDeviceName || ''
+    }
+    if (!this.process || !this.shouldUseAsioOutputMonitor(this.config) || !this.monitorPipeEnabled) {
+      return
+    }
+    this.cleanupMonitorPlaybackProcess()
+    if (this.monitorForwarding) {
+      this.startMonitorPlaybackProcess()
     }
   }
 
@@ -976,6 +1361,8 @@ class FFmpegManager extends EventEmitter {
     const outputChannels = this.getOutputChannels(config)
     const outputSampleRate = this.getOutputSampleRate(config)
     const outputLayout = this.channelLayoutFor(outputChannels, config)
+    const opusOutputLayout = this.opusChannelLayoutFor(outputChannels, outputLayout)
+    const monitorSampleRate = this.getMonitorSampleRate(config)
     const monitorEnabled = this.shouldUseFfmpegMonitor(config)
     const opusStreamEnabled = this.shouldUseOpusStream(config)
     const mp3SimulcastEnabled = this.shouldUseMp3Simulcast(config)
@@ -984,9 +1371,14 @@ class FFmpegManager extends EventEmitter {
       mp3SimulcastEnabled && mp3AudioMode === 'hrtf'
         ? this.mp3HrtfLabels(config, outputChannels)
         : []
+    const monitorHrtfLabels = this.shouldUseAsioOutputMonitor(config)
+      ? this.mp3HrtfLabels(config, outputChannels)
+      : []
+    const hrtfInputLabels = [...mp3HrtfLabels, ...monitorHrtfLabels]
+    const monitorHrtfInputStart = 1 + mp3HrtfLabels.length
 
     args.push(...this.buildInputArgs(config, { inputType, inputPath, loopFile }))
-    args.push(...this.buildHrtfInputArgs(mp3HrtfLabels))
+    args.push(...this.buildHrtfInputArgs(hrtfInputLabels))
 
     args.push('-vn')
 
@@ -998,7 +1390,7 @@ class FFmpegManager extends EventEmitter {
         monitorEnabled,
         opusStreamEnabled,
         mp3SimulcastEnabled,
-        { mp3AudioMode, mp3HrtfLabels }
+        { mp3AudioMode, mp3HrtfLabels, monitorHrtfLabels, monitorHrtfInputStart }
       )
     )
 
@@ -1006,15 +1398,15 @@ class FFmpegManager extends EventEmitter {
       args.push('-map', '[enc]')
       args.push('-ar', String(outputSampleRate))
       args.push('-ac', String(outputChannels))
-      if (outputLayout) {
-        args.push('-channel_layout', outputLayout)
+      if (opusOutputLayout) {
+        args.push('-channel_layout', opusOutputLayout)
       }
       args.push('-c:a', 'libopus')
       args.push('-b:a', bitrate)
       args.push('-vbr', 'constrained')
       args.push('-compression_level', '5')
       args.push('-application', 'audio')
-      const mappingFamily = this.opusMappingFamily(outputChannels, outputLayout)
+      const mappingFamily = this.opusMappingFamily(outputChannels, opusOutputLayout)
       if (mappingFamily !== null) {
         args.push('-mapping_family', String(mappingFamily))
       }
@@ -1053,7 +1445,7 @@ class FFmpegManager extends EventEmitter {
     if (monitorEnabled) {
       const monitorChannels = this.getMonitorChannels(config, outputChannels)
       args.push('-map', '[mon]')
-      args.push('-ar', String(outputSampleRate))
+      args.push('-ar', String(monitorSampleRate))
       args.push('-ac', String(monitorChannels))
       args.push('-c:a', 'pcm_f32le')
       args.push('-flush_packets', '1')
@@ -1112,7 +1504,12 @@ class FFmpegManager extends EventEmitter {
     monitorEnabled,
     opusStreamEnabled = true,
     mp3SimulcastEnabled = false,
-    { mp3AudioMode = 'stereo', mp3HrtfLabels = [] } = {}
+    {
+      mp3AudioMode = 'stereo',
+      mp3HrtfLabels = [],
+      monitorHrtfLabels = [],
+      monitorHrtfInputStart = 1
+    } = {}
   ) {
     const filters = this.buildPreEncodeFilters(config, outputChannels)
     const meterFilters = this.buildMeterFilters(outputChannels, this.getOutputSampleRate(config))
@@ -1149,7 +1546,12 @@ class FFmpegManager extends EventEmitter {
 
     if (monitorEnabled) {
       chains.unshift('[0:a]asplit=2[streambase][monbase]')
-      chains.push(`[monbase]${this.buildMonitorFilter(config, outputChannels)}[mon]`)
+      chains.push(
+        `[monbase]${this.buildMonitorFilter(config, outputChannels, {
+          hrtfLabels: monitorHrtfLabels,
+          hrtfInputStart: monitorHrtfInputStart
+        })}[mon]`
+      )
     }
 
     return chains.join(';')
@@ -1206,7 +1608,18 @@ class FFmpegManager extends EventEmitter {
     return filters
   }
 
-  buildMonitorFilter() {
+  buildMonitorFilter(config, outputChannels, { hrtfLabels = [], hrtfInputStart = 1 } = {}) {
+    if (this.shouldUseAsioOutputMonitor(config)) {
+      const filters = this.buildPreEncodeFilters(config, outputChannels)
+      const mode = config?.monitorMode || 'stereo-pair'
+      const monitorFilter =
+        mode === 'binaural'
+          ? this.buildHrtfMonitorFilter(outputChannels, hrtfLabels, hrtfInputStart)
+          : mode === 'downmix'
+            ? this.buildMp3DownmixFilter(outputChannels)
+            : this.buildMp3StereoPairFilter(outputChannels)
+      return this.filterChain(filters, monitorFilter)
+    }
     return 'anull'
   }
 
@@ -1265,6 +1678,15 @@ class FFmpegManager extends EventEmitter {
     return `pan=${layout}|${terms.join('|')}`
   }
 
+  buildHrtfMonitorFilter(outputChannels, hrtfLabels, hrtfInputStart = 1) {
+    const labels = hrtfLabels.length > 0 ? hrtfLabels : this.mp3HrtfLabels(null, outputChannels)
+    const inputs = labels.map((_label, index) => `[${index + hrtfInputStart}:a]`).join('')
+    return `${this.buildMp3HrtfInputFilter(
+      outputChannels,
+      labels
+    )}[monitorhrtfbase];[monitorhrtfbase]${inputs}headphone=map=${labels.join('|')}:hrir=stereo:gain=${ASIO_MONITOR_HRTF_GAIN_DB}`
+  }
+
   spatialChannelGain(label, index) {
     const value = this.normalizeHrtfLabel(label || this.defaultHrtfLabel(index))
     if (value === 'LFE') return '0'
@@ -1274,12 +1696,24 @@ class FFmpegManager extends EventEmitter {
   }
 
   getMonitorChannels(config, outputChannels = this.getOutputChannels(config)) {
+    if (this.shouldUseAsioOutputMonitor(config)) {
+      return 2
+    }
     const channelSelection = this.getChannelSelection(config, outputChannels)
     return this.getPreEncodeInputChannels(config, channelSelection, outputChannels)
   }
 
   getMonitorFormat(config) {
     const outputChannels = this.getOutputChannels(config)
+    if (this.shouldUseAsioOutputMonitor(config)) {
+      return {
+        mode: config.monitorMode || 'stereo-pair',
+        latencyMs: this.getMonitorLatencyMs(config),
+        lowLatency: this.shouldUseLowLatencyMonitor(config),
+        sampleRate: this.getMonitorSampleRate(config),
+        channels: 2
+      }
+    }
     return {
       mode: config.monitorMode || 'stereo-pair',
       latencyMs: this.getMonitorLatencyMs(config),
@@ -1287,6 +1721,13 @@ class FFmpegManager extends EventEmitter {
       sampleRate: this.getOutputSampleRate(config),
       channels: this.getMonitorChannels(config, outputChannels)
     }
+  }
+
+  getMonitorSampleRate(config) {
+    if (this.shouldUseAsioOutputMonitor(config)) {
+      return this.getOutputSampleRate(config)
+    }
+    return this.getOutputSampleRate(config)
   }
 
   getMonitorLatencyMs(config) {
@@ -1304,8 +1745,18 @@ class FFmpegManager extends EventEmitter {
   }
 
   shouldUseFfmpegMonitor(config) {
+    if (this.shouldUseAsioOutputMonitor(config)) return true
     if (config?.directInputMonitor) return false
     return true
+  }
+
+  shouldUseAsioOutputMonitor(config) {
+    return (
+      process.platform === 'win32' &&
+      config?.inputType === 'device' &&
+      !!config?.monitorEnabled &&
+      String(config?.inputDeviceUID || '').startsWith('asio:')
+    )
   }
 
   shouldUseMp3Simulcast(config) {
@@ -1475,11 +1926,18 @@ class FFmpegManager extends EventEmitter {
       3: '2.1',
       4: 'quad',
       5: '5.0',
-      6: '5.1',
+      6: '5.1(side)',
       7: '6.1',
       8: '7.1'
     }
     return layouts[channels] || null
+  }
+
+  opusChannelLayoutFor(channels, layout) {
+    if (channels === 6 && layout === '5.1(side)') return '5.1'
+    if (channels === 5 && layout === '5.0(side)') return '5.0'
+    if (channels === 4 && layout === 'quad(side)') return 'quad'
+    return layout
   }
 
   layoutChannelCount(layout) {
@@ -1494,6 +1952,7 @@ class FFmpegManager extends EventEmitter {
       '3.0': 3,
       3.1: 4,
       quad: 4,
+      'quad(side)': 4,
       '5.0': 5,
       '5.0(side)': 5,
       5.1: 6,

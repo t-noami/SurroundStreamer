@@ -1,6 +1,6 @@
 # SurroundStreamer Task Status
 
-Last updated: 2026-05-10
+Last updated: 2026-05-11
 
 ## Current Release State
 
@@ -17,8 +17,8 @@ Last updated: 2026-05-10
 
 ## Current Product Scope
 
-- macOS is the only release-ready target for the current public build.
-- The `beta/cross-platform-backend` branch also contains Windows backend work, but Windows and Linux builds are not public-release ready.
+- macOS is the only stable public-release target for the current public build.
+- The `beta/cross-platform-backend` branch now contains a locally validated Windows beta backend. Windows remains beta/pre-release until signing, broader device compatibility, and long-run stability checks are complete.
 - Supported input sources in the current beta UI are Audio Input and File.
 - Encoding formats are Ogg Opus over Icecast, Ogg Opus plus stereo MP3, and Stereo MP3 only.
 - Stereo MP3 can target MP3 Icecast or MP3 Shoutcast 1.
@@ -28,6 +28,7 @@ Last updated: 2026-05-10
 - File source supports playback/streaming and monitor preview.
 - App Audio capture has been removed from the current beta line.
 - Monitor Output is supported for Audio Input and File sources on macOS.
+- Windows beta supports ASIO Audio Input, MMDevice/WASAPI Audio Input, File source, backend-owned ASIO monitor output routing, and Icecast Opus streaming.
 
 ## Verified Locally
 
@@ -59,10 +60,10 @@ Last updated: 2026-05-10
 
 - The `0.1.0` app is ad-hoc signed and not notarized.
 - App Audio capture is no longer a supported source.
-- Windows packages are not release-ready because the Windows backend still needs release validation, helper packaging reliability checks, device compatibility checks, and long-run capture tests.
+- Windows packages are beta-ready locally, but not stable/public-release ready because signing, broader ASIO device compatibility, channel-order documentation, and long-run capture tests remain.
 - Linux packages are not release-ready because Linux Audio Input capture is not implemented.
 - AppImage, snap, and deb packaging notes are documentation-only until a Linux backend exists.
-- Windows NSIS packaging remains beta/development-only until the Windows backend is validated for release use.
+- Windows NSIS packaging remains beta/development-only until the Windows backend is validated for stable release use.
 
 ## Follow-Up Work
 
@@ -105,14 +106,15 @@ Branch: `beta/cross-platform-backend`
 - [x] Verify `codesign --verify --deep --strict --verbose=2 dist/beta/mac-arm64/SurroundStreamer-beta-0.1.1.app`.
 - [x] Verify `npm run build:mac:dir` packages `Contents/Resources/audio-backend`.
 - [x] Verify `codesign --verify --deep --strict --verbose=2 dist/mac-arm64/SurroundStreamer.app`.
-- [x] Verify `npm run build:beta:win` creates `dist/beta/SurroundStreamer-beta-0.1.1-setup.exe` on Windows.
-- [x] Smoke-launch `dist/beta/win-unpacked/SurroundStreamer-beta-0.1.1.exe` on Windows.
-- [ ] Smoke-test Audio Input streaming on the new beta app.
-- [ ] Smoke-test File source streaming on the new beta app.
-- [ ] Start File-only Windows/Linux packaging validation after macOS behavior is confirmed.
-- [ ] Validate DirectShow fallback capabilities in the Windows beta app when the native helper is absent.
-- [x] Smoke-test Windows Audio Input streaming to Icecast.
+- [x] Verify Windows beta packaging creates `SurroundStreamer-beta-0.1.1-setup.exe` on Windows.
+- [x] Smoke-launch the Windows beta unpacked app on Windows.
+- [x] Smoke-test Windows ASIO Audio Input streaming to Icecast.
 - [x] Smoke-test Windows Audio Input Monitor Output.
+- [x] Verify FFmpeg Opus Icecast streaming succeeds when inherited proxy variables are cleared.
+- [x] Verify Windows Opus output uses an Opus-compatible 5.1 layout while the UI/monitor path can retain `5.1(side)`.
+- [ ] Smoke-test File source streaming on the new Windows beta app.
+- [ ] Validate DirectShow fallback capabilities in the Windows beta app when the native helper is absent.
+- [ ] Run longer Windows capture/stream stability tests.
 - [x] Add Windows WASAPI Process Loopback helper source and JS backend wiring as research/reference code.
 - [x] Build Windows WASAPI helper with Visual Studio C++ tools.
 - [x] Verify Windows MMDevice/WASAPI Audio Input listing sees Voicemeeter endpoints.
@@ -125,4 +127,4 @@ Branch: `beta/cross-platform-backend`
 - [x] Add Windows backend development guide for Windows-side contributors.
 - [x] Document macOS-safe files, Windows-owned files, and required cross-platform checks.
 - [x] Document native low-latency monitor as an optional backend capability.
-- [ ] Validate File-only Windows beta on a real Windows environment.
+- [ ] Validate File source Windows beta streaming on a real Windows environment.

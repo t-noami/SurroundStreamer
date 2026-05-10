@@ -26,6 +26,10 @@ export function setupIpcHandlers() {
     eventSendAll('monitor:audio', payload)
   })
 
+  ffmpegManager.on('monitor-peaks', (payload) => {
+    eventSendAll('monitor:peaks', payload)
+  })
+
   ffmpegManager.on('monitor-stop', () => {
     eventSendAll('monitor:stop')
   })
@@ -57,6 +61,15 @@ export function setupIpcHandlers() {
     return { success: true }
   })
 
+  ipcMain.handle('monitor:set-output', (_event, config) => {
+    try {
+      ffmpegManager.setMonitorOutput(config)
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: error.message }
+    }
+  })
+
   ipcMain.handle('monitor:start-file', (_event, config) => {
     try {
       ffmpegManager.startFileMonitor(config)
@@ -66,9 +79,9 @@ export function setupIpcHandlers() {
     }
   })
 
-  ipcMain.handle('monitor:start-input-device', (_event, config) => {
+  ipcMain.handle('monitor:start-input-device', async (_event, config) => {
     try {
-      ffmpegManager.startInputDeviceMonitor(config)
+      await ffmpegManager.startInputDeviceMonitor(config)
       return { success: true }
     } catch (error) {
       return { success: false, error: error.message }
@@ -84,13 +97,20 @@ export function setupIpcHandlers() {
     }
   })
 
-  ipcMain.handle('monitor:stop-preview', () => {
-    ffmpegManager.stopPreviewMonitor()
+  ipcMain.handle('monitor:stop-preview', async () => {
+    await ffmpegManager.stopPreviewMonitor({ waitForExit: true })
     return { success: true }
   })
 
   ipcMain.handle('devices:list', async () => {
     return await audioBackend.listInputDevices()
+  })
+
+  ipcMain.handle('devices:list-monitor-outputs', async () => {
+    if (typeof audioBackend.listMonitorOutputDevices === 'function') {
+      return await audioBackend.listMonitorOutputDevices()
+    }
+    return { devices: [] }
   })
 
   ipcMain.handle('audio-backend:capabilities', () => {
