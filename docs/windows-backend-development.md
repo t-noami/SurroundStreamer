@@ -23,12 +23,9 @@ Current Windows status:
 - Windows beta packaging script exists: `npm run build:beta:win`
 - `process.platform === 'win32'` now selects `src/main/audio-backends/windows-wasapi.js`.
 - File source is the first Windows validation target.
-- App Audio capture uses a native WASAPI Process Loopback helper when built.
-- Windows App Audio support intentionally requires Windows 10 Build 20348 or later.
-- Input Device capture now prefers native MMDevice/WASAPI through the Windows helper, with the earlier DirectShow/FFmpeg backend retained as fallback.
+- Audio Input capture now prefers native MMDevice/WASAPI through the Windows helper, with the earlier DirectShow/FFmpeg backend retained as fallback.
 - ASIO driver probing and ASIO input capture have an initial native helper path for multichannel virtual devices such as Voicemeeter.
-- The earlier DirectShow loopback-device bridge remains a development reference, but the selected backend targets true per-process capture through WASAPI.
-- Preserve-surround App Audio capture is not implemented on Windows.
+- WASAPI Process Loopback and the earlier DirectShow loopback-device bridge remain research/reference paths, not supported App Audio sources.
 
 ## Do Not Break macOS
 
@@ -60,8 +57,7 @@ package.json
 When editing shared files, keep the existing macOS backend behavior intact:
 
 - `process.platform === 'darwin'` must continue to select `macos-core-audio`.
-- macOS App Audio must continue to use the packaged `audio-backend`.
-- macOS Input Device capture must continue to use backend Float32 PCM into FFmpeg.
+- macOS Audio Input capture must continue to use backend Float32 PCM into FFmpeg.
 - Unsupported platforms must continue to return safe capability flags instead of throwing during app startup.
 
 ## Required Windows Backend Shape
@@ -117,6 +113,7 @@ File-only Windows beta capabilities looked like this:
   appAudioSurroundPreserve: false,
   inputDeviceCapture: false,
   inputDeviceMonitor: false,
+  nativeInputDeviceMonitor: false,
   fileSource: true,
   monitorPlayback: true,
   webAudioMonitorPlayback: true,
@@ -130,17 +127,18 @@ File-only Windows beta capabilities looked like this:
 
 Only change a flag to `true` after the feature is implemented and tested on Windows.
 
-The selected Windows WASAPI backend reports App Audio support only when the native helper exists:
+The selected Windows WASAPI backend reports App Audio as unsupported. Process-loopback code is research/reference only:
 
 ```js
 {
   platform: 'win32',
-  backendName: 'windows-wasapi-process-loopback',
-  appAudioCapture: true,
-  appAudioPerProcess: true,
+  backendName: 'windows-wasapi',
+  appAudioCapture: false,
+  appAudioPerProcess: false,
   appAudioSurroundPreserve: false,
   inputDeviceCapture: true,
   inputDeviceMonitor: true,
+  nativeInputDeviceMonitor: false,
   fileSource: true,
   monitorPlayback: true,
   monitorDeviceEnumeration: false,
@@ -162,6 +160,7 @@ Shared capability flags:
 ```js
 {
   webAudioMonitorPlayback: true,
+  nativeInputDeviceMonitor: false,
   nativeMonitorPlayback: false,
   nativeMonitorOutputSelection: false,
   lowLatencyAppAudioMonitor: false
@@ -182,7 +181,7 @@ Windows-specific rule:
 - A native Windows monitor must be implemented with a Windows playback API such as WASAPI render-client behavior.
 - It must be separate from Windows capture implementation.
 - It must not be required for Stage 1 File-only Windows beta.
-- It must not be required for Stage 2 Input Device capture.
+- It must not be required for Stage 2 Audio Input capture.
 - It should be considered only after basic Windows capture and output loopback behavior are stable.
 
 Recommended monitor priority for Windows:
@@ -234,7 +233,7 @@ Goal: prove that the Electron app can run on Windows without macOS backend calls
 Tasks:
 
 - Ensure `process.platform === 'win32'` uses a Windows or file-only backend, not macOS. Done in `src/main/audio-backends/windows-dshow.js`.
-- Keep App Audio and Input Device disabled through capabilities. Superseded for Input Device by the experimental DirectShow backend.
+- Keep App Audio and Audio Input disabled through capabilities. Superseded for Audio Input by the experimental DirectShow backend.
 - Build with `npm run build:beta:win`.
 - Launch the generated installer/app on Windows.
 - Verify File source UI, file selection, Icecast settings, logs window, About window, and START/STOP behavior.
@@ -247,18 +246,18 @@ Exit criteria:
 - File source can be tested without macOS helper errors.
 - macOS beta still builds after the Windows changes.
 
-### Stage 2: Windows Input Device Backend
+### Stage 2: Windows Audio Input Backend
 
-Goal: capture a selected Windows input device and stream it as PCM to FFmpeg.
+Goal: capture a selected Windows audio input and stream it as PCM to FFmpeg.
 
 Current bootstrap:
 
 - `native/audio-backends/windows/src/main.cpp` enumerates active capture endpoints through MMDevice and captures them through WASAPI.
 - The same helper can probe registered ASIO drivers and capture ASIO input channels as Float32 PCM.
-- `src/main/audio-backends/windows-wasapi.js` uses the native helper for Input Device when the helper is available.
+- `src/main/audio-backends/windows-wasapi.js` uses the native helper for Audio Input when the helper is available.
 - `src/main/audio-backends/windows-dshow.js` enumerates DirectShow audio devices through bundled FFmpeg.
-- The backend captures selected input devices through FFmpeg `dshow`, converts to Float32 PCM, and emits the expected JSON `format` event.
-- The DirectShow path is now a fallback bridge, not the preferred Windows Input Device path.
+- The backend captures selected audio inputs through FFmpeg `dshow`, converts to Float32 PCM, and emits the expected JSON `format` event.
+- The DirectShow path is now a fallback bridge, not the preferred Windows Audio Input path.
 
 Likely APIs:
 
@@ -268,7 +267,7 @@ Likely APIs:
 
 Tasks:
 
-- Enumerate input devices. Initial MMDevice path added.
+- Enumerate audio inputs. Initial MMDevice path added.
 - Return stable endpoint IDs and display names. Initial MMDevice endpoint IDs added.
 - Capture PCM with stable pacing. Initial WASAPI shared-mode capture added; long-run pacing still needs testing.
 - Emit JSON `format` events. Initial native helper path added.
@@ -277,21 +276,22 @@ Tasks:
 - Update capabilities:
   - `inputDeviceCapture: true` for the experimental DirectShow path
   - `inputDeviceMonitor: true` for the experimental DirectShow preview path
+  - `nativeInputDeviceMonitor: false` until a native Windows monitor playback path is implemented and validated
 
 Exit criteria:
 
-- Input Device stream reaches Icecast.
-- Input Device monitor preview starts and stops without leaving FFmpeg running.
+- Audio Input stream reaches Icecast.
+- Audio Input monitor preview starts and stops without leaving FFmpeg running.
 - Audio does not speed up, slow down, or repeatedly buffer.
-- macOS App Audio and Input Device still build and smoke-test.
+- macOS Audio Input still builds and smoke-tests.
 
-### Stage 3: Windows Output Loopback Backend
+### Stage 3: Windows Output Loopback Research
 
-Goal: capture output-device loopback as the first practical Windows App Audio alternative.
+Goal: keep output-device loopback research separate from the supported Audio Input/File UI.
 
 Current bootstrap:
 
-- `src/main/audio-backends/windows-dshow.js` exposes likely DirectShow loopback/virtual input devices as App Audio output-loopback candidates.
+- `src/main/audio-backends/windows-dshow.js` can expose likely DirectShow loopback/virtual audio inputs as research candidates.
 - This path is only available when the host system exposes a loopback-like DirectShow input such as Stereo Mix, VB-CABLE, or another virtual routing device.
 - This is not true per-app capture and is not the final WASAPI loopback helper.
 
@@ -302,13 +302,13 @@ Likely APIs:
 
 Important limitation:
 
-Output-device loopback is not the same as true per-app capture. UI text must not imply per-app capture until per-process capture is implemented.
+Output-device loopback is not the same as true per-app capture. Do not expose it as App Audio in the supported UI.
 
 Candidate capability flags:
 
 ```js
 {
-  appAudioCapture: true,
+  appAudioCapture: false,
   appAudioPerProcess: false,
   appAudioSurroundPreserve: false,
   outputLoopbackCapture: true
@@ -399,7 +399,7 @@ Manual Windows checks:
 
 - App launches.
 - App Audio unavailable state is clear if not implemented.
-- Input Device unavailable state is clear if not implemented.
+- Audio Input unavailable state is clear if not implemented.
 - File source can select a file.
 - Logs window opens.
 - Icecast settings persist after relaunch.

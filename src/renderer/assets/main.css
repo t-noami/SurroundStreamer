@@ -235,6 +235,10 @@ select {
   max-width: 100%;
 }
 
+input[readonly] {
+  color: var(--text-muted);
+}
+
 input[type='range'] {
   width: 100%;
   accent-color: var(--accent-secondary);

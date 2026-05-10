@@ -132,7 +132,7 @@ codesign --verify --deep --strict --verbose=2 dist/beta/mac-arm64/SurroundStream
 
 ## Notes
 
-- The macOS build includes the Core Audio helper used for App Audio capture and Input Device capture.
+- The macOS build includes the Core Audio helper used for Audio Input capture.
 - `test_streamconfig.txt` is intentionally excluded from packaged apps.
 - The release DMG name is generated from Electron Builder's `productName`, so it should remain `SurroundStreamer-<version>.dmg`.
 - The current Electron Builder config has notarization disabled.

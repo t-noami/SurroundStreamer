@@ -11,9 +11,9 @@ class FFmpegManager extends EventEmitter {
   constructor() {
     super()
     this.process = null
-    this.appAudioProcess = null
     this.inputDeviceProcess = null
     this.previewMonitorProcess = null
+    this.previewMonitorKind = null
     this.status = 'idle' // 'idle' | 'streaming' | 'error'
     this.config = null
     this.ffmpegStderrBuffer = ''
@@ -30,12 +30,12 @@ class FFmpegManager extends EventEmitter {
   validateBackendSupport(config) {
     const capabilities = audioBackend.getCapabilities()
 
-    if (config.inputType === 'app-audio' && !capabilities.appAudioCapture) {
-      throw new Error(`App Audio capture is not implemented on ${capabilities.platform}`)
+    if (config.inputType === 'app-audio') {
+      throw new Error('App Audio capture has been removed')
     }
 
     if (config.inputType === 'device' && !capabilities.inputDeviceCapture) {
-      throw new Error(`Input Device capture is not implemented on ${capabilities.platform}`)
+      throw new Error(`Audio Input capture is not implemented on ${capabilities.platform}`)
     }
 
     if (config.inputType === 'file' && capabilities.fileSource === false) {
@@ -48,7 +48,9 @@ class FFmpegManager extends EventEmitter {
       throw new Error('Stream is already running')
     }
     this.validateBackendSupport(config)
-    this.stopPreviewMonitor()
+    if (!(config.directInputMonitor && this.previewMonitorKind === 'native-input')) {
+      this.stopPreviewMonitor()
+    }
 
     this.config = config
     this.status = 'streaming'
@@ -57,7 +59,7 @@ class FFmpegManager extends EventEmitter {
     this.pendingPeaks = {}
     this.monitorFormat = this.getMonitorFormat(config)
     this.monitorPipeEnabled = this.shouldUseFfmpegMonitor(config)
-    this.monitorForwarding = !!config.monitorEnabled
+    this.monitorForwarding = !!config.monitorEnabled && this.monitorPipeEnabled
 
     try {
       await this.prepareBackendCapture(config)
@@ -92,7 +94,6 @@ class FFmpegManager extends EventEmitter {
       await this.waitForStartup()
       this.emit('status', this.getStatus())
     } catch (error) {
-      this.cleanupAppAudioProcess()
       this.cleanupInputDeviceProcess()
       if (this.process && !this.process.killed) {
         this.process.kill('SIGTERM')
@@ -115,11 +116,6 @@ class FFmpegManager extends EventEmitter {
   }
 
   attachBackendInputPipe(config) {
-    if (config.inputType === 'app-audio') {
-      this.startAppAudioPipe(config)
-      return
-    }
-
     if (config.inputType === 'device') {
       this.attachInputDevicePipe()
     }
@@ -161,7 +157,6 @@ class FFmpegManager extends EventEmitter {
         type: code === 0 ? 'system' : 'error',
         message: `FFmpeg exited with code ${code}`
       })
-      this.cleanupAppAudioProcess()
       this.cleanupInputDeviceProcess()
       this.process = null
       this.status = 'idle'
@@ -226,67 +221,6 @@ class FFmpegManager extends EventEmitter {
     return true
   }
 
-  startAppAudioPipe(config) {
-    const pid = Number(config.appAudioPid || config.inputPath)
-    if (!Number.isInteger(pid) || pid <= 0) {
-      throw new Error('App Audio input requires a valid process id')
-    }
-
-    const tapOptions = this.getAppAudioTapOptions(config)
-    this.emit('log', {
-      type: 'system',
-      message: `Starting app audio tap for PID ${pid} (preserve surround)`
-    })
-    this.appAudioProcess = audioBackend.spawnAppAudioPCMStream(pid, tapOptions)
-
-    this.pipeBackendProcessToFfmpeg(this.appAudioProcess, { forwardMonitor: true })
-
-    this.appAudioProcess.stderr.on('data', (data) => {
-      const message = data.toString().trim()
-      if (!message) return
-
-      const parsed = this.tryParseJSON(message)
-      if (parsed?.event === 'format') {
-        const nextFormat = {
-          mode: config.monitorMode || 'stereo-pair',
-          latencyMs: this.getMonitorLatencyMs(config),
-          lowLatency: this.shouldUseLowLatencyMonitor(config),
-          sampleRate: parsed.sampleRate || this.getAppAudioSampleRate(config),
-          channels: parsed.channels || this.getAppAudioChannels(config)
-        }
-        this.monitorFormat = nextFormat
-        this.emit('monitor-format', nextFormat)
-        this.emit('log', {
-          type: 'system',
-          message: `App audio tap format: ${parsed.channels}ch @ ${this.formatSampleRate(parsed.sampleRate)}, ${parsed.bitsPerChannel}-bit float`
-        })
-        return
-      }
-
-      if (parsed?.event === 'error') {
-        this.emit('log', { type: 'error', message: `App audio tap error: ${parsed.message}` })
-        return
-      }
-
-      this.emit('log', { type: 'system', message: `App audio tap: ${message}` })
-    })
-
-    this.appAudioProcess.on('error', (error) => {
-      this.emit('log', { type: 'error', message: `App audio tap process error: ${error.message}` })
-    })
-
-    this.appAudioProcess.on('close', (code) => {
-      if (this.process) {
-        this.process.stdin.end()
-      }
-      this.emit('log', {
-        type: code === 0 ? 'system' : 'error',
-        message: `App audio tap exited with code ${code}`
-      })
-      this.appAudioProcess = null
-    })
-  }
-
   pipeBackendProcessToFfmpeg(backendProcess, { forwardMonitor = false } = {}) {
     backendProcess.stdout.on('data', (data) => {
       if (forwardMonitor && this.monitorForwarding) {
@@ -311,12 +245,12 @@ class FFmpegManager extends EventEmitter {
 
   prepareInputDevicePipe(config) {
     if (!config.inputDeviceUID) {
-      throw new Error('Input Device streaming requires a backend device UID')
+      throw new Error('Audio Input streaming requires a backend device UID')
     }
 
     this.emit('log', {
       type: 'system',
-      message: `Starting input device PCM capture (${config.inputDeviceName || config.inputDeviceUID})`
+      message: `Starting audio input PCM capture (${config.inputDeviceName || config.inputDeviceUID})`
     })
     this.inputDeviceProcess = audioBackend.spawnInputDevicePCMStream({
       deviceUID: config.inputDeviceUID,
@@ -340,7 +274,7 @@ class FFmpegManager extends EventEmitter {
       }
 
       const startupTimer = setTimeout(() => {
-        settleReject(new Error('Timed out waiting for input device format'))
+        settleReject(new Error('Timed out waiting for audio input format'))
       }, 1500)
 
       this.inputDeviceProcess.stderr.on('data', (data) => {
@@ -409,94 +343,6 @@ class FFmpegManager extends EventEmitter {
     this.inputDeviceProcess.stdout.resume()
   }
 
-  startAppAudioMonitor(config) {
-    if (this.process) {
-      throw new Error('Preview monitor is only available before streaming')
-    }
-    this.validateBackendSupport(config)
-
-    const pid = Number(config.appAudioPid || config.inputPath)
-    if (!Number.isInteger(pid) || pid <= 0) {
-      throw new Error('App Audio monitor requires a valid process id')
-    }
-
-    this.stopPreviewMonitor()
-
-    const tapOptions = this.getAppAudioTapOptions(config)
-    this.monitorFormat = this.getMonitorFormat(config)
-    this.monitorPipeEnabled = false
-    this.monitorForwarding = true
-    this.emit('monitor-format', this.monitorFormat)
-    this.emit('log', {
-      type: 'system',
-      message: `Starting app audio preview monitor for PID ${pid}`
-    })
-
-    const monitorProcess = audioBackend.spawnAppAudioPCMStream(pid, tapOptions)
-    this.previewMonitorProcess = monitorProcess
-
-    monitorProcess.stdout.on('data', (data) => {
-      if (this.monitorForwarding) {
-        this.queueMonitorAudio(data)
-      }
-    })
-
-    monitorProcess.stderr.on('data', (data) => {
-      const message = data.toString().trim()
-      if (!message) return
-
-      const parsed = this.tryParseJSON(message)
-      if (parsed?.event === 'format') {
-        const nextFormat = {
-          mode: config.monitorMode || 'stereo-pair',
-          latencyMs: this.getMonitorLatencyMs(config),
-          lowLatency: this.shouldUseLowLatencyMonitor(config),
-          sampleRate: parsed.sampleRate || this.getAppAudioSampleRate(config),
-          channels: parsed.channels || this.getAppAudioChannels(config)
-        }
-        this.monitorFormat = nextFormat
-        this.emit('monitor-format', nextFormat)
-        this.emit('log', {
-          type: 'system',
-          message: `Preview monitor format: ${nextFormat.channels}ch @ ${this.formatSampleRate(nextFormat.sampleRate)}`
-        })
-        return
-      }
-
-      if (parsed?.event === 'error') {
-        this.emit('log', { type: 'error', message: `Preview monitor error: ${parsed.message}` })
-        return
-      }
-
-      this.emit('log', { type: 'system', message: `Preview monitor: ${message}` })
-    })
-
-    monitorProcess.on('error', (error) => {
-      this.emit('log', {
-        type: 'error',
-        message: `Preview monitor process error: ${error.message}`
-      })
-    })
-
-    monitorProcess.on('close', (code) => {
-      if (this.previewMonitorProcess !== monitorProcess) return
-
-      this.emit('log', {
-        type: code === 0 ? 'system' : 'error',
-        message: `Preview monitor exited with code ${code}`
-      })
-      this.previewMonitorProcess = null
-      if (!this.process) {
-        this.monitorForwarding = false
-        this.monitorPipeEnabled = false
-        this.resetMonitorAudioQueue()
-        this.emit('monitor-stop')
-      }
-    })
-
-    return { success: true }
-  }
-
   startFileMonitor(config) {
     if (this.process) {
       throw new Error('Preview monitor is only available before streaming')
@@ -508,9 +354,10 @@ class FFmpegManager extends EventEmitter {
 
     this.stopPreviewMonitor()
 
-    const channels = this.getOutputChannels(config)
+    const outputChannels = this.getOutputChannels(config)
+    const channels = this.getMonitorChannels(config, outputChannels)
     const sampleRate = this.getOutputSampleRate(config)
-    const layout = this.channelLayoutFor(channels, config)
+    const layout = this.channelLayoutFor(channels)
     this.monitorFormat = {
       mode: config.monitorMode || 'stereo-pair',
       latencyMs: this.getMonitorLatencyMs(config),
@@ -531,11 +378,6 @@ class FFmpegManager extends EventEmitter {
       args.push('-stream_loop', '-1')
     }
     args.push('-re', '-i', config.inputPath, '-vn')
-
-    const filters = this.buildPreEncodeFilters(config, channels)
-    if (filters.length > 0) {
-      args.push('-af', filters.join(','))
-    }
 
     args.push('-ar', String(sampleRate), '-ac', String(channels))
     if (layout) {
@@ -592,11 +434,11 @@ class FFmpegManager extends EventEmitter {
     this.validateBackendSupport(config)
 
     if (!config.inputPath) {
-      throw new Error('Input Device monitor requires a valid input device')
+      throw new Error('Audio Input monitor requires a valid audio input')
     }
 
     if (!config.inputDeviceUID) {
-      throw new Error('Input Device monitor requires a backend device UID')
+      throw new Error('Audio Input monitor requires a backend device UID')
     }
 
     this.stopPreviewMonitor()
@@ -616,7 +458,7 @@ class FFmpegManager extends EventEmitter {
     this.emit('monitor-format', this.monitorFormat)
     this.emit('log', {
       type: 'system',
-      message: `Starting input device preview monitor (${channels}ch @ ${this.formatSampleRate(sampleRate)})`
+      message: `Starting audio input preview monitor (${channels}ch @ ${this.formatSampleRate(sampleRate)})`
     })
 
     const monitorProcess = audioBackend.spawnInputDevicePCMStream({
@@ -692,6 +534,97 @@ class FFmpegManager extends EventEmitter {
     return { success: true }
   }
 
+  startNativeInputDeviceMonitor(config) {
+    if (!audioBackend.getCapabilities().nativeInputDeviceMonitor) {
+      throw new Error('Native Audio Input monitor is not available with the current audio backend')
+    }
+
+    if (!config.inputDeviceUID) {
+      throw new Error('Native Audio Input monitor requires a backend device UID')
+    }
+
+    this.stopPreviewMonitor()
+    this.monitorFormat = {
+      mode: config.monitorMode || 'stereo-pair',
+      latencyMs: this.getMonitorLatencyMs(config),
+      lowLatency: true,
+      sampleRate: this.getDeviceInputSampleRate(config),
+      channels: 2
+    }
+    this.monitorPipeEnabled = false
+    this.monitorForwarding = false
+    this.previewMonitorKind = 'native-input'
+    this.emit('monitor-format', this.monitorFormat)
+    this.emit('log', {
+      type: 'system',
+      message: `Starting native audio input monitor (${config.monitorOutputDeviceName || 'System Default'})`
+    })
+
+    const monitorProcess = audioBackend.spawnNativeInputDeviceMonitor({
+      deviceUID: config.inputDeviceUID,
+      streamIndex: config.inputStreamIndex,
+      outputDeviceName: config.monitorOutputDeviceName,
+      pairStart: config.monitorPairStart,
+      bufferFrames: this.nativeMonitorBufferFrames(config)
+    })
+    this.previewMonitorProcess = monitorProcess
+
+    monitorProcess.stderr.on('data', (data) => {
+      const message = data.toString().trim()
+      if (!message) return
+
+      const parsed = this.tryParseJSON(message)
+      if (parsed?.event === 'format') {
+        this.monitorFormat = {
+          mode: config.monitorMode || 'stereo-pair',
+          latencyMs: this.getMonitorLatencyMs(config),
+          lowLatency: true,
+          sampleRate: parsed.sampleRate || this.getDeviceInputSampleRate(config),
+          channels: parsed.channels || 2
+        }
+        this.emit('monitor-format', this.monitorFormat)
+        this.emit('log', {
+          type: 'system',
+          message: `Native monitor format: ${this.monitorFormat.channels}ch @ ${this.formatSampleRate(this.monitorFormat.sampleRate)}`
+        })
+        return
+      }
+
+      if (parsed?.event === 'error') {
+        this.emit('log', { type: 'error', message: `Native monitor error: ${parsed.message}` })
+        return
+      }
+
+      this.emit('log', { type: 'system', message: `Native monitor: ${message}` })
+    })
+
+    monitorProcess.on('error', (error) => {
+      this.emit('log', {
+        type: 'error',
+        message: `Native monitor process error: ${error.message}`
+      })
+    })
+
+    monitorProcess.on('close', (code) => {
+      if (this.previewMonitorProcess !== monitorProcess) return
+
+      this.emit('log', {
+        type: code === 0 ? 'system' : 'error',
+        message: `Native monitor exited with code ${code}`
+      })
+      this.previewMonitorProcess = null
+      this.previewMonitorKind = null
+      if (!this.process) {
+        this.monitorForwarding = false
+        this.monitorPipeEnabled = false
+        this.resetMonitorAudioQueue()
+        this.emit('monitor-stop')
+      }
+    })
+
+    return { success: true }
+  }
+
   waitForStartup() {
     return new Promise((resolve, reject) => {
       const startupTimer = setTimeout(resolve, 1500)
@@ -723,7 +656,6 @@ class FFmpegManager extends EventEmitter {
       this.process.on('close', () => {
         resolve()
       })
-      this.cleanupAppAudioProcess()
       this.cleanupInputDeviceProcess()
       this.process.kill('SIGTERM')
       this.monitorForwarding = false
@@ -734,15 +666,12 @@ class FFmpegManager extends EventEmitter {
   }
 
   async shutdown() {
-    const processes = [
-      this.previewMonitorProcess,
-      this.appAudioProcess,
-      this.inputDeviceProcess,
-      this.process
-    ].filter(Boolean)
+    const processes = [this.previewMonitorProcess, this.inputDeviceProcess, this.process].filter(
+      Boolean
+    )
 
     this.previewMonitorProcess = null
-    this.appAudioProcess = null
+    this.previewMonitorKind = null
     this.inputDeviceProcess = null
     this.process = null
     this.status = 'idle'
@@ -763,6 +692,7 @@ class FFmpegManager extends EventEmitter {
 
     const processToStop = this.previewMonitorProcess
     this.previewMonitorProcess = null
+    this.previewMonitorKind = null
     this.monitorForwarding = false
     this.monitorPipeEnabled = false
     this.resetMonitorAudioQueue()
@@ -772,26 +702,10 @@ class FFmpegManager extends EventEmitter {
     return { success: true }
   }
 
-  stopAppAudioMonitor() {
-    return this.stopPreviewMonitor()
-  }
-
   setMonitorActive(isActive) {
     this.monitorForwarding = !!isActive
     if (!this.monitorForwarding) {
       this.resetMonitorAudioQueue()
-    }
-  }
-
-  cleanupAppAudioProcess() {
-    if (!this.appAudioProcess) {
-      return
-    }
-
-    const processToStop = this.appAudioProcess
-    this.appAudioProcess = null
-    if (!processToStop.killed) {
-      processToStop.kill('SIGTERM')
     }
   }
 
@@ -924,7 +838,7 @@ class FFmpegManager extends EventEmitter {
       return args
     }
 
-    if (inputType === 'device' || inputType === 'app-audio') {
+    if (inputType === 'device') {
       return this.buildBackendPcmInputArgs(config)
     }
 
@@ -962,7 +876,13 @@ class FFmpegManager extends EventEmitter {
     }
 
     const monitorFilter = this.buildMonitorFilter(config, outputChannels)
-    return `[0:a]${prefix}asplit=3[enc][monbase][meterbase];[meterbase]${meterFilters.join(',')},anullsink;[monbase]${monitorFilter}[mon]`
+    const streamChain = prefix
+      ? `[streambase]${prefix.slice(0, -1)}[enc]`
+      : '[streambase]anull[enc]'
+    const meterChain = prefix
+      ? `[meterbase]${prefix}${meterFilters.join(',')},anullsink`
+      : `[meterbase]${meterFilters.join(',')},anullsink`
+    return `[0:a]asplit=3[streambase][monbase][meterbase];${streamChain};${meterChain};[monbase]${monitorFilter}[mon]`
   }
 
   buildPreEncodeFilters(config, outputChannels) {
@@ -973,9 +893,9 @@ class FFmpegManager extends EventEmitter {
 
     const channelSelection = this.getChannelSelection(config, outputChannels)
     const inputChannels = this.getPreEncodeInputChannels(config, channelSelection, outputChannels)
-    const needsPan = channelSelection.some(
-      (sourceIndex, outputIndex) => sourceIndex !== outputIndex
-    ) || inputChannels !== outputChannels
+    const needsPan =
+      channelSelection.some((sourceIndex, outputIndex) => sourceIndex !== outputIndex) ||
+      inputChannels !== outputChannels
 
     if (needsPan) {
       const layout = this.channelLayoutFor(outputChannels, config) || `${outputChannels}c`
@@ -990,9 +910,7 @@ class FFmpegManager extends EventEmitter {
 
   getPreEncodeInputChannels(config, channelSelection = [], fallbackChannels = 2) {
     let channels = 0
-    if (config?.inputType === 'app-audio') {
-      channels = this.getAppAudioChannels(config)
-    } else if (config?.inputType === 'device') {
+    if (config?.inputType === 'device') {
       channels = this.getDeviceInputChannels(config)
     } else {
       const explicit = Number(config?.inputChannels)
@@ -1001,8 +919,7 @@ class FFmpegManager extends EventEmitter {
       }
     }
 
-    const selectedExtent =
-      channelSelection.length > 0 ? Math.max(...channelSelection) + 1 : 0
+    const selectedExtent = channelSelection.length > 0 ? Math.max(...channelSelection) + 1 : 0
     return Math.max(1, channels || selectedExtent || fallbackChannels)
   }
 
@@ -1019,26 +936,18 @@ class FFmpegManager extends EventEmitter {
     return 'anull'
   }
 
-  getMonitorChannels(_config, outputChannels = this.getOutputChannels(_config)) {
-    if (_config?.inputType === 'app-audio') {
-      return this.getAppAudioChannels(_config)
-    }
-    return outputChannels
+  getMonitorChannels(config, outputChannels = this.getOutputChannels(config)) {
+    const channelSelection = this.getChannelSelection(config, outputChannels)
+    return this.getPreEncodeInputChannels(config, channelSelection, outputChannels)
   }
 
   getMonitorFormat(config) {
-    const outputChannels =
-      config?.inputType === 'app-audio'
-        ? this.getAppAudioChannels(config)
-        : this.getOutputChannels(config)
+    const outputChannels = this.getOutputChannels(config)
     return {
       mode: config.monitorMode || 'stereo-pair',
       latencyMs: this.getMonitorLatencyMs(config),
       lowLatency: this.shouldUseLowLatencyMonitor(config),
-      sampleRate:
-        config?.inputType === 'app-audio'
-          ? this.getAppAudioSampleRate(config)
-          : this.getOutputSampleRate(config),
+      sampleRate: this.getOutputSampleRate(config),
       channels: this.getMonitorChannels(config, outputChannels)
     }
   }
@@ -1049,53 +958,20 @@ class FFmpegManager extends EventEmitter {
     return Math.max(5, Math.min(500, latency))
   }
 
+  nativeMonitorBufferFrames(config) {
+    return this.shouldUseLowLatencyMonitor(config) ? 64 : 128
+  }
+
   shouldUseLowLatencyMonitor(config) {
     return !!config?.monitorLowLatency
   }
 
   shouldUseFfmpegMonitor(config) {
-    return config?.inputType !== 'app-audio'
-  }
-
-  getAppAudioTapOptions(config) {
-    if (config.appAudioMode !== 'preserve') {
-      return {}
-    }
-
-    if (!config.appAudioDeviceUID || config.appAudioStreamIndex === undefined) {
-      throw new Error('Preserve Surround requires an output device stream')
-    }
-
-    return {
-      deviceUID: config.appAudioDeviceUID,
-      streamIndex: Number(config.appAudioStreamIndex),
-      sampleRate: this.getAppAudioSampleRate(config),
-      channels: this.getAppAudioChannels(config),
-      bufferFrames: this.shouldUseLowLatencyMonitor(config) ? 128 : undefined
-    }
-  }
-
-  getAppAudioChannels(config) {
-    const channels = Number(config.appAudioChannels)
-    if (Number.isInteger(channels) && channels > 0) {
-      return channels
-    }
-    return 2
-  }
-
-  getAppAudioSampleRate(config) {
-    const sampleRate = Number(config.appAudioSampleRate)
-    if (Number.isFinite(sampleRate) && sampleRate > 0) {
-      return Math.round(sampleRate)
-    }
-    return 48000
+    if (config?.directInputMonitor) return false
+    return true
   }
 
   getBackendInputChannels(config) {
-    if (config?.inputType === 'app-audio') {
-      return this.getAppAudioChannels(config)
-    }
-
     if (config?.inputType === 'device') {
       return this.getDeviceInputChannels(config)
     }
@@ -1104,10 +980,6 @@ class FFmpegManager extends EventEmitter {
   }
 
   getBackendInputSampleRate(config) {
-    if (config?.inputType === 'app-audio') {
-      return this.getAppAudioSampleRate(config)
-    }
-
     if (config?.inputType === 'device') {
       return this.getDeviceInputSampleRate(config)
     }
@@ -1137,10 +1009,6 @@ class FFmpegManager extends EventEmitter {
       return selected.length
     }
 
-    if (config?.inputType === 'app-audio') {
-      return this.getAppAudioChannels(config)
-    }
-
     return 6
   }
 
@@ -1154,8 +1022,7 @@ class FFmpegManager extends EventEmitter {
       return [...new Set(normalized)]
     }
 
-    const channels =
-      fallbackChannels || (config?.inputType === 'app-audio' ? this.getAppAudioChannels(config) : 6)
+    const channels = fallbackChannels || 6
     return Array.from({ length: channels }, (_value, index) => index)
   }
 
@@ -1163,10 +1030,6 @@ class FFmpegManager extends EventEmitter {
     const sampleRate = Number(config?.sampleRate)
     if (Number.isFinite(sampleRate) && sampleRate > 0) {
       return this.opusSampleRate(sampleRate)
-    }
-
-    if (config?.inputType === 'app-audio') {
-      return this.opusSampleRate(this.getAppAudioSampleRate(config))
     }
 
     return 48000

@@ -9,22 +9,20 @@ Do not treat `npm run build:win` or `npm run build:beta:win` as a supported publ
 ## Current Status
 
 - Official Windows release: not available.
-- Windows beta branch backend: `windows-wasapi-process-loopback` when the native helper is built, with MMDevice/WASAPI now preferred for Input Device capture and DirectShow retained as a fallback.
-- Supported Windows baseline: Windows 10 Build 20348 or later. Older Windows builds are intentionally unsupported for App Audio capture.
-- App Audio capture: native WASAPI Process Loopback helper source has been added; local builds require Visual Studio 2022 Desktop development with C++.
-- Input Device capture: native MMDevice/WASAPI path is available for validation; the older FFmpeg DirectShow path remains as fallback when the native helper is missing.
-- Input Device Monitor Output: uses the selected Input Device PCM path, including MMDevice/WASAPI on Windows when the helper is available.
-- Output loopback capture: the earlier DirectShow loopback/virtual-device bridge is kept as a development reference, but the selected Windows backend now targets WASAPI per-process capture.
-- Preserve-surround app capture: not implemented on Windows.
+- Windows beta branch backend: `windows-wasapi` when the native helper is built, with MMDevice/WASAPI now preferred for Audio Input capture and DirectShow retained as a fallback.
+- App Audio capture: removed from the supported input-source UI. WASAPI Process Loopback source remains research/reference code only.
+- Audio Input capture: native MMDevice/WASAPI path is available for validation; the older FFmpeg DirectShow path remains as fallback when the native helper is missing.
+- Audio Input Monitor Output: uses the shared WebAudio direct monitor path when browser audio-device access is available. Native Windows monitor paths are not exposed as release-ready.
+- Output loopback capture: the earlier DirectShow loopback/virtual-device bridge is kept as a development reference.
 - File source support: first practical Windows target, but not yet validated as a release build.
 - Local beta packaging: `npm run build:beta:win` has produced `dist/beta/SurroundStreamer-beta-0.1.1-setup.exe` on Windows.
 - Local app launch smoke test: `dist/beta/win-unpacked/SurroundStreamer-beta-0.1.1.exe` starts on Windows when `ELECTRON_RUN_AS_NODE` is not set.
 
 ## Required Work
 
-Windows support now has a WASAPI Process Loopback helper entry point plus the experimental DirectShow input-device bridge.
+Windows support now has a native helper entry point plus the experimental DirectShow audio-input bridge.
 
-Build the native Windows helper before building a Windows beta that should expose App Audio:
+Build the native Windows helper before building a Windows beta that should expose native Audio Input capture:
 
 ```powershell
 npm run build:audio-helper:win

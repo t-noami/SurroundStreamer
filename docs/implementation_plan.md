@@ -28,7 +28,9 @@ Rule: when generating a beta app or Windows beta executable, do not reuse the st
 
 ## Architecture Summary
 
-SurroundStreamer currently looks like a cross-platform Electron app, but the important audio capture layer is macOS-specific.
+SurroundStreamer is structured as a cross-platform Electron app, but the release-quality audio capture layer is still macOS-first. The beta line also contains experimental Windows WASAPI/DirectShow Audio Input paths; Linux Audio Input capture is not implemented yet.
+
+Current beta direction: App Audio is no longer a supported input source. Cross-platform work should focus on Audio Input capture and File source first. Previous App Audio and process-loopback work remains useful as research/reference code only.
 
 Portable parts:
 
@@ -41,14 +43,18 @@ Portable parts:
 - Logs/About windows.
 - KU100 near-field HRTF monitor rendering data and channel mapping logic.
 
-macOS-specific parts:
+macOS backend parts:
 
-- App Audio capture.
-- Input Device PCM capture.
-- Output stream selection for preserve-surround capture.
+- Audio Input PCM capture.
 - Core Audio device and stream metadata.
 - Monitor output device enumeration.
 - macOS microphone permission flow.
+
+Windows beta backend parts:
+
+- WASAPI/MMDevice endpoint enumeration and PCM capture.
+- DirectShow audio-input capture for beta validation.
+- No validated native Audio Input monitor playback; `nativeInputDeviceMonitor` must remain `false`.
 
 The current native helper is:
 
@@ -95,7 +101,7 @@ Required commands:
 
 ```text
 --capabilities
---list-input-devices
+--list-audio-inputs
 --list-output-devices
 --list-apps
 --list-app-output-streams
@@ -138,11 +144,12 @@ Proposed capability object:
 {
   platform: 'darwin',
   backendName: 'macos-core-audio',
-  appAudioCapture: true,
-  appAudioPerProcess: true,
-  appAudioSurroundPreserve: true,
+  appAudioCapture: false,
+  appAudioPerProcess: false,
+  appAudioSurroundPreserve: false,
   inputDeviceCapture: true,
-  inputDeviceMonitor: false,
+  inputDeviceMonitor: true,
+  nativeInputDeviceMonitor: false,
   fileSource: true,
   monitorPlayback: true,
   webAudioMonitorPlayback: true,
@@ -165,15 +172,7 @@ backend PCM -> Electron main process -> renderer IPC -> WebAudio Worklet -> sele
 
 This path should remain the default cross-platform monitor implementation because it works with the existing renderer-side Stereo Pair, Binaural HRTF, volume, meter, and output-device UI.
 
-If App Audio monitoring still feels too delayed on macOS, the next step is a native monitor path:
-
-```text
-macOS Core Audio process tap -> native Core Audio output render path
-```
-
-That must be treated as an optional backend capability, not as shared renderer behavior.
-
-Do not wire a macOS-only native monitor directly into shared renderer or FFmpeg code. Add a backend-level contract first, then implement it per OS only when needed.
+If lower latency becomes necessary, add it as an optional backend capability rather than a shared renderer requirement.
 
 Suggested future backend capabilities:
 
@@ -219,13 +218,12 @@ Tasks:
 - Wrap existing macOS helper calls behind `macos-core-audio.js`.
 - Add `unsupported.js` for Windows/Linux until real backends exist.
 - Make IPC handlers call the selected backend instead of directly calling macOS helper modules.
-- Keep current App Audio, Input Device, File source behavior unchanged on macOS.
+- Keep current Audio Input and File source behavior unchanged on macOS.
 - Add a backend capability IPC endpoint for the renderer.
 
 Exit criteria:
 
-- macOS App Audio still streams.
-- macOS Input Device still streams.
+- macOS Audio Input still streams.
 - File source still streams.
 - Windows/Linux builds, if run, show unsupported capture controls clearly instead of broken controls.
 
@@ -255,7 +253,7 @@ Tasks:
 
 - Ensure File source does not depend on macOS helper modules.
 - Select `windows-dshow-input` from `src/main/audio-backends/index.js` when `process.platform === 'win32'`.
-- Disable App Audio and Input Device on Windows/Linux through backend capabilities.
+- Disable unsupported Audio Input features on Windows/Linux through backend capabilities.
 - Verify FFmpeg binary availability and path resolution for Windows/Linux.
 - Verify settings persistence, Icecast connection UI, channel templates, logs, and About window.
 - Add Windows/Linux smoke-test checklists.
@@ -288,19 +286,19 @@ Initial target:
 
 - File-only Windows beta validation first.
 - Input-device capture second. The current native helper can capture MMDevice/WASAPI inputs and ASIO inputs, with DirectShow retained as a fallback.
-- Per-app/process capture third. The current bootstrap uses WASAPI Process Loopback and intentionally requires Windows 10 Build 20348 or later.
+- Per-app/process capture is research only and is not exposed as a supported source.
 - Native low-latency monitor playback is not part of the first Windows backend target.
 
 Windows validation snapshot, 2026-05-09:
 
 - WASAPI/MMDevice endpoints on the current Windows test machine expose only mono/stereo formats, including Voicemeeter WDM endpoints.
 - Voicemeeter ASIO exposes multichannel virtual devices. `Voicemeeter Virtual ASIO` has been validated as 8 in / 8 out, and the native helper can read 6ch Float32 PCM from it.
-- REAPER multichannel output has been validated through `REAPER -> Voicemeeter Virtual ASIO -> SurroundStreamer ASIO input`. The practical Windows 5.1 route for REAPER is therefore ASIO input, not WASAPI App Audio.
+- REAPER multichannel output has been validated through `REAPER -> Voicemeeter Virtual ASIO -> SurroundStreamer ASIO input`.
 - REAPER must route Master hardware outputs explicitly: source 1/2 to output 1/2, source 3/4 to output 3/4, and source 5/6 to output 5/6. Setting the Master track to 6ch alone is insufficient.
 - The FFmpeg pre-encode path now explicitly maps selected backend channels when input and output channel counts differ, so an 8ch ASIO input can feed a 5.1 stream without relying on FFmpeg's implicit `-ac` behavior.
 - Voicemeeter itself does not publish to Icecast. The intended chain is `REAPER -> Voicemeeter ASIO -> SurroundStreamer -> Icecast`.
-- WASAPI Process Loopback remains a separate App Audio research path. It is suitable for normal Windows app audio only when the app is actually rendering through WASAPI, and it should not be expected to capture ASIO output from REAPER.
-- On the current test machine, the REAPER WASAPI process-loopback smoke test failed during `IAudioClient::Initialize` with `0x88890021`; this needs separate investigation before Windows App Audio can be treated as usable.
+- WASAPI Process Loopback remains a separate research path. It should not be expected to capture ASIO output from REAPER.
+- On the current test machine, the REAPER WASAPI process-loopback smoke test failed during `IAudioClient::Initialize` with `0x88890021`.
 
 Risks:
 
@@ -326,7 +324,7 @@ Implementation order:
 - Keep the WebAudio monitor as default.
 - Add the `nativeMonitorPlayback` capability flag.
 - Add backend methods for native monitor start/stop/volume/output-device selection.
-- Implement macOS native monitor first only for App Audio + Stereo Pair.
+- Implement native monitor only after the supported Audio Input and File paths are stable.
 - Keep Binaural HRTF and complex downmix modes on WebAudio unless native DSP is explicitly planned.
 - Do not require Windows/Linux to implement native monitor before their capture backends work.
 
@@ -338,7 +336,7 @@ Windows expectation:
 
 Exit criteria:
 
-- macOS App Audio + Stereo Pair monitor latency improves in real listening tests.
+- Native monitor latency improves in real listening tests if that path is implemented.
 - WebAudio monitor still works as fallback.
 - Windows file-only and future WASAPI backend work is not blocked by native macOS monitor code.
 
@@ -350,7 +348,7 @@ Candidate APIs:
 
 - PipeWire first.
 - PulseAudio monitor sources as compatibility path.
-- ALSA only for limited input-device work.
+- ALSA only for limited audio-input work.
 
 Initial target:
 
@@ -372,13 +370,13 @@ Exit criteria:
 
 ### Phase 6: Feature Parity Review
 
-Goal: decide whether Windows/Linux should match the macOS App Audio behavior or remain limited.
+Goal: decide whether Windows/Linux should remain Audio Input/File focused or add new capture modes later.
 
 Questions:
 
-- Is per-app capture required, or is output-device loopback acceptable?
+- Is per-app capture required in a future major scope, or is Audio Input routing acceptable?
 - Is surround preservation required on Windows/Linux v1, or can stereo/5.1 be staged?
-- Should Input Device monitor output remain disabled across all OSes?
+- Should Audio Input monitor output remain disabled across all OSes?
 - Should File source become the first cross-platform public feature?
 
 Exit criteria:
@@ -391,15 +389,14 @@ Exit criteria:
 
 - The stable `0.1.0` build is macOS-first.
 - Windows/Linux builds are not release-ready.
-- Windows currently has native MMDevice/WASAPI input capture, ASIO probing/capture, the older DirectShow input-device bridge as fallback, and a WASAPI Process Loopback helper source for App Audio research.
-- Windows App Audio requires Windows 10 Build 20348 or later and a built native helper executable.
-- Windows REAPER 5.1 validation currently uses ASIO input through Voicemeeter; WASAPI App Audio is not the validated path for ASIO applications.
-- Windows DirectShow loopback support is only a development bridge for loopback-like input devices exposed by the host, not the selected App Audio path.
-- Linux App Audio capture is not implemented.
-- Linux Input Device capture is not implemented.
+- Windows currently has native MMDevice/WASAPI input capture, ASIO probing/capture, and the older DirectShow audio-input bridge as fallback.
+- WASAPI Process Loopback and DirectShow loopback work are retained as research/reference paths, not as supported App Audio sources.
+- Windows REAPER 5.1 validation currently uses ASIO input through Voicemeeter.
+- Linux application-audio capture is not in scope for the current beta line.
+- Linux Audio Input capture is not implemented.
 - Windows/Linux monitor device enumeration is not implemented.
 - 7.1.2 and 7.1.4 remain research-only.
-- Input Device monitor output remains disabled in the current macOS product behavior, but is experimentally enabled for the Windows DirectShow backend.
+- Audio Input monitor output uses the shared WebAudio direct monitor path when browser audio-device access is available. Native per-backend monitor paths remain experimental and should stay capability-gated until validated.
 - macOS release is ad-hoc signed and not notarized.
 
 ## Documentation Tasks
@@ -411,8 +408,8 @@ Exit criteria:
 
 ## Immediate Next Tasks
 
-1. Build `native/audio-backends/windows/.build/SurroundAudioBackend.exe`.
-2. Smoke-test Windows WASAPI Process Loopback App Audio streaming to Icecast.
-3. Smoke-test Windows App Audio Monitor Output.
-4. Smoke-test macOS behavior after shared backend changes.
-5. Decide whether Windows needs native WASAPI input-device capture after DirectShow validation.
+1. Smoke-test macOS File source after App Audio removal.
+2. Smoke-test macOS Audio Input streaming and Monitor Output.
+3. Re-run `npm run lint` and `npm run build`.
+4. Validate Windows Audio Input behavior on a real Windows environment.
+5. Keep loopback/process-capture research separate from supported input-source UI.

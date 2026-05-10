@@ -7,19 +7,14 @@ const streamTimer = document.getElementById('stream-timer')
 
 const tabFile = document.getElementById('tab-file')
 const tabDevice = document.getElementById('tab-device')
-const tabAppAudio = document.getElementById('tab-app-audio')
 const fileInputSection = document.getElementById('file-input-section')
 const deviceInputSection = document.getElementById('device-input-section')
-const appAudioInputSection = document.getElementById('app-audio-input-section')
 
 const deviceList = document.getElementById('device-list')
 const btnRefreshDevices = document.getElementById('btn-refresh-devices')
 const btnBrowse = document.getElementById('btn-browse')
 const filePathInput = document.getElementById('file-path')
 const loopFileInput = document.getElementById('loop-file')
-const appAudioList = document.getElementById('app-audio-list')
-const appAudioOutputStream = document.getElementById('app-audio-output-stream')
-const btnRefreshAppAudio = document.getElementById('btn-refresh-app-audio')
 
 const bitrateSelect = document.getElementById('bitrate-select')
 const bitrateActualValue = document.getElementById('bitrate-actual-value')
@@ -106,7 +101,7 @@ const channelTemplates = [
 
 let startTime = null
 let timerInterval = null
-let currentInputType = 'app-audio'
+let currentInputType = 'device'
 let activeMeterChannels = 6
 let activeMonitorMeterChannels = 2
 let inputDevices = []
@@ -115,14 +110,15 @@ let isStreaming = false
 let currentMonitorFormat = null
 let monitorSettingsPromise = Promise.resolve()
 let previewMonitorKey = ''
+let previewMonitorSource = null
 let pendingPreviewStart = false
 let lastMonitorPeakUpdateAt = 0
 let audioBackendCapabilities = {
   platform: 'darwin',
   backendName: 'macos-core-audio',
-  appAudioCapture: true,
   inputDeviceCapture: true,
   inputDeviceMonitor: false,
+  nativeInputDeviceMonitor: false,
   fileSource: true,
   monitorPlayback: true
 }
@@ -187,19 +183,14 @@ function setInputSourceLocked(isLocked) {
   loopFileInput.disabled = isLocked || !audioBackendCapabilities.fileSource
   deviceList.disabled = isLocked || !audioBackendCapabilities.inputDeviceCapture
   btnRefreshDevices.disabled = isLocked || !audioBackendCapabilities.inputDeviceCapture
-  appAudioList.disabled = isLocked || !audioBackendCapabilities.appAudioCapture
-  appAudioOutputStream.disabled = isLocked || !audioBackendCapabilities.appAudioCapture
-  btnRefreshAppAudio.disabled = isLocked || !audioBackendCapabilities.appAudioCapture
   tabFile.disabled = isLocked || !audioBackendCapabilities.fileSource
   tabDevice.disabled = isLocked || !audioBackendCapabilities.inputDeviceCapture
-  tabAppAudio.disabled = isLocked || !audioBackendCapabilities.appAudioCapture
   document.querySelector('.input-panel')?.classList.toggle('disabled-panel', isLocked)
 }
 
 function isSourceSupported(inputType) {
   if (inputType === 'file') return audioBackendCapabilities.fileSource !== false
   if (inputType === 'device') return !!audioBackendCapabilities.inputDeviceCapture
-  if (inputType === 'app-audio') return !!audioBackendCapabilities.appAudioCapture
   return false
 }
 
@@ -208,17 +199,10 @@ function applyAudioBackendCapabilities() {
   tabFile.title = audioBackendCapabilities.fileSource ? '' : 'File source is not available'
   tabDevice.title = audioBackendCapabilities.inputDeviceCapture
     ? ''
-    : 'Input Device capture is not available on this platform'
-  tabAppAudio.title = audioBackendCapabilities.appAudioCapture
-    ? ''
-    : 'App Audio capture is not available on this platform'
+    : 'Audio Input capture is not available on this platform'
 
   if (!isSourceSupported(currentInputType)) {
-    const fallback = isSourceSupported('file')
-      ? 'file'
-      : isSourceSupported('app-audio')
-        ? 'app-audio'
-        : 'device'
+    const fallback = isSourceSupported('device') ? 'device' : 'file'
     showInputSection(fallback)
   }
 
@@ -327,29 +311,25 @@ function showInputSection(inputType) {
   currentInputType = inputType
 
   if (previousInputType !== inputType && !isStreaming) {
+    monitorEnabled.checked = false
     void forceStopPreviewMonitor()
   }
 
   tabFile.classList.toggle('active', inputType === 'file')
   tabDevice.classList.toggle('active', inputType === 'device')
-  tabAppAudio.classList.toggle('active', inputType === 'app-audio')
   fileInputSection.classList.toggle('hidden', inputType !== 'file')
   deviceInputSection.classList.toggle('hidden', inputType !== 'device')
-  appAudioInputSection.classList.toggle('hidden', inputType !== 'app-audio')
   updateChannelControls()
   updateMonitorAvailability()
   applyLowLatencyMonitorDefault()
-  if (!(inputType === 'app-audio' && previousInputType !== inputType)) {
-    applyMonitorSettings('input')
-  }
+  applyMonitorSettings('input')
 }
 
 async function refreshDevices() {
   if (!audioBackendCapabilities.inputDeviceCapture) {
     inputDevices = []
-    deviceList.innerHTML =
-      '<option value="">Input Device is not available on this platform</option>'
-    addLog('Input Device capture is not available with the current audio backend.', 'system')
+    deviceList.innerHTML = '<option value="">Audio Input is not available on this platform</option>'
+    addLog('Audio Input capture is not available with the current audio backend.', 'system')
     return
   }
 
@@ -407,14 +387,10 @@ function formatDeviceOption(device) {
     : `[${device.index}] ${device.name}`
 }
 
-function isWindowsOutputLoopbackMode() {
-  return !!audioBackendCapabilities.outputLoopbackCapture && !audioBackendCapabilities.appAudioPerProcess
-}
-
 function warnIfLoopbackInputDevice(device) {
   if (!device?.isLikelyLoopback) return
   addLog(
-    `Selected input device "${device.name}" looks like a loopback/virtual device, so it may include system output audio.`,
+    `Selected audio input "${device.name}" looks like a loopback/virtual device, so it may include system output audio.`,
     'error'
   )
 }
@@ -470,152 +446,13 @@ async function refreshMonitorDevices(requestOutputSelection = false) {
   }
 }
 
-async function refreshAppAudioProcesses() {
-  if (!audioBackendCapabilities.appAudioCapture) {
-    appAudioList.innerHTML = '<option value="">App Audio is not available on this platform</option>'
-    addLog('App Audio capture is not available with the current audio backend.', 'system')
-    return
-  }
-
-  const isLoopbackMode = isWindowsOutputLoopbackMode()
-  addLog(
-    isLoopbackMode ? 'Scanning output loopback capture sources...' : 'Scanning app audio processes...',
-    'system'
-  )
-  try {
-    const previousValue = appAudioList.value
-    const result = await window.api.listAppAudioProcesses()
-    const processes = result.processes || []
-    appAudioList.innerHTML = ''
-    if (processes.length === 0) {
-      appAudioList.innerHTML = `<option value="">${isLoopbackMode ? 'No output loopback sources found' : 'No app audio processes found'}</option>`
-    } else {
-      processes.forEach((process) => {
-        const opt = document.createElement('option')
-        opt.value = process.pid
-        opt.textContent = isLoopbackMode
-          ? process.name
-          : `${process.isRunningOutput ? '* ' : ''}${process.name} [${process.pid}]`
-        appAudioList.appendChild(opt)
-      })
-      if (processes.some((process) => String(process.pid) === String(previousValue))) {
-        appAudioList.value = previousValue
-      }
-    }
-    addLog(
-      `Found ${processes.length} ${isLoopbackMode ? 'output loopback sources' : 'app audio processes'}.`,
-      'system'
-    )
-  } catch (err) {
-    addLog(
-      `Error listing ${isLoopbackMode ? 'output loopback sources' : 'app audio processes'}: ${err.message}`,
-      'error'
-    )
-  }
-}
-
-async function refreshAppAudioOutputStreams() {
-  if (!audioBackendCapabilities.appAudioCapture) {
-    appAudioOutputStream.innerHTML =
-      '<option value="">App output capture is not available on this platform</option>'
-    return
-  }
-
-  const isLoopbackMode = isWindowsOutputLoopbackMode()
-  addLog(
-    isLoopbackMode
-      ? 'Scanning DirectShow loopback devices...'
-      : 'Scanning app output capture sources...',
-    'system'
-  )
-  try {
-    const previousValue = appAudioOutputStream.value
-    const result = await window.api.listAppAudioOutputStreams()
-    const devices = result.devices || []
-    appAudioOutputStream.innerHTML = ''
-
-    let streamCount = 0
-    devices.forEach((device) => {
-      ;(device.streams || []).forEach((stream) => {
-        streamCount += 1
-        const opt = document.createElement('option')
-        const payload = {
-          deviceUID: device.deviceUID,
-          deviceName: device.name,
-          streamIndex: stream.streamIndex,
-          sampleRate: stream.sampleRate || 48000,
-          channels: stream.channels || 2,
-          bitsPerChannel: stream.bitsPerChannel || 32
-        }
-        opt.value = JSON.stringify(payload)
-        opt.textContent = isLoopbackMode
-          ? `${device.name} loopback: ${payload.channels}ch @ ${formatSampleRate(payload.sampleRate)}`
-          : `${device.name} app output / Stream ${stream.streamIndex}: ${payload.channels}ch @ ${formatSampleRate(payload.sampleRate)}`
-        appAudioOutputStream.appendChild(opt)
-      })
-    })
-
-    if (streamCount === 0) {
-      appAudioOutputStream.innerHTML = `<option value="">${isLoopbackMode ? 'No DirectShow loopback devices found' : 'No app output capture sources found'}</option>`
-    } else if (
-      Array.from(appAudioOutputStream.options).some((option) => option.value === previousValue)
-    ) {
-      appAudioOutputStream.value = previousValue
-    }
-
-    addLog(
-      `Found ${streamCount} ${isLoopbackMode ? 'DirectShow loopback devices' : 'app output capture sources'}.`,
-      'system'
-    )
-    syncInputSettings(true)
-  } catch (err) {
-    addLog(
-      `Error listing ${isLoopbackMode ? 'DirectShow loopback devices' : 'app output capture sources'}: ${err.message}`,
-      'error'
-    )
-  }
-}
-
-function selectedAppAudioStream() {
-  if (!appAudioOutputStream.value) {
-    return null
-  }
-
-  try {
-    return JSON.parse(appAudioOutputStream.value)
-  } catch {
-    return null
-  }
-}
-
-function selectedAppAudioMonitorConfig() {
-  const pid = appAudioList.value
-  const stream = selectedAppAudioStream()
-  const lowLatencyMonitor = shouldUseLowLatencyMonitor('app-audio', monitorMode.value)
-
-  return {
-    inputType: 'app-audio',
-    inputPath: pid,
-    appAudioPid: pid ? Number(pid) : undefined,
-    appAudioMode: 'preserve',
-    appAudioDeviceUID: stream?.deviceUID,
-    appAudioStreamIndex: stream?.streamIndex,
-    appAudioSampleRate: stream?.sampleRate,
-    appAudioChannels: stream?.channels || 2,
-    monitorMode: monitorMode.value,
-    monitorPairStart: Number(monitorSourcePair.value || 0),
-    monitorLatencyMs: effectiveMonitorLatencyMs('app-audio', monitorMode.value),
-    monitorLowLatency: lowLatencyMonitor,
-    monitorVolume: monitorVolumePercent()
-  }
-}
-
 function selectedFileMonitorConfig() {
   const selectedChannels = selectedChannelIndexes()
   const inputInfo = selectedInputInfo()
   return {
     inputType: 'file',
     inputPath: filePathInput.value,
+    inputChannels: fileInputInfo?.channels || selectedChannels.length || inputInfo.channels,
     selectedChannels,
     streamChannelLayout: selectedStreamLayout(),
     sampleRate: inputInfo.sampleRate || Number(sampleRateSelect.value),
@@ -630,6 +467,7 @@ function selectedFileMonitorConfig() {
 
 function selectedInputDeviceMonitorConfig() {
   const inputInfo = selectedInputInfo()
+  const lowLatencyMonitor = shouldUseLowLatencyMonitor('device', monitorMode.value)
   return {
     inputType: 'device',
     inputPath: selectedInputDevicePath(),
@@ -640,8 +478,9 @@ function selectedInputDeviceMonitorConfig() {
     sampleRate: inputInfo.sampleRate || Number(sampleRateSelect.value),
     monitorMode: monitorMode.value,
     monitorPairStart: Number(monitorSourcePair.value || 0),
-    monitorLatencyMs: Number(monitorLatency.value || 80),
-    monitorLowLatency: false,
+    monitorLatencyMs: effectiveMonitorLatencyMs('device', monitorMode.value),
+    monitorLowLatency: lowLatencyMonitor,
+    monitorOutputDeviceName: selectedMonitorOutputDeviceName(),
     monitorVolume: monitorVolumePercent()
   }
 }
@@ -649,9 +488,6 @@ function selectedInputDeviceMonitorConfig() {
 function selectedPreviewMonitorConfig() {
   if (currentInputType === 'file') {
     return selectedFileMonitorConfig()
-  }
-  if (currentInputType === 'app-audio') {
-    return selectedAppAudioMonitorConfig()
   }
   if (currentInputType === 'device') {
     return selectedInputDeviceMonitorConfig()
@@ -662,7 +498,6 @@ function selectedPreviewMonitorConfig() {
 function supportsPreviewMonitor() {
   if (!audioBackendCapabilities.monitorPlayback) return false
   if (currentInputType === 'file') return audioBackendCapabilities.fileSource !== false
-  if (currentInputType === 'app-audio') return !!audioBackendCapabilities.appAudioCapture
   if (currentInputType === 'device') return !!audioBackendCapabilities.inputDeviceMonitor
   return false
 }
@@ -679,7 +514,7 @@ function updateMonitorAvailability() {
   monitorDeviceList.disabled = !available
   monitorMode.disabled = !available
   monitorSourcePair.disabled = !available
-  monitorLatency.disabled = !available
+  monitorLatency.disabled = !available || currentInputType === 'device'
   monitorVolume.disabled = !available
   btnRefreshMonitorDevices.disabled = !available
   document.querySelector('.monitor-panel')?.classList.toggle('disabled-panel', !available)
@@ -703,14 +538,6 @@ function defaultChannelCount() {
 }
 
 function selectedInputInfo() {
-  if (currentInputType === 'app-audio') {
-    const stream = selectedAppAudioStream()
-    return {
-      channels: stream?.channels || 2,
-      sampleRate: stream?.sampleRate || 48000
-    }
-  }
-
   if (currentInputType === 'device') {
     const device = selectedInputDevice()
     return {
@@ -720,7 +547,7 @@ function selectedInputInfo() {
   }
 
   return {
-    channels: FILE_MAX_CHANNELS,
+    channels: fileInputInfo?.channels || FILE_MAX_CHANNELS,
     sampleRate: fileInputInfo?.sampleRate || 48000
   }
 }
@@ -731,6 +558,232 @@ function selectedInputDevice() {
 
 function selectedInputDevicePath() {
   return deviceList.value ? `none:${deviceList.value}` : ''
+}
+
+function selectedMonitorOutputDeviceName() {
+  const option = monitorDeviceList.options[monitorDeviceList.selectedIndex]
+  return option?.textContent || 'System Default'
+}
+
+function normalizeAudioDeviceName(value = '') {
+  return String(value)
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/\[[^\]]*]/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+}
+
+function audioDeviceNamesMatch(left = '', right = '') {
+  const normalizedLeft = normalizeAudioDeviceName(left)
+  const normalizedRight = normalizeAudioDeviceName(right)
+  if (!normalizedLeft || !normalizedRight) return false
+  return (
+    normalizedLeft === normalizedRight ||
+    normalizedLeft.includes(normalizedRight) ||
+    normalizedRight.includes(normalizedLeft)
+  )
+}
+
+async function enumerateBrowserAudioInputs() {
+  if (!navigator.mediaDevices?.enumerateDevices) return []
+
+  let devices = await navigator.mediaDevices.enumerateDevices()
+  let inputs = devices.filter((device) => device.kind === 'audioinput')
+  if (inputs.some((device) => device.label)) {
+    return inputs
+  }
+
+  if (!navigator.mediaDevices.getUserMedia) return inputs
+
+  let permissionProbe = null
+  try {
+    permissionProbe = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false
+      },
+      video: false
+    })
+    devices = await navigator.mediaDevices.enumerateDevices()
+    inputs = devices.filter((device) => device.kind === 'audioinput')
+  } finally {
+    permissionProbe?.getTracks().forEach((track) => track.stop())
+  }
+
+  return inputs
+}
+
+async function resolveBrowserInputDeviceId(inputDevice) {
+  const browserInputs = await enumerateBrowserAudioInputs()
+  if (browserInputs.length === 0) {
+    throw new Error('No browser audio input devices are available for direct monitor output.')
+  }
+
+  const namedMatch = browserInputs.find((device) =>
+    audioDeviceNamesMatch(device.label, inputDevice?.name)
+  )
+  if (namedMatch?.deviceId) {
+    return namedMatch.deviceId
+  }
+
+  if (browserInputs.length === 1) {
+    return browserInputs[0].deviceId
+  }
+
+  throw new Error(`Could not match "${inputDevice?.name || 'selected input'}" to a browser input.`)
+}
+
+async function openBrowserInputMonitorStream(config) {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error('Browser direct audio input monitor is not available.')
+  }
+
+  const deviceId = await resolveBrowserInputDeviceId(selectedInputDevice())
+  const channelCount = Math.max(1, Number(config.inputChannels || 2))
+  const sampleRate = Math.max(8000, Number(config.sampleRate || config.inputSampleRate || 48000))
+  return navigator.mediaDevices.getUserMedia({
+    audio: {
+      deviceId: { exact: deviceId },
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false,
+      channelCount: { ideal: channelCount },
+      sampleRate: { ideal: sampleRate }
+    },
+    video: false
+  })
+}
+
+async function startBrowserInputMonitor(config, reason = 'settings') {
+  const key = JSON.stringify({
+    source: 'browser-input',
+    inputPath: config.inputPath || '',
+    deviceUID: config.inputDeviceUID || '',
+    streamIndex: config.inputStreamIndex ?? '',
+    inputName: selectedInputDevice()?.name || '',
+    outputDeviceId: monitorDeviceList.value || '',
+    monitorMode: config.monitorMode,
+    pairStart: config.monitorPairStart,
+    latencyMs: config.monitorLatencyMs,
+    volume: monitorVolumePercent()
+  })
+
+  if (previewMonitorSource === 'browser-input' && previewMonitorKey === key) {
+    monitorMeterState.textContent = isStreaming ? 'LIVE' : 'PREVIEW'
+    return
+  }
+
+  const mediaStream = await openBrowserInputMonitorStream(config)
+  const track = mediaStream.getAudioTracks()[0]
+  const settings = track?.getSettings?.() || {}
+  const browserChannels = Number(settings.channelCount || 0)
+  const sourceChannels = Math.max(1, browserChannels, Number(config.inputChannels || 0), 2)
+  const pairStart = Number(config.monitorPairStart || 0)
+  if (browserChannels > 0 && browserChannels < sourceChannels && pairStart >= browserChannels) {
+    mediaStream.getTracks().forEach((track) => track.stop())
+    throw new Error(
+      `Browser direct monitor exposes ${browserChannels}ch, but ${monitorPairLabel(pairStart)} needs source channels above that.`
+    )
+  }
+  const sourceSampleRate = Math.max(
+    8000,
+    Number(settings.sampleRate || config.inputSampleRate || config.sampleRate || 48000)
+  )
+  const format = initialMonitorFormat(
+    { ...config, inputChannels: sourceChannels, sampleRate: sourceSampleRate },
+    sourceChannels,
+    sourceSampleRate
+  )
+  currentMonitorFormat = {
+    mode: format.mode,
+    latencyMs: format.latencyMs,
+    lowLatency: format.lowLatency,
+    sampleRate: format.sampleRate,
+    channels: format.channels
+  }
+  updateMonitorRoutingControls()
+
+  await stopPreviewMonitor()
+  try {
+    await webAudioMonitor.startMediaStream(
+      {
+        mode: format.mode,
+        deviceId: monitorDeviceList.value,
+        pairStart: format.pairStart,
+        latencyMs: format.latencyMs,
+        lowLatency: format.lowLatency,
+        sampleRate: format.sampleRate,
+        channels: format.channels,
+        channelLabels: format.channelLabels,
+        volume: monitorVolumePercent(),
+        onPeaks: updateMonitorPeakMeters,
+        directOutput: true
+      },
+      mediaStream
+    )
+  } catch (error) {
+    mediaStream.getTracks().forEach((track) => track.stop())
+    throw error
+  }
+  previewMonitorKey = key
+  previewMonitorSource = 'browser-input'
+  monitorMeterState.textContent = isStreaming ? 'LIVE' : 'PREVIEW'
+  renderMonitorPeakMeters(2)
+  addLog(
+    `Direct audio input monitor active (${monitorModeLabel(config.monitorMode)}, ${reason}).`,
+    'system'
+  )
+}
+
+async function startNativeInputMonitor(config, reason = 'settings') {
+  if (!audioBackendCapabilities.nativeInputDeviceMonitor) {
+    throw new Error('Native Audio Input monitor is not available on this backend.')
+  }
+  if (!window.api.startNativeInputDeviceMonitor) {
+    throw new Error('Native Audio Input monitor API is not available.')
+  }
+
+  const key = JSON.stringify({
+    source: 'native-input',
+    inputPath: config.inputPath || '',
+    deviceUID: config.inputDeviceUID || '',
+    streamIndex: config.inputStreamIndex ?? '',
+    outputDeviceName: selectedMonitorOutputDeviceName(),
+    monitorMode: config.monitorMode,
+    pairStart: config.monitorPairStart,
+    latencyMs: config.monitorLatencyMs
+  })
+
+  if (previewMonitorSource === 'native-input' && previewMonitorKey === key) {
+    monitorMeterState.textContent = isStreaming ? 'LIVE' : 'PREVIEW'
+    return
+  }
+
+  await stopPreviewMonitor()
+  await webAudioMonitor.stop().catch(() => {})
+  const result = await window.api.startNativeInputDeviceMonitor({
+    ...config,
+    monitorOutputDeviceName: selectedMonitorOutputDeviceName()
+  })
+  if (!result.success) {
+    throw new Error(result.error || 'Failed to start native Audio Input monitor.')
+  }
+
+  previewMonitorKey = key
+  previewMonitorSource = 'native-input'
+  currentMonitorFormat = {
+    mode: config.monitorMode || 'stereo-pair',
+    latencyMs: config.monitorLatencyMs,
+    lowLatency: true,
+    sampleRate: config.inputSampleRate || config.sampleRate || 48000,
+    channels: 2
+  }
+  updateMonitorRoutingControls()
+  monitorMeterState.textContent = isStreaming ? 'LIVE' : 'PREVIEW'
+  renderMonitorPeakMeters(2)
+  addLog(`Native audio input monitor active (${reason}).`, 'system')
 }
 
 function syncInputSettings(useDefaults = false) {
@@ -1102,9 +1155,7 @@ function amplitudeToDb(amplitude) {
 }
 
 function selectedMonitorFormat() {
-  const selectedChannels = selectedChannelIndexes()
-  const sourceChannels =
-    currentMonitorFormat?.channels || selectedChannels.length || defaultChannelCount()
+  const sourceChannels = monitorSourceChannelCount()
   const lowLatencyMonitor = shouldUseLowLatencyMonitor(currentInputType, monitorMode.value)
   return {
     mode: monitorMode.value,
@@ -1120,21 +1171,16 @@ function selectedMonitorFormat() {
 }
 
 function shouldUseLowLatencyMonitor(inputType = currentInputType, mode = monitorMode.value) {
-  return inputType === 'app-audio' && mode === 'stereo-pair'
+  return inputType === 'device' && mode === 'stereo-pair'
 }
 
 function effectiveMonitorLatencyMs(inputType = currentInputType, mode = monitorMode.value) {
   const selectedLatency = Number(monitorLatency.value || 80)
-  return shouldUseLowLatencyMonitor(inputType, mode)
-    ? Math.max(5, selectedLatency)
-    : selectedLatency
+  return shouldUseLowLatencyMonitor(inputType, mode) ? 0 : selectedLatency
 }
 
 function applyLowLatencyMonitorDefault() {
-  if (!shouldUseLowLatencyMonitor()) return
-  if (Number(monitorLatency.value || 80) > 5) {
-    monitorLatency.value = '5'
-  }
+  return undefined
 }
 
 function monitorVolumePercent() {
@@ -1169,8 +1215,7 @@ function monitorModeLabel(mode = monitorMode.value) {
 }
 
 function monitorPairLabel(pairStart) {
-  const channels =
-    currentMonitorFormat?.channels || selectedChannelIndexes().length || defaultChannelCount()
+  const channels = monitorSourceChannelCount()
   const left = pairStart
   const right = Math.min(pairStart + 1, Math.max(0, channels - 1))
   const leftName = channelNames[left] || `CH${left + 1}`
@@ -1180,8 +1225,7 @@ function monitorPairLabel(pairStart) {
 
 function updateMonitorRoutingControls() {
   const previousPair = monitorSourcePair.value
-  const channels =
-    currentMonitorFormat?.channels || selectedChannelIndexes().length || defaultChannelCount()
+  const channels = monitorSourceChannelCount()
   monitorSourcePair.innerHTML = ''
 
   for (let index = 0; index < Math.max(1, channels); index += 2) {
@@ -1196,6 +1240,22 @@ function updateMonitorRoutingControls() {
   }
 
   monitorPairGroup.classList.toggle('hidden', monitorMode.value !== 'stereo-pair')
+}
+
+function monitorSourceChannelCount() {
+  const currentChannels = Number(currentMonitorFormat?.channels || 0)
+  const selectedChannels = selectedChannelIndexes().length
+  const inputChannels = currentInputType === 'device' ? selectedInputInfo().channels : 0
+  const fileChannels =
+    currentInputType === 'file' ? fileInputInfo?.channels || selectedChannels || 0 : 0
+  return Math.max(
+    1,
+    currentChannels,
+    selectedChannels,
+    inputChannels,
+    fileChannels,
+    defaultChannelCount()
+  )
 }
 
 function applyMonitorSettings(reason = 'settings') {
@@ -1231,6 +1291,29 @@ function applyMonitorSettings(reason = 'settings') {
         return
       }
 
+      if (currentInputType === 'device') {
+        if (previewMonitorSource === 'backend-stream') {
+          const format = selectedMonitorFormat()
+          await webAudioMonitor.start(format)
+          await window.api.setMonitorActive(true)
+          addLog(`Monitor output updated (${monitorModeLabel(format.mode)}, ${reason}).`, 'system')
+          return
+        }
+
+        await window.api.setMonitorActive(false).catch(() => {})
+        const config = selectedInputDeviceMonitorConfig()
+        if (audioBackendCapabilities.nativeInputDeviceMonitor) {
+          try {
+            await startNativeInputMonitor(config, reason)
+            return
+          } catch (error) {
+            addLog(`Native audio input monitor unavailable: ${error.message}`, 'error')
+          }
+        }
+        await startBrowserInputMonitor(config, reason)
+        return
+      }
+
       const format = selectedMonitorFormat()
       await webAudioMonitor.start(format)
       await window.api.setMonitorActive(true)
@@ -1246,7 +1329,36 @@ function applyMonitorSettings(reason = 'settings') {
 async function startInitialMonitor(config, channels) {
   if (!config.monitorEnabled) return
 
-  const format = initialMonitorFormat(config, channels, streamingMonitorSampleRate(config))
+  if (config.inputType === 'device') {
+    if (audioBackendCapabilities.nativeInputDeviceMonitor) {
+      try {
+        await startNativeInputMonitor(config, 'stream-start')
+      } catch (error) {
+        addLog(`Native audio input monitor unavailable: ${error.message}`, 'error')
+        try {
+          await startBrowserInputMonitor(config, 'stream-start')
+        } catch (browserError) {
+          addLog(`Direct audio input monitor unavailable: ${browserError.message}`, 'error')
+          await startBackendPcmInputMonitor(config, channels)
+        }
+      }
+    } else {
+      try {
+        await startBrowserInputMonitor(config, 'stream-start')
+      } catch (error) {
+        addLog(`Direct audio input monitor unavailable: ${error.message}`, 'error')
+        await startBackendPcmInputMonitor(config, channels)
+      }
+    }
+    await window.api.setMonitorActive(false).catch(() => {})
+    return
+  }
+
+  const format = initialMonitorFormat(
+    config,
+    initialMonitorChannelCount(config, channels),
+    streamingMonitorSampleRate(config)
+  )
   await webAudioMonitor.start({
     mode: format.mode,
     deviceId: config.monitorDeviceId,
@@ -1263,21 +1375,33 @@ async function startInitialMonitor(config, channels) {
   addLog(`Monitor output ready (${monitorModeLabel(config.monitorMode)}).`, 'system')
 }
 
+async function startBackendPcmInputMonitor(config, channels) {
+  config.directInputMonitor = false
+  previewMonitorSource = 'backend-stream'
+  const format = initialMonitorFormat(
+    config,
+    initialMonitorChannelCount(config, channels),
+    streamingMonitorSampleRate(config)
+  )
+  await webAudioMonitor.start({
+    mode: format.mode,
+    deviceId: config.monitorDeviceId,
+    pairStart: format.pairStart,
+    latencyMs: format.latencyMs,
+    lowLatency: format.lowLatency,
+    sampleRate: format.sampleRate,
+    channels: format.channels,
+    channelLabels: format.channelLabels,
+    volume: monitorVolumePercent()
+  })
+  monitorMeterState.textContent = 'LIVE'
+  renderMonitorPeakMeters(2)
+  addLog('Falling back to backend PCM monitor output for Audio Input.', 'system')
+}
+
 async function startPreviewMonitor(reason = 'settings') {
   const config = selectedPreviewMonitorConfig()
   if (!config) {
-    await stopPreviewMonitor()
-    await webAudioMonitor.stop()
-    return
-  }
-
-  if (config.inputType === 'app-audio' && !config.appAudioPid) {
-    await stopPreviewMonitor()
-    await webAudioMonitor.stop()
-    return
-  }
-
-  if (config.inputType === 'app-audio' && !config.appAudioDeviceUID) {
     await stopPreviewMonitor()
     await webAudioMonitor.stop()
     return
@@ -1295,18 +1419,35 @@ async function startPreviewMonitor(reason = 'settings') {
     return
   }
 
+  if (config.inputType === 'device') {
+    if (audioBackendCapabilities.nativeInputDeviceMonitor) {
+      try {
+        await startNativeInputMonitor(config, reason)
+        return
+      } catch (error) {
+        addLog(`Native audio input monitor unavailable: ${error.message}`, 'error')
+      }
+    }
+
+    try {
+      await startBrowserInputMonitor(config, reason)
+      return
+    } catch (error) {
+      addLog(`Direct audio input monitor unavailable: ${error.message}`, 'error')
+    }
+  }
+
   const key = JSON.stringify({
+    source: 'backend-preview',
     inputType: config.inputType,
     inputPath: config.inputPath || '',
     selectedChannels: config.selectedChannels || [],
     streamChannelLayout: config.streamChannelLayout || '',
     loopFile: config.loopFile ?? '',
-    pid: config.appAudioPid || '',
     inputChannels: config.inputChannels || '',
-    sampleRate: config.sampleRate || config.appAudioSampleRate || '',
-    mode: config.appAudioMode,
-    deviceUID: config.appAudioDeviceUID || '',
-    streamIndex: config.appAudioStreamIndex ?? '',
+    sampleRate: config.sampleRate || '',
+    deviceUID: config.inputDeviceUID || '',
+    streamIndex: config.inputStreamIndex ?? '',
     outputDeviceId: monitorDeviceList.value || '',
     monitorMode: config.monitorMode,
     pairStart: config.monitorPairStart,
@@ -1343,9 +1484,7 @@ async function startPreviewMonitor(reason = 'settings') {
     const result =
       config.inputType === 'file'
         ? await window.api.startFileMonitor(config)
-        : config.inputType === 'device'
-          ? await window.api.startInputDeviceMonitor(config)
-          : await window.api.startAppAudioMonitor(config)
+        : await window.api.startInputDeviceMonitor(config)
     if (!result.success) {
       previewMonitorKey = ''
       await webAudioMonitor.stop()
@@ -1354,6 +1493,7 @@ async function startPreviewMonitor(reason = 'settings') {
     }
 
     previewMonitorKey = key
+    previewMonitorSource = 'backend-preview'
     addLog(`Preview monitor active (${monitorModeLabel(config.monitorMode)}, ${reason}).`, 'system')
   } finally {
     pendingPreviewStart = false
@@ -1362,12 +1502,23 @@ async function startPreviewMonitor(reason = 'settings') {
 
 async function stopPreviewMonitor() {
   if (!previewMonitorKey) return
+  const source = previewMonitorSource
   previewMonitorKey = ''
+  previewMonitorSource = null
+  if (source === 'browser-input') {
+    await webAudioMonitor.stop().catch(() => {})
+    return
+  }
+  if (source === 'native-input') {
+    await window.api.stopPreviewMonitor().catch(() => {})
+    return
+  }
   await window.api.stopPreviewMonitor().catch(() => {})
 }
 
 async function forceStopPreviewMonitor() {
   previewMonitorKey = ''
+  previewMonitorSource = null
   pendingPreviewStart = false
   currentMonitorFormat = null
   monitorMeterState.textContent = 'IDLE'
@@ -1377,19 +1528,20 @@ async function forceStopPreviewMonitor() {
 }
 
 function previewMonitorChannelCount(config) {
-  if (config.inputType === 'app-audio') {
-    return config.appAudioChannels || 2
-  }
-  if (config.inputType === 'device') {
+  if (config.inputType === 'device' || config.inputType === 'file') {
     return config.inputChannels || 2
   }
   return config.selectedChannels?.length || defaultChannelCount()
 }
 
-function previewMonitorSampleRate(config) {
-  if (config.inputType === 'app-audio') {
-    return config.appAudioSampleRate || 48000
+function initialMonitorChannelCount(config, fallbackChannels = 2) {
+  if (config.inputType === 'device' || config.inputType === 'file') {
+    return config.inputChannels || fallbackChannels
   }
+  return fallbackChannels
+}
+
+function previewMonitorSampleRate(config) {
   if (config.inputType === 'device') {
     return config.sampleRate || 48000
   }
@@ -1397,9 +1549,6 @@ function previewMonitorSampleRate(config) {
 }
 
 function streamingMonitorSampleRate(config) {
-  if (config.inputType === 'app-audio') {
-    return config.appAudioSampleRate || 48000
-  }
   return streamOutputSampleRate(config.sampleRate || 48000)
 }
 
@@ -1410,27 +1559,16 @@ function streamOutputSampleRate(sampleRate) {
 }
 
 function initialMonitorFormat(config, streamChannels, sampleRateOverride = null) {
-  const isDirectAppAudioMonitor = config.inputType === 'app-audio'
   const isDirectDeviceMonitor = config.inputType === 'device'
   return {
     mode: config.monitorMode || 'stereo-pair',
     pairStart: config.monitorPairStart || 0,
     latencyMs: config.monitorLatencyMs || 80,
     lowLatency: !!config.monitorLowLatency,
-    sampleRate:
-      sampleRateOverride ||
-      (isDirectAppAudioMonitor ? config.appAudioSampleRate || 48000 : config.sampleRate || 48000),
-    channels: isDirectAppAudioMonitor
-      ? config.appAudioChannels || 2
-      : isDirectDeviceMonitor
-        ? config.inputChannels || 2
-        : streamChannels,
+    sampleRate: sampleRateOverride || config.sampleRate || 48000,
+    channels: isDirectDeviceMonitor ? config.inputChannels || 2 : streamChannels,
     channelLabels: selectedTemplateChannelLabels(
-      isDirectAppAudioMonitor
-        ? config.appAudioChannels || 2
-        : isDirectDeviceMonitor
-          ? config.inputChannels || 2
-          : streamChannels
+      isDirectDeviceMonitor ? config.inputChannels || 2 : streamChannels
     )
   }
 }
@@ -1442,12 +1580,6 @@ tabFile.addEventListener('click', () => {
 tabDevice.addEventListener('click', () => {
   showInputSection('device')
   refreshDevices()
-})
-
-tabAppAudio.addEventListener('click', async () => {
-  showInputSection('app-audio')
-  await Promise.all([refreshAppAudioProcesses(), refreshAppAudioOutputStreams()])
-  applyMonitorSettings('app-scan')
 })
 
 btnRefreshDevices.addEventListener('click', refreshDevices)
@@ -1479,20 +1611,6 @@ bitrateSelect.addEventListener('change', updateBitrateActualLabel)
 channelTemplateSelect.addEventListener('change', () => {
   updateChannelControls(true, channelTemplateSelect.value)
   applyMonitorSettings('template')
-})
-btnRefreshAppAudio.addEventListener('click', async () => {
-  await forceStopPreviewMonitor()
-  await Promise.all([refreshAppAudioProcesses(), refreshAppAudioOutputStreams()])
-  applyMonitorSettings('refresh')
-})
-appAudioList.addEventListener('change', async () => {
-  await forceStopPreviewMonitor()
-  applyMonitorSettings('app')
-})
-appAudioOutputStream.addEventListener('change', async () => {
-  await forceStopPreviewMonitor()
-  syncInputSettings(true)
-  applyMonitorSettings('stream')
 })
 btnSelectDefaultChannels.addEventListener('click', () => updateChannelControls(true))
 btnSelectDefaultChannels.addEventListener('click', () => applyMonitorSettings('channels'))
@@ -1526,39 +1644,33 @@ btnStart.addEventListener('click', async () => {
     return
   }
 
-  const appAudioPid = appAudioList.value
-  const stream = selectedAppAudioStream()
   const inputDevice = selectedInputDevice()
   const selectedChannels = selectedChannelIndexes()
   const inputInfo = selectedInputInfo()
 
   const config = {
     inputType: currentInputType,
-    inputPath:
-      currentInputType === 'file'
-        ? filePathInput.value
-        : currentInputType === 'device'
-          ? selectedInputDevicePath()
-          : appAudioPid,
+    inputPath: currentInputType === 'file' ? filePathInput.value : selectedInputDevicePath(),
     inputChannels:
-      currentInputType === 'device' ? inputDevice?.channels || inputInfo.channels : undefined,
+      currentInputType === 'device'
+        ? inputDevice?.channels || inputInfo.channels
+        : currentInputType === 'file'
+          ? fileInputInfo?.channels || selectedChannels.length || inputInfo.channels
+          : undefined,
     inputSampleRate:
       currentInputType === 'device' ? inputDevice?.sampleRate || inputInfo.sampleRate : undefined,
     inputDeviceUID: currentInputType === 'device' ? inputDevice?.deviceUID : undefined,
     inputStreamIndex: currentInputType === 'device' ? inputDevice?.streamIndex : undefined,
     inputDeviceName: currentInputType === 'device' ? inputDevice?.name : undefined,
-    appAudioPid: currentInputType === 'app-audio' ? Number(appAudioPid) : undefined,
-    appAudioMode: currentInputType === 'app-audio' ? 'preserve' : undefined,
-    appAudioDeviceUID: stream?.deviceUID,
-    appAudioStreamIndex: stream?.streamIndex,
-    appAudioSampleRate: stream?.sampleRate,
-    appAudioChannels: stream?.channels || 2,
     selectedChannels,
     streamChannelLayout: selectedStreamLayout(),
     sampleRate: inputInfo.sampleRate || Number(sampleRateSelect.value),
     bitrate: actualBitrateValue(),
     monitorEnabled: isMonitorAvailable() && monitorEnabled.checked,
+    directInputMonitor:
+      currentInputType === 'device' && isMonitorAvailable() && monitorEnabled.checked,
     monitorDeviceId: isMonitorAvailable() && monitorEnabled.checked ? monitorDeviceList.value : '',
+    monitorOutputDeviceName: selectedMonitorOutputDeviceName(),
     monitorMode: monitorMode.value,
     monitorPairStart: Number(monitorSourcePair.value || 0),
     monitorLatencyMs: effectiveMonitorLatencyMs(currentInputType, monitorMode.value),
@@ -1595,22 +1707,6 @@ btnStart.addEventListener('click', async () => {
     warnIfLoopbackInputDevice(inputDevice)
   }
 
-  if (currentInputType === 'app-audio' && !config.appAudioPid) {
-    addLog(
-      `Error: No ${isWindowsOutputLoopbackMode() ? 'output loopback source' : 'app audio process'} selected.`,
-      'error'
-    )
-    return
-  }
-
-  if (currentInputType === 'app-audio' && !stream) {
-    addLog(
-      `Error: No ${isWindowsOutputLoopbackMode() ? 'loopback device' : 'output stream'} selected for capture.`,
-      'error'
-    )
-    return
-  }
-
   renderPeakMeters(selectedChannels.length)
 
   try {
@@ -1622,16 +1718,7 @@ btnStart.addEventListener('click', async () => {
     return
   }
 
-  if (currentInputType === 'app-audio') {
-    addLog(
-      isWindowsOutputLoopbackMode()
-        ? `Starting stream from output loopback (${config.appAudioChannels}ch)...`
-        : `Starting stream from app audio tap (${config.appAudioChannels}ch preserve surround)...`,
-      'system'
-    )
-  } else {
-    addLog('Starting stream...', 'system')
-  }
+  addLog('Starting stream...', 'system')
   const result = await window.api.startStream(config)
 
   if (result.success) {
@@ -1643,7 +1730,7 @@ btnStart.addEventListener('click', async () => {
   } else {
     addLog(`Failed to start stream: ${result.error}`, 'error')
     await window.api.setMonitorActive(false).catch(() => {})
-    await webAudioMonitor.stop()
+    await forceStopPreviewMonitor()
     setStreamingState(false)
   }
 })
@@ -1710,6 +1797,7 @@ window.api.onMonitorAudio((payload) => {
 window.api.onMonitorStop(() => {
   currentMonitorFormat = null
   previewMonitorKey = ''
+  previewMonitorSource = null
   if (!pendingPreviewStart) {
     webAudioMonitor.stop()
   }
@@ -1730,9 +1818,10 @@ async function initializeApp() {
   updateMonitorRoutingControls()
   updateMonitorVolumeLabel()
   updateMonitorAvailability()
+  applyLowLatencyMonitorDefault()
   renderMonitorPeakMeters(2)
-  if (audioBackendCapabilities.appAudioCapture) {
-    await Promise.all([refreshAppAudioProcesses(), refreshAppAudioOutputStreams()])
+  if (audioBackendCapabilities.inputDeviceCapture) {
+    await refreshDevices()
   }
   refreshMonitorDevices()
   addLog('SurroundStreamer initialized.', 'system')

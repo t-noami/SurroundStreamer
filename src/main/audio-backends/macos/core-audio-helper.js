@@ -87,6 +87,35 @@ class CoreAudioHelper {
     })
   }
 
+  spawnNativeInputDeviceMonitor(options = {}) {
+    const helperPath = this.getHelperPath()
+    if (!existsSync(helperPath)) {
+      throw new Error(`Audio backend helper not found: ${helperPath}`)
+    }
+
+    if (!options.deviceUID) {
+      throw new Error('Native input monitor requires a Core Audio device UID')
+    }
+
+    const args = ['--monitor-input-device', '--device-uid', String(options.deviceUID)]
+    if (options.streamIndex !== undefined && options.streamIndex !== null) {
+      args.push('--stream-index', String(options.streamIndex))
+    }
+    if (options.outputDeviceName) {
+      args.push('--output-device-name', String(options.outputDeviceName))
+    }
+    if (options.pairStart !== undefined && options.pairStart !== null) {
+      args.push('--pair-start', String(options.pairStart))
+    }
+    if (options.bufferFrames !== undefined && options.bufferFrames !== null) {
+      args.push('--buffer-frames', String(options.bufferFrames))
+    }
+
+    return spawn(helperPath, args, {
+      stdio: ['ignore', 'ignore', 'pipe']
+    })
+  }
+
   buildStreamArgs(options) {
     const args = []
 

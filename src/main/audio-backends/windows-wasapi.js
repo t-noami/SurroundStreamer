@@ -13,12 +13,13 @@ class WindowsWasapiBackend {
     const helperAvailable = this.isHelperAvailable()
     return {
       platform: 'win32',
-      backendName: helperAvailable ? 'windows-wasapi-process-loopback' : 'windows-wasapi-pending',
-      appAudioCapture: helperAvailable,
-      appAudioPerProcess: helperAvailable,
+      backendName: helperAvailable ? 'windows-wasapi' : 'windows-wasapi-pending',
+      appAudioCapture: false,
+      appAudioPerProcess: false,
       appAudioSurroundPreserve: false,
       inputDeviceCapture: true,
       inputDeviceMonitor: true,
+      nativeInputDeviceMonitor: false,
       fileSource: true,
       monitorPlayback: true,
       monitorDeviceEnumeration: false,
