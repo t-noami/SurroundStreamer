@@ -311,6 +311,20 @@ input[type='range'] {
   text-transform: none;
 }
 
+.server-settings-group {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(175, 162, 220, 0.18);
+}
+
+.server-settings-group h3 {
+  margin: 0 0 11px;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
 .control-panel {
   grid-column: span 2;
   display: flex;
@@ -735,6 +749,10 @@ input[type='range'] {
   display: flex;
   justify-content: space-between;
   gap: 12px;
+}
+
+.simulcast-enable-row {
+  margin: 14px 0 10px;
 }
 
 @media (max-width: 900px) {

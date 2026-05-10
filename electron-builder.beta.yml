@@ -3,7 +3,7 @@ productName: SurroundStreamer-beta-0.1.1
 buildVersion: 0.1.1
 copyright: Copyright © 2026 Non-REM Studio
 extraMetadata:
-  version: 0.1.1-beta.2
+  version: 0.1.1-beta.10
 directories:
   buildResources: build
   output: dist/beta

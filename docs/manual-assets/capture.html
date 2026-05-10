@@ -75,15 +75,23 @@
           <div class="form-grid">
             <div class="form-group">
               <label for="encoding-format">Encoding Format</label>
-              <input type="text" id="encoding-format" value="Ogg Opus / Icecast" readonly />
+              <select id="encoding-format">
+                <option selected>Ogg Opus + stereo MP3</option>
+              </select>
             </div>
-            <div class="form-group">
+            <div class="form-group" id="opus-bitrate-group">
               <label for="bitrate-select"
-                >Bitrate (Stereo Equivalent)
+                >Opus Bitrate (Stereo Equivalent)
                 <span id="bitrate-actual-value">384 kbps actual</span></label
               >
               <select id="bitrate-select">
                 <option selected>128 kbps</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="mp3-audio-mode">MP3 Audio Source</label>
+              <select id="mp3-audio-mode">
+                <option selected>Stereo Downmix</option>
               </select>
             </div>
             <div class="form-group">

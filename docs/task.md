@@ -69,7 +69,7 @@ Last updated: 2026-05-09
 - [x] Investigate and start a Windows WASAPI Process Loopback research path.
 - [x] Retire App Audio as a supported input source in the current beta line.
 - [ ] Investigate a Linux audio backend, likely PipeWire or PulseAudio monitor sources.
-- [ ] Investigate optional MP3 stereo streaming for transitional compatibility.
+- [x] Add optional stereo MP3 simulcast for Icecast and Shoutcast 1 compatibility.
 - [ ] Investigate optional Ogg Vorbis multichannel streaming up to 7.1.
 - [ ] Revisit 7.1.4 only as a research-mode feature after player compatibility is proven.
 - [ ] Consider KU100 far-field HRIR mode if speaker-layout monitoring needs deeper tuning.
@@ -79,7 +79,7 @@ Last updated: 2026-05-09
 Branch: `beta/cross-platform-backend`
 
 - [x] Define the cross-platform backend plan in `docs/implementation_plan.md`.
-- [x] Increment beta build naming from `0.1.0` to `0.1.1-beta.1`.
+- [x] Increment beta build naming from `0.1.0` to the current `0.1.1-beta.10` line.
 - [x] Add beta packaging scripts for macOS, Windows, and Linux.
 - [x] Add a main-process audio backend selection boundary.
 - [x] Wrap current macOS Core Audio helper access behind a macOS backend.

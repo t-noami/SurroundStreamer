@@ -121,13 +121,22 @@ On macOS, audio-input streaming requires microphone permission. If streaming doe
 
 `Encoding Settings` controls the stream format.
 
-- `Encoding Format`: Fixed to Ogg Opus over Icecast.
-- `Bitrate (Stereo Equivalent)`: Bitrate expressed as a stereo-equivalent value. The actual bitrate increases with the selected channel count.
+- `Encoding Format`: Selects `Ogg Opus / Icecast (surround)`, `Ogg Opus + stereo MP3`, or `Stereo MP3 only`.
+- `Opus Bitrate (Stereo Equivalent)`: Opus bitrate expressed as a stereo-equivalent value. The actual bitrate increases with the selected channel count. This is hidden when `Stereo MP3 only` is selected.
 - `Sample Rate`: Opus stream sample rate. The default is 48 kHz.
 - `Stream Channel Template`: Selects the stream channel layout.
 - `Stream Channels`: Selects the channels included in the stream.
+- `MP3 Audio Source`: Selects whether the MP3 output uses the L/R stereo pair, a stereo downmix, or KU100 near-field HRTF processing.
 
 Standard templates are `Mono`, `Stereo`, `Stereo + C`, `5.1`, and `7.1`. For multichannel sources, `5.1` is the default practical starting point.
+
+MP3 stereo processing uses the same spatial gain policy as Monitor Output:
+
+- `Stereo Pair (L/R)`: sends the selected stream's first two channels directly to MP3 left/right. Mono is duplicated to left/right.
+- `Stereo Downmix`: applies L/R at `1.0`, center at `0.707` to both sides, LFE muted, side/rear channels at `0.707` to their matching side, then applies a `0.707` master gain.
+- `KU100 Near-field HRTF`: applies L/R at `1.0`, center and side/rear channels at `0.707`, LFE muted, then applies KU100 HRIR convolution with a `0.35` master gain.
+
+The current Stereo Downmix coefficients are shared between Monitor Output and MP3 output for consistency. A more conservative live-music/DJ downmix profile, such as lowering side/rear contribution, may be considered later, but it is not part of the current beta.
 
 ### Monitor Output
 
@@ -147,14 +156,15 @@ Monitor modes:
 
 Monitor Volume is applied after the selected monitor mode processing. It does not affect the streamed audio.
 
-### Icecast Settings
+### Stream Server Settings
 
-`Icecast Settings` configures the streaming destination.
+`Stream Server Settings` configures the active streaming destination fields for the selected encoding format. `Ogg Opus + stereo MP3` shows separate `Opus Icecast` and `Stereo MP3` groups.
 
 - `Host`: Icecast server host name or IP address
 - `Port`: Icecast port
 - `Mount Point`: Stream mount point, for example `/stream`
 - `Password`: Source password
+- `MP3 Shoutcast 1`: Uses the legacy Shoutcast source handshake directly, so no mount point is configured for that output.
 
 Mount Point should start with `/`, such as `/stream`. If the leading `/` is missing, the app normalizes it when saving.
 

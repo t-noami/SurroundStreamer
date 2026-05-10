@@ -25,4 +25,4 @@ For the current platform assessment, see:
 
 Electron Builder configuration may still be useful later, but packaging is not the blocker. The blocker is the missing Linux audio capture backend.
 
-The beta packaging target is reserved for development experiments. If a Linux beta package is generated from `beta/cross-platform-backend`, it should use the incremented beta version line, currently `0.1.1-beta.1`, rather than the stable `0.1.0` version.
+The beta packaging target is reserved for development experiments. If a Linux beta package is generated from `beta/cross-platform-backend`, it should use the incremented beta version line, currently `0.1.1-beta.10`, rather than the stable `0.1.0` version.

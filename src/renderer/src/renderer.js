@@ -16,6 +16,8 @@ const btnBrowse = document.getElementById('btn-browse')
 const filePathInput = document.getElementById('file-path')
 const loopFileInput = document.getElementById('loop-file')
 
+const encodingFormatSelect = document.getElementById('encoding-format')
+const opusBitrateGroup = document.getElementById('opus-bitrate-group')
 const bitrateSelect = document.getElementById('bitrate-select')
 const bitrateActualValue = document.getElementById('bitrate-actual-value')
 const sampleRateSelect = document.getElementById('sample-rate-select')
@@ -39,13 +41,40 @@ const icecastHostInput = document.getElementById('icecast-host')
 const icecastPortInput = document.getElementById('icecast-port')
 const mountPointInput = document.getElementById('mount-point')
 const sourcePasswordInput = document.getElementById('source-password')
+const opusIcecastSettings = document.getElementById('opus-icecast-settings')
+const mp3OutputSettings = document.getElementById('mp3-output-settings')
+const mp3ServerTypeSelect = document.getElementById('mp3-server-type')
+const mp3BitrateSelect = document.getElementById('mp3-bitrate')
+const mp3AudioModeSelect = document.getElementById('mp3-audio-mode')
+const mp3HostInput = document.getElementById('mp3-host')
+const mp3PortInput = document.getElementById('mp3-port')
+const mp3MountGroup = document.getElementById('mp3-mount-group')
+const mp3MountPointInput = document.getElementById('mp3-mount-point')
+const mp3PasswordInput = document.getElementById('mp3-password')
 const icecastSettingsFields = [
   icecastHostInput,
   icecastPortInput,
   mountPointInput,
-  sourcePasswordInput
+  sourcePasswordInput,
+  mp3ServerTypeSelect,
+  mp3BitrateSelect,
+  mp3AudioModeSelect,
+  mp3HostInput,
+  mp3PortInput,
+  mp3MountPointInput,
+  mp3PasswordInput
+]
+const mp3SimulcastDependentFields = [
+  mp3ServerTypeSelect,
+  mp3BitrateSelect,
+  mp3AudioModeSelect,
+  mp3HostInput,
+  mp3PortInput,
+  mp3MountPointInput,
+  mp3PasswordInput
 ]
 const encodingSettingsFields = [
+  encodingFormatSelect,
   bitrateSelect,
   sampleRateSelect,
   channelTemplateSelect,
@@ -56,10 +85,18 @@ const channelNames = ['L', 'R', 'C', 'LFE', 'LS', 'RS', 'LSR', 'RSR']
 const FILE_MAX_CHANNELS = 8
 const ICECAST_SETTINGS_STORAGE_KEY = 'surroundStreamer.icecastSettings.v1'
 const defaultIcecastSettings = {
+  encodingFormat: 'opus',
   host: '',
   port: '8000',
   mountPoint: '/stream',
-  sourcePassword: ''
+  sourcePassword: '',
+  mp3ServerType: 'icecast',
+  mp3Bitrate: '128k',
+  mp3AudioMode: 'stereo',
+  mp3Host: '',
+  mp3Port: '8000',
+  mp3MountPoint: '/stream.mp3',
+  mp3Password: ''
 }
 const channelTemplates = [
   {
@@ -232,9 +269,12 @@ async function loadAudioBackendCapabilities() {
 }
 
 function setIcecastSettingsLocked(isLocked) {
-  icecastSettingsFields.forEach((field) => {
-    if (field) field.disabled = isLocked
-  })
+  const opusEnabled = isOpusStreamEnabled()
+  icecastHostInput.disabled = isLocked || !opusEnabled
+  icecastPortInput.disabled = isLocked || !opusEnabled
+  mountPointInput.disabled = isLocked || !opusEnabled
+  sourcePasswordInput.disabled = isLocked || !opusEnabled
+  updateMp3SimulcastControls(isLocked)
   document.querySelector('.config-panel')?.classList.toggle('disabled-panel', isLocked)
 }
 
@@ -256,11 +296,32 @@ function normalizeMountPoint(mountPoint) {
 
 function currentIcecastSettings() {
   return {
+    encodingFormat: encodingFormat(),
     host: icecastHostInput.value.trim(),
     port: String(icecastPortInput.value || '').trim(),
     mountPoint: normalizeMountPoint(mountPointInput.value),
-    sourcePassword: sourcePasswordInput.value
+    sourcePassword: sourcePasswordInput.value,
+    mp3ServerType: mp3ServerTypeSelect.value,
+    mp3Bitrate: mp3BitrateSelect.value,
+    mp3AudioMode: mp3AudioModeSelect.value,
+    mp3Host: mp3HostInput.value.trim(),
+    mp3Port: String(mp3PortInput.value || '').trim(),
+    mp3MountPoint: normalizeMountPoint(mp3MountPointInput.value || '/stream.mp3'),
+    mp3Password: mp3PasswordInput.value
   }
+}
+
+function encodingFormat() {
+  const value = encodingFormatSelect.value
+  return ['opus', 'opus-mp3', 'mp3'].includes(value) ? value : defaultIcecastSettings.encodingFormat
+}
+
+function isOpusStreamEnabled() {
+  return encodingFormat() !== 'mp3'
+}
+
+function isMp3StreamEnabled() {
+  return encodingFormat() !== 'opus'
 }
 
 function applyIcecastSettings(settings) {
@@ -269,6 +330,8 @@ function applyIcecastSettings(settings) {
     ...(settings || {})
   }
 
+  encodingFormatSelect.value =
+    merged.encodingFormat || (merged.mp3SimulcastEnabled ? 'opus-mp3' : 'opus')
   icecastHostInput.value = merged.host || defaultIcecastSettings.host
   icecastPortInput.value = merged.port || defaultIcecastSettings.port
   mountPointInput.value = normalizeMountPoint(merged.mountPoint)
@@ -276,6 +339,36 @@ function applyIcecastSettings(settings) {
     merged.sourcePassword === undefined
       ? defaultIcecastSettings.sourcePassword
       : merged.sourcePassword
+  mp3ServerTypeSelect.value = merged.mp3ServerType || defaultIcecastSettings.mp3ServerType
+  mp3BitrateSelect.value = merged.mp3Bitrate || defaultIcecastSettings.mp3Bitrate
+  mp3AudioModeSelect.value = merged.mp3AudioMode || defaultIcecastSettings.mp3AudioMode
+  mp3HostInput.value = merged.mp3Host || defaultIcecastSettings.mp3Host
+  mp3PortInput.value = merged.mp3Port || defaultIcecastSettings.mp3Port
+  mp3MountPointInput.value = normalizeMountPoint(
+    merged.mp3MountPoint || defaultIcecastSettings.mp3MountPoint
+  )
+  mp3PasswordInput.value =
+    merged.mp3Password === undefined ? defaultIcecastSettings.mp3Password : merged.mp3Password
+  updateMp3SimulcastControls(isStreaming)
+}
+
+function updateMp3SimulcastControls(isLocked = isStreaming) {
+  const mp3Enabled = isMp3StreamEnabled()
+  const opusEnabled = isOpusStreamEnabled()
+  const isShoutcast = mp3ServerTypeSelect.value === 'shoutcast1'
+  opusBitrateGroup.classList.toggle('hidden', !opusEnabled)
+  bitrateSelect.disabled = isLocked || !opusEnabled
+  opusIcecastSettings.classList.toggle('hidden', !opusEnabled)
+  mp3OutputSettings.classList.toggle('hidden', !mp3Enabled)
+  icecastHostInput.disabled = isLocked || !opusEnabled
+  icecastPortInput.disabled = isLocked || !opusEnabled
+  mountPointInput.disabled = isLocked || !opusEnabled
+  sourcePasswordInput.disabled = isLocked || !opusEnabled
+  mp3SimulcastDependentFields.forEach((field) => {
+    if (field) field.disabled = isLocked || !mp3Enabled
+  })
+  mp3MountPointInput.disabled = isLocked || !mp3Enabled || isShoutcast
+  mp3MountGroup.classList.toggle('hidden', isShoutcast)
 }
 
 function loadIcecastSettings() {
@@ -294,6 +387,7 @@ function loadIcecastSettings() {
 function saveIcecastSettings() {
   const settings = currentIcecastSettings()
   mountPointInput.value = settings.mountPoint
+  mp3MountPointInput.value = settings.mp3MountPoint
   try {
     localStorage.setItem(ICECAST_SETTINGS_STORAGE_KEY, JSON.stringify(settings))
   } catch (err) {
@@ -843,6 +937,13 @@ function selectedTemplateChannelLabels(channels) {
   const template = selectedChannelTemplate()
   return Array.from({ length: channels }, (_value, index) => {
     return template?.channels[index] || channelNames[index] || `CH${index + 1}`
+  })
+}
+
+function selectedStreamChannelLabels() {
+  const template = selectedChannelTemplate()
+  return selectedChannelIndexes().map((channelIndex) => {
+    return template?.channels[channelIndex] || channelNames[channelIndex] || `CH${channelIndex + 1}`
   })
 }
 
@@ -1607,6 +1708,11 @@ icecastSettingsFields.forEach((field) => {
   field.addEventListener('change', saveIcecastSettings)
   field.addEventListener('input', saveIcecastSettings)
 })
+encodingFormatSelect.addEventListener('change', () => {
+  updateMp3SimulcastControls()
+  saveIcecastSettings()
+})
+mp3ServerTypeSelect.addEventListener('change', () => updateMp3SimulcastControls())
 bitrateSelect.addEventListener('change', updateBitrateActualLabel)
 channelTemplateSelect.addEventListener('change', () => {
   updateChannelControls(true, channelTemplateSelect.value)
@@ -1664,6 +1770,7 @@ btnStart.addEventListener('click', async () => {
     inputDeviceName: currentInputType === 'device' ? inputDevice?.name : undefined,
     selectedChannels,
     streamChannelLayout: selectedStreamLayout(),
+    streamChannelLabels: selectedStreamChannelLabels(),
     sampleRate: inputInfo.sampleRate || Number(sampleRateSelect.value),
     bitrate: actualBitrateValue(),
     monitorEnabled: isMonitorAvailable() && monitorEnabled.checked,
@@ -1676,10 +1783,21 @@ btnStart.addEventListener('click', async () => {
     monitorLatencyMs: effectiveMonitorLatencyMs(currentInputType, monitorMode.value),
     monitorLowLatency: shouldUseLowLatencyMonitor(currentInputType, monitorMode.value),
     monitorVolume: monitorVolumePercent(),
+    encodingFormat: encodingFormat(),
     icecastHost: icecastHostInput.value.trim(),
     icecastPort: icecastPortInput.value.trim(),
     mountPoint: normalizeMountPoint(mountPointInput.value),
     sourcePassword: sourcePasswordInput.value,
+    mp3Simulcast: {
+      enabled: isMp3StreamEnabled(),
+      serverType: mp3ServerTypeSelect.value,
+      host: mp3HostInput.value.trim(),
+      port: String(mp3PortInput.value || '').trim(),
+      mountPoint: normalizeMountPoint(mp3MountPointInput.value || '/stream.mp3'),
+      password: mp3PasswordInput.value,
+      bitrate: mp3BitrateSelect.value,
+      audioMode: mp3AudioModeSelect.value
+    },
     loopFile: currentInputType === 'file' && loopFileInput.checked
   }
   saveIcecastSettings()
@@ -1697,6 +1815,40 @@ btnStart.addEventListener('click', async () => {
   if (currentInputType === 'device' && !config.inputPath) {
     addLog('Error: No input source selected.', 'error')
     return
+  }
+
+  if (isOpusStreamEnabled()) {
+    if (!config.icecastHost) {
+      addLog('Error: Opus Icecast host is required.', 'error')
+      return
+    }
+    if (!config.icecastPort) {
+      addLog('Error: Opus Icecast port is required.', 'error')
+      return
+    }
+    if (!config.sourcePassword) {
+      addLog('Error: Opus Icecast password is required.', 'error')
+      return
+    }
+  }
+
+  if (config.mp3Simulcast.enabled) {
+    if (!config.mp3Simulcast.host) {
+      addLog('Error: MP3 simulcast host is required.', 'error')
+      return
+    }
+    if (!config.mp3Simulcast.port) {
+      addLog('Error: MP3 simulcast port is required.', 'error')
+      return
+    }
+    if (!config.mp3Simulcast.password) {
+      addLog('Error: MP3 simulcast password is required.', 'error')
+      return
+    }
+    if (config.mp3Simulcast.serverType === 'icecast' && !config.mp3Simulcast.mountPoint) {
+      addLog('Error: MP3 Icecast mount point is required.', 'error')
+      return
+    }
   }
 
   if (currentInputType === 'device' && !(await ensureMicrophoneAccess('streaming'))) {

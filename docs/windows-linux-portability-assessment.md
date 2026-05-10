@@ -19,10 +19,167 @@ Feature parity on Windows or Linux should be treated as difficult.
 - Renderer UI structure.
 - Icecast configuration and persistence.
 - Ogg Opus FFmpeg output pipeline.
+- Stereo MP3 output modes, because MP3 encoding and spatial processing are handled in the shared FFmpeg pipeline after backend PCM capture.
+- MP3 Shoutcast 1 source relay logic, because it uses Node TCP sockets rather than a platform audio API.
 - Stream channel templates up to 7.1.
 - File source streaming path, because it uses FFmpeg file input.
 - WebAudio-based monitor playback logic in `src/renderer/src/monitor-audio.js`, assuming the runtime supports the required WebAudio APIs.
 - KU100 near-field HRTF renderer data and channel mapping logic.
+
+## Future Backend Compatibility For MP3 Stereo Output
+
+This section answers a forward-looking question: if Windows and Linux audio backends are developed after the current macOS work, does the current Opus/MP3/Downmix/HRTF/Shoutcast structure conflict with those future platform backends?
+
+Assessment: the current structure does not require an impossible Windows or Linux backend. The important point is to keep the boundary stable.
+
+Platform backends should stop at capture and optional native monitor playback. `src/main/ffmpeg-manager.js` should remain responsible for the shared stream graph:
+
+- Opus-only output.
+- Opus plus stereo MP3 simulcast.
+- Stereo MP3 only output.
+- MP3 server transport selection between Icecast and Shoutcast 1.
+- MP3 audio source selection: L/R stereo pair, stereo downmix, or KU100 near-field HRTF.
+
+This means Windows and Linux backends do not need to implement MP3, Opus, Icecast, Shoutcast, stereo downmix, or KU100 HRTF themselves. They only need to supply a compatible PCM capture contract:
+
+```text
+Float32 little-endian PCM
+sample rate
+channel count
+stable pacing into FFmpeg stdin
+```
+
+Channel labels/layout should be treated as a required future contract extension for robust
+multichannel work. The current shared FFmpeg path mainly consumes sample rate and channel count,
+then derives labels from renderer channel-template selection. That is workable for known default
+orders, but Windows/Linux backends should eventually report normalized channel order explicitly.
+
+If a platform API naturally captures another format, such as Int16 PCM, planar Float32, or a device-native non-interleaved format, the platform helper should convert it before crossing the backend boundary or explicitly extend the shared input contract. The shared FFmpeg code should not become Windows-specific or Linux-specific.
+
+### Compatibility verdict
+
+The current design is compatible with future Windows/Linux backend development if these constraints are preserved:
+
+- The backend owns capture API details only: WASAPI/ASIO/DirectShow on Windows, PipeWire/PulseAudio/ALSA on Linux.
+- The backend emits or exposes PCM with known sample rate and channel count before FFmpeg starts encoding.
+- The shared stream graph owns channel selection, Opus encoding, MP3 encoding, downmix, HRTF, meters, and network output.
+- Channel labels/layout should be normalized as the backend contract matures. If an OS backend cannot provide labels, the app must fall back to an explicit default channel order and avoid pretending that the mapping is driver-verified.
+- Native low-latency monitor playback is optional backend capability. It must not replace or fork the streaming encode pipeline.
+- Packaging must include backend helpers and shared HRIR assets, but packaging does not change the backend/encoder boundary.
+
+The design would start to conflict with future backends if any of these happen:
+
+- A Windows or Linux backend directly implements MP3/Opus encoding or Shoutcast/Icecast transport.
+- A backend applies its own stereo downmix or HRTF before the shared FFmpeg graph, causing different audio policy per OS.
+- A backend emits PCM without stable format metadata and the shared graph guesses channel count or sample rate.
+- A backend exposes OS-specific channel labels directly to renderer/FFmpeg without normalization.
+- A native monitor path becomes the only way to hear or route audio, instead of an optional capability.
+
+### Windows backend requirements
+
+Windows can maintain the same feature model if the future backend conforms to the shared PCM boundary.
+
+Required backend responsibilities:
+
+- Enumerate Windows capture devices through MMDevice/WASAPI, ASIO, or DirectShow fallback.
+- Capture Audio Input into the shared PCM contract.
+- Report actual sample rate and channel count before encoding begins.
+- Preserve or normalize channel ordering enough for Stereo Pair, Downmix, and KU100 HRTF to be meaningful.
+- Keep any native low-latency monitor implementation separate from stream encoding.
+
+What the Windows backend should not do:
+
+- It should not implement a separate MP3 downmix policy.
+- It should not generate MP3 or Opus itself.
+- It should not own Shoutcast 1 networking.
+- It should not hide driver-dependent channel order behind macOS/Core Audio labels.
+
+Windows validation still required:
+
+- Build the Windows helper with `npm run build:audio-helper:win` before Windows beta packaging.
+- Confirm the packaged app can find `native/audio-backends/windows/.build/SurroundAudioBackend.exe` from the unpacked app resources.
+- Confirm the Windows packaged FFmpeg binary has `libmp3lame` encoding and the `headphone` audio filter available.
+- Confirm `resources/ku100-hrir/**` is unpacked and reachable from the packaged Windows app.
+- Confirm the Windows backend reports real channel count and sample rate for multichannel input devices.
+- Confirm long-run PCM pacing with WASAPI/ASIO and DirectShow fallback.
+- Confirm firewall and server behavior for Shoutcast 1 direct TCP relay.
+
+Risk:
+
+- The current Windows build scripts and stable packaging config are packaging scaffolds, not a complete release pipeline for the Windows helper.
+- DirectShow fallback may expose only stereo or driver-dependent layouts.
+- ASIO/WASAPI channel ordering may not match the macOS/Core Audio labels. If labels are unavailable, the UI should clearly treat the mapping as backend-reported or default-order only.
+- Stable Windows Audio Input is still a backend quality issue, not an MP3 pipeline issue.
+
+### Linux backend requirements
+
+Linux can maintain the same feature model if a future PipeWire/PulseAudio backend conforms to the same shared PCM boundary.
+
+Required backend responsibilities:
+
+- Enumerate capture sources through PipeWire first, with PulseAudio or ALSA only as scoped fallback paths.
+- Capture Audio Input into the shared PCM contract.
+- Report actual sample rate and channel count before encoding begins.
+- Normalize channel order or explicitly mark it as backend/default order.
+- Gate unavailable backend features through capability reporting instead of exposing broken controls.
+
+What the Linux backend should not do:
+
+- It should not implement a separate MP3 downmix policy.
+- It should not generate MP3 or Opus itself.
+- It should not own Shoutcast 1 networking.
+- It should not depend on one distribution's PipeWire/PulseAudio naming as a global app contract.
+
+Linux validation still required:
+
+- Confirm the Linux packaged FFmpeg binary has `libmp3lame` encoding and the `headphone` audio filter available.
+- Confirm `resources/ku100-hrir/**` is unpacked and reachable from the packaged Linux app.
+- Confirm the File picker admits the intended test formats. The current audio-file filter does not list `mp3`, although `All Files` can still select one.
+- Implement and validate a PipeWire/PulseAudio backend before claiming Audio Input parity.
+- Confirm channel ordering and multichannel device exposure under PipeWire/PulseAudio.
+
+Risk:
+
+- Linux distribution audio stacks differ, so Audio Input parity should be gated by backend capability reporting.
+- PipeWire/PulseAudio monitor-source behavior is not the same as macOS Core Audio input capture.
+
+### Shared implementation guardrails
+
+To keep future Windows/Linux development feasible, new features should follow this split:
+
+```text
+OS backend:
+  device enumeration
+  capture API
+  native permission/runtime diagnostics
+  optional native monitor playback
+  PCM format reporting
+
+shared main/renderer code:
+  input source selection UI
+  channel template selection
+  Opus/MP3 encoding
+  Icecast/Shoutcast output
+  Stereo Pair / Stereo Downmix / KU100 HRTF policy
+  HRIR asset lookup
+  stream meters and logging
+```
+
+If a future platform backend needs a different capture format for performance, extend the shared backend contract deliberately. Do not silently add platform branches inside the MP3 or HRTF filter graph.
+
+### Downmix policy note
+
+The current Stereo Downmix policy is intentionally aligned with Monitor Output:
+
+- L/R at `1.0`.
+- Center at `0.707` to both sides.
+- LFE muted.
+- Side/rear channels at `0.707` to their matching side.
+- Final `0.707` master gain.
+
+Using `0.707` for center and surround contribution is a common multichannel-to-stereo downmix convention, but it is not the only reasonable policy for live music/DJ material. A future selectable "conservative downmix" profile could reduce side/rear contribution, for example to `0.5` (-6 dB), but that is a product/DSP policy choice and is not implemented in the current beta.
+
+For cross-platform consistency, any future downmix profile must remain in the shared FFmpeg/DSP layer rather than inside a macOS, Windows, or Linux capture backend.
 
 ## Monitor Output Portability
 
@@ -92,9 +249,10 @@ Current helper responsibilities:
 
 Any Windows/Linux implementation needs a new helper or backend with the same contract.
 
-### App Audio source
+### Removed / Historical App Audio source
 
-Current path:
+App Audio has been removed from the current beta line. If it is reintroduced later, the old macOS
+path looked like this:
 
 - Renderer selects App Audio process and output stream.
 - `src/main/audio-backends/macos-core-audio.js` delegates to `src/main/audio-backends/macos/core-audio-helper.js`.
@@ -102,12 +260,12 @@ Current path:
 - `src/main/ffmpeg-manager.js` reads Float32 PCM from helper stdout.
 - FFmpeg receives `f32le` through `pipe:0`.
 
-This is not just "select another FFmpeg input". The current design expects a per-app/process tap with known channels and sample rate. Windows/Linux need a backend that can either:
+This is not just "select another FFmpeg input". The old design expected a per-app/process tap with known channels and sample rate. Windows/Linux would need a backend that can either:
 
 - provide equivalent per-app capture, or
 - expose a documented limitation such as output-device loopback only.
 
-Without that backend, App Audio is not functional.
+Without that backend, reintroduced App Audio would not be functional.
 
 ### Audio Input source
 

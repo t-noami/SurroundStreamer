@@ -19,7 +19,7 @@ Stable release:
 
 Beta builds from this branch must use the next version number:
 
-- Next beta version: `0.1.1-beta.1`
+- Next beta version: `0.1.1-beta.10`
 - Beta app name target: `SurroundStreamer-beta-0.1.1`
 - macOS beta app target: `dist/beta/mac-arm64/SurroundStreamer-beta-0.1.1.app`
 - Windows beta installer target, once buildable: `SurroundStreamer-beta-0.1.1-setup.exe`
@@ -404,7 +404,7 @@ Exit criteria:
 - Keep `README.md` focused on the stable macOS release until Windows/Linux beta behavior is verified.
 - Keep `docs/build-windows.md` and `docs/build-linux.md` in "Preparing" state until File-only builds actually work.
 - Use `docs/windows-linux-portability-assessment.md` as the architecture reference for cross-platform decisions.
-- Add beta release notes when `0.1.1-beta.1` is built.
+- Add beta release notes when `0.1.1-beta.10` is built.
 
 ## Immediate Next Tasks
 

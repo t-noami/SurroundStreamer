@@ -1,6 +1,10 @@
 import ffmpeg from 'fluent-ffmpeg'
 import { spawn } from 'child_process'
 import { EventEmitter } from 'events'
+import net from 'net'
+import { app } from 'electron'
+import { existsSync } from 'fs'
+import { join, resolve } from 'path'
 import { getFfmpegPath } from './ffmpeg-path'
 import audioBackend from './audio-backends'
 
@@ -25,6 +29,9 @@ class FFmpegManager extends EventEmitter {
     this.monitorAudioBuffers = []
     this.monitorAudioBytes = 0
     this.monitorAudioFlushTimer = null
+    this.shoutcast1RelaySocket = null
+    this.shoutcast1RelayPipe = null
+    this.shoutcast1RelayActive = false
   }
 
   validateBackendSupport(config) {
@@ -60,30 +67,39 @@ class FFmpegManager extends EventEmitter {
     this.monitorFormat = this.getMonitorFormat(config)
     this.monitorPipeEnabled = this.shouldUseFfmpegMonitor(config)
     this.monitorForwarding = !!config.monitorEnabled && this.monitorPipeEnabled
+    const shoutcast1RelayEnabled = this.shouldUseShoutcast1Relay(config)
+    const shoutcast1RelayPipeIndex = shoutcast1RelayEnabled
+      ? this.monitorPipeEnabled
+        ? 4
+        : 3
+      : null
 
     try {
       await this.prepareBackendCapture(config)
       this.monitorFormat = this.getMonitorFormat(config)
+      if (shoutcast1RelayEnabled) {
+        await this.openShoutcast1Relay(this.normalizedMp3SimulcastConfig(config))
+      }
     } catch (error) {
       this.cleanupInputDeviceProcess()
+      this.closeShoutcast1Relay()
       this.status = 'idle'
       this.monitorForwarding = false
       this.monitorPipeEnabled = false
       throw error
     }
 
-    const args = this.buildArgs(config)
+    const args = this.buildArgs(config, { shoutcast1RelayPipeIndex })
 
     this.emit('log', {
       type: 'system',
       message: `Starting FFmpeg: ${this.redactArgs(args).join(' ')}`
     })
 
-    const stdio = this.monitorPipeEnabled
-      ? ['pipe', 'pipe', 'pipe', 'pipe']
-      : ['pipe', 'pipe', 'pipe']
+    const stdio = this.buildFfmpegStdio({ shoutcast1RelayPipeIndex })
     this.process = spawn(ffmpegPath, args, { stdio })
     this.attachFfmpegEvents()
+    this.attachShoutcast1RelayPipe(shoutcast1RelayPipeIndex)
     if (this.monitorFormat && !this.monitorPipeEnabled) {
       this.emit('monitor-format', this.monitorFormat)
     }
@@ -95,6 +111,7 @@ class FFmpegManager extends EventEmitter {
       this.emit('status', this.getStatus())
     } catch (error) {
       this.cleanupInputDeviceProcess()
+      this.closeShoutcast1Relay()
       if (this.process && !this.process.killed) {
         this.process.kill('SIGTERM')
       }
@@ -107,6 +124,17 @@ class FFmpegManager extends EventEmitter {
       this.emit('monitor-stop')
       throw error
     }
+  }
+
+  buildFfmpegStdio({ shoutcast1RelayPipeIndex = null } = {}) {
+    const stdio = ['pipe', 'pipe', 'pipe']
+    if (this.monitorPipeEnabled) {
+      stdio[3] = 'pipe'
+    }
+    if (shoutcast1RelayPipeIndex !== null) {
+      stdio[shoutcast1RelayPipeIndex] = 'pipe'
+    }
+    return stdio
   }
 
   async prepareBackendCapture(config) {
@@ -158,6 +186,7 @@ class FFmpegManager extends EventEmitter {
         message: `FFmpeg exited with code ${code}`
       })
       this.cleanupInputDeviceProcess()
+      this.closeShoutcast1Relay()
       this.process = null
       this.status = 'idle'
       this.monitorForwarding = false
@@ -172,6 +201,171 @@ class FFmpegManager extends EventEmitter {
       this.status = 'error'
       this.emit('status', this.getStatus())
     })
+  }
+
+  attachShoutcast1RelayPipe(pipeIndex) {
+    if (pipeIndex === null || !this.shoutcast1RelaySocket || !this.process?.stdio?.[pipeIndex]) {
+      return
+    }
+
+    this.shoutcast1RelayPipe = this.process.stdio[pipeIndex]
+    this.shoutcast1RelayPipe.on('error', (error) => {
+      if (error.code !== 'EPIPE') {
+        this.emit('log', { type: 'error', message: `Shoutcast1 MP3 pipe error: ${error.message}` })
+      }
+    })
+    this.shoutcast1RelayPipe.pipe(this.shoutcast1RelaySocket, { end: false })
+    this.shoutcast1RelayPipe.on('end', () => {
+      this.shoutcast1RelaySocket?.end()
+    })
+  }
+
+  async openShoutcast1Relay(mp3Config) {
+    const port = Number(mp3Config.port)
+    if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+      throw new Error('MP3 Shoutcast1 port is invalid')
+    }
+
+    this.closeShoutcast1Relay()
+
+    const ports = [port]
+    if (port < 65535) {
+      ports.push(port + 1)
+    }
+
+    let lastError = null
+    for (const candidatePort of ports) {
+      try {
+        await this.openShoutcast1RelayOnPort(mp3Config, candidatePort)
+        return
+      } catch (error) {
+        lastError = error
+        this.emit('log', {
+          type: 'error',
+          message: `MP3 Shoutcast1 source connection failed on port ${candidatePort}: ${error.message}`
+        })
+        this.closeShoutcast1Relay()
+      }
+    }
+
+    throw lastError || new Error('MP3 Shoutcast1 connection failed')
+  }
+
+  async openShoutcast1RelayOnPort(mp3Config, port) {
+    const socket = net.createConnection({ host: mp3Config.host, port })
+    socket.setNoDelay(true)
+    socket.setKeepAlive(true)
+    this.shoutcast1RelaySocket = socket
+    this.shoutcast1RelayActive = true
+
+    await new Promise((resolve, reject) => {
+      let response = ''
+      const timeout = setTimeout(() => {
+        cleanup()
+        socket.destroy()
+        reject(new Error('MP3 Shoutcast1 authentication timed out'))
+      }, 10000)
+
+      const cleanup = () => {
+        clearTimeout(timeout)
+        socket.off('connect', onConnect)
+        socket.off('data', onData)
+        socket.off('error', onError)
+        socket.off('close', onClose)
+      }
+      const onConnect = () => {
+        socket.write(`${mp3Config.password}\r\n`)
+      }
+      const onData = (data) => {
+        response += data.toString('latin1')
+        if (/invalid/i.test(response)) {
+          cleanup()
+          socket.destroy()
+          reject(new Error(`authentication failed: ${this.compactServerResponse(response)}`))
+          return
+        }
+        if (/^OK2/i.test(response) || response.includes('\r\nOK2')) {
+          cleanup()
+          socket.write(this.buildShoutcast1Headers(mp3Config))
+          resolve()
+        }
+      }
+      const onError = (error) => {
+        cleanup()
+        reject(new Error(error.message))
+      }
+      const onClose = () => {
+        cleanup()
+        const detail = this.compactServerResponse(response)
+        reject(
+          new Error(
+            detail
+              ? `connection closed during authentication: ${detail}`
+              : 'connection closed during authentication'
+          )
+        )
+      }
+
+      socket.once('connect', onConnect)
+      socket.on('data', onData)
+      socket.once('error', onError)
+      socket.once('close', onClose)
+    })
+
+    socket.on('error', (error) => {
+      if (!this.shoutcast1RelayActive) return
+      this.emit('log', { type: 'error', message: `MP3 Shoutcast1 relay error: ${error.message}` })
+      this.stopProcessAfterRelayFailure()
+    })
+    socket.on('close', () => {
+      if (!this.shoutcast1RelayActive) return
+      this.emit('log', { type: 'error', message: 'MP3 Shoutcast1 relay disconnected' })
+      this.stopProcessAfterRelayFailure()
+    })
+
+    this.emit('log', {
+      type: 'system',
+      message: `MP3 Shoutcast1 relay connected to ${mp3Config.host}:${port}`
+    })
+  }
+
+  compactServerResponse(response) {
+    return String(response || '')
+      .replace(/\r/g, '\\r')
+      .replace(/\n/g, '\\n')
+      .slice(0, 240)
+  }
+
+  buildShoutcast1Headers(mp3Config) {
+    const bitrateKbps = String(parseInt(mp3Config.bitrate, 10) || 128)
+    return [
+      'icy-name:SurroundStreamer',
+      'icy-genre:Unknown',
+      'icy-pub:0',
+      `icy-br:${bitrateKbps}`,
+      'icy-url:',
+      'content-type:audio/mpeg',
+      '',
+      ''
+    ].join('\r\n')
+  }
+
+  stopProcessAfterRelayFailure() {
+    if (this.process && !this.process.killed) {
+      this.process.kill('SIGTERM')
+    }
+  }
+
+  closeShoutcast1Relay() {
+    this.shoutcast1RelayActive = false
+    if (this.shoutcast1RelayPipe) {
+      this.shoutcast1RelayPipe.unpipe(this.shoutcast1RelaySocket || undefined)
+      this.shoutcast1RelayPipe = null
+    }
+    if (this.shoutcast1RelaySocket) {
+      this.shoutcast1RelaySocket.destroy()
+      this.shoutcast1RelaySocket = null
+    }
   }
 
   handleFfmpegStderr(chunk) {
@@ -189,7 +383,7 @@ class FFmpegManager extends EventEmitter {
     const message = visibleLines.join('\n').trim()
     if (message) {
       this.rememberFfmpegLines(visibleLines)
-      this.emit('log', { type: 'ffmpeg', message })
+      this.emit('log', { type: 'ffmpeg', message: this.redactText(message) })
     }
   }
 
@@ -657,6 +851,7 @@ class FFmpegManager extends EventEmitter {
         resolve()
       })
       this.cleanupInputDeviceProcess()
+      this.closeShoutcast1Relay()
       this.process.kill('SIGTERM')
       this.monitorForwarding = false
       this.monitorPipeEnabled = false
@@ -679,6 +874,7 @@ class FFmpegManager extends EventEmitter {
     this.monitorForwarding = false
     this.monitorPipeEnabled = false
     this.resetMonitorAudioQueue()
+    this.closeShoutcast1Relay()
     this.emit('monitor-stop')
     this.emit('status', this.getStatus())
 
@@ -764,7 +960,7 @@ class FFmpegManager extends EventEmitter {
     }
   }
 
-  buildArgs(config) {
+  buildArgs(config, { shoutcast1RelayPipeIndex = null } = {}) {
     const {
       inputType,
       inputPath,
@@ -781,38 +977,78 @@ class FFmpegManager extends EventEmitter {
     const outputSampleRate = this.getOutputSampleRate(config)
     const outputLayout = this.channelLayoutFor(outputChannels, config)
     const monitorEnabled = this.shouldUseFfmpegMonitor(config)
+    const opusStreamEnabled = this.shouldUseOpusStream(config)
+    const mp3SimulcastEnabled = this.shouldUseMp3Simulcast(config)
+    const mp3AudioMode = this.mp3AudioMode(config)
+    const mp3HrtfLabels =
+      mp3SimulcastEnabled && mp3AudioMode === 'hrtf'
+        ? this.mp3HrtfLabels(config, outputChannels)
+        : []
 
     args.push(...this.buildInputArgs(config, { inputType, inputPath, loopFile }))
+    args.push(...this.buildHrtfInputArgs(mp3HrtfLabels))
 
     args.push('-vn')
 
     args.push(
       '-filter_complex',
-      this.buildStreamFilterGraph(config, outputChannels, monitorEnabled)
+      this.buildStreamFilterGraph(
+        config,
+        outputChannels,
+        monitorEnabled,
+        opusStreamEnabled,
+        mp3SimulcastEnabled,
+        { mp3AudioMode, mp3HrtfLabels }
+      )
     )
-    args.push('-map', '[enc]')
 
-    args.push('-ar', String(outputSampleRate))
-    args.push('-ac', String(outputChannels))
-    if (outputLayout) {
-      args.push('-channel_layout', outputLayout)
-    }
-    args.push('-c:a', 'libopus')
-    args.push('-b:a', bitrate)
-    args.push('-vbr', 'constrained')
-    args.push('-compression_level', '5')
-    args.push('-application', 'audio')
-    const mappingFamily = this.opusMappingFamily(outputChannels, outputLayout)
-    if (mappingFamily !== null) {
-      args.push('-mapping_family', String(mappingFamily))
-    }
-    args.push('-frame_duration', '20')
-    args.push('-f', 'ogg')
-    args.push('-content_type', 'audio/ogg')
+    if (opusStreamEnabled) {
+      args.push('-map', '[enc]')
+      args.push('-ar', String(outputSampleRate))
+      args.push('-ac', String(outputChannels))
+      if (outputLayout) {
+        args.push('-channel_layout', outputLayout)
+      }
+      args.push('-c:a', 'libopus')
+      args.push('-b:a', bitrate)
+      args.push('-vbr', 'constrained')
+      args.push('-compression_level', '5')
+      args.push('-application', 'audio')
+      const mappingFamily = this.opusMappingFamily(outputChannels, outputLayout)
+      if (mappingFamily !== null) {
+        args.push('-mapping_family', String(mappingFamily))
+      }
+      args.push('-frame_duration', '20')
+      args.push('-f', 'ogg')
+      args.push('-content_type', 'audio/ogg')
 
-    const encodedPassword = encodeURIComponent(sourcePassword || '')
-    const icecastUrl = `icecast://source:${encodedPassword}@${icecastHost}:${icecastPort}${mountPoint}`
-    args.push(icecastUrl)
+      const encodedPassword = encodeURIComponent(sourcePassword || '')
+      const icecastUrl = `icecast://source:${encodedPassword}@${icecastHost}:${icecastPort}${mountPoint}`
+      args.push(icecastUrl)
+    }
+
+    if (mp3SimulcastEnabled) {
+      const mp3Config = this.normalizedMp3SimulcastConfig(config, {
+        sampleRate: outputSampleRate
+      })
+      args.push('-map', '[mp3enc]')
+      args.push('-ar', String(mp3Config.sampleRate))
+      args.push('-ac', '2')
+      args.push('-c:a', 'libmp3lame')
+      args.push('-b:a', mp3Config.bitrate)
+      if (mp3Config.serverType === 'shoutcast1') {
+        if (shoutcast1RelayPipeIndex === null) {
+          throw new Error('MP3 Shoutcast1 relay pipe is not configured')
+        }
+        args.push('-write_xing', '0')
+        args.push('-f', 'mp3')
+        args.push(`pipe:${shoutcast1RelayPipeIndex}`)
+      } else {
+        args.push('-content_type', 'audio/mpeg')
+        args.push('-f', 'mp3')
+        args.push(this.mp3SimulcastUrl(mp3Config))
+      }
+    }
 
     if (monitorEnabled) {
       const monitorChannels = this.getMonitorChannels(config, outputChannels)
@@ -866,23 +1102,61 @@ class FFmpegManager extends EventEmitter {
     return args
   }
 
-  buildStreamFilterGraph(config, outputChannels, monitorEnabled) {
-    const filters = this.buildPreEncodeFilters(config, outputChannels)
-    const prefix = filters.length > 0 ? `${filters.join(',')},` : ''
-    const meterFilters = this.buildMeterFilters(outputChannels, this.getOutputSampleRate(config))
+  buildHrtfInputArgs(labels) {
+    return labels.flatMap((label) => ['-i', this.hrtfPathFor(label)])
+  }
 
-    if (!monitorEnabled) {
-      return `[0:a]${prefix}asplit=2[enc][meterbase];[meterbase]${meterFilters.join(',')},anullsink`
+  buildStreamFilterGraph(
+    config,
+    outputChannels,
+    monitorEnabled,
+    opusStreamEnabled = true,
+    mp3SimulcastEnabled = false,
+    { mp3AudioMode = 'stereo', mp3HrtfLabels = [] } = {}
+  ) {
+    const filters = this.buildPreEncodeFilters(config, outputChannels)
+    const meterFilters = this.buildMeterFilters(outputChannels, this.getOutputSampleRate(config))
+    const encodedOutputs = ['[meterbase]']
+    if (opusStreamEnabled) {
+      encodedOutputs.push('[encbase]')
+    }
+    if (mp3SimulcastEnabled) {
+      encodedOutputs.push('[mp3base]')
+    }
+    const encodedSplit =
+      encodedOutputs.length > 1
+        ? `asplit=${encodedOutputs.length}${encodedOutputs.join('')}`
+        : 'anull[encbase]'
+    const encodedSource = monitorEnabled ? '[streambase]' : '[0:a]'
+    const encodedChain = `${encodedSource}${this.filterChain(filters, encodedSplit)}`
+    const chains = [encodedChain, `[meterbase]${meterFilters.join(',')},anullsink`]
+
+    if (opusStreamEnabled) {
+      chains.push('[encbase]anull[enc]')
     }
 
-    const monitorFilter = this.buildMonitorFilter(config, outputChannels)
-    const streamChain = prefix
-      ? `[streambase]${prefix.slice(0, -1)}[enc]`
-      : '[streambase]anull[enc]'
-    const meterChain = prefix
-      ? `[meterbase]${prefix}${meterFilters.join(',')},anullsink`
-      : `[meterbase]${meterFilters.join(',')},anullsink`
-    return `[0:a]asplit=3[streambase][monbase][meterbase];${streamChain};${meterChain};[monbase]${monitorFilter}[mon]`
+    if (mp3SimulcastEnabled) {
+      chains.push(
+        this.buildMp3FilterChain(
+          '[mp3base]',
+          '[mp3enc]',
+          outputChannels,
+          mp3AudioMode,
+          mp3HrtfLabels
+        )
+      )
+    }
+
+    if (monitorEnabled) {
+      chains.unshift('[0:a]asplit=2[streambase][monbase]')
+      chains.push(`[monbase]${this.buildMonitorFilter(config, outputChannels)}[mon]`)
+    }
+
+    return chains.join(';')
+  }
+
+  filterChain(filters, tail) {
+    return filters.length > 0 ? `${filters.join(',')},${tail}` : tail
   }
 
   buildPreEncodeFilters(config, outputChannels) {
@@ -936,6 +1210,69 @@ class FFmpegManager extends EventEmitter {
     return 'anull'
   }
 
+  buildMp3FilterChain(inputLabel, outputLabel, outputChannels, mode, hrtfLabels) {
+    if (mode === 'hrtf') {
+      const inputs = hrtfLabels.map((_label, index) => `[${index + 1}:a]`).join('')
+      return `${inputLabel}${this.buildMp3HrtfInputFilter(outputChannels, hrtfLabels)}[mp3hrtfbase];[mp3hrtfbase]${inputs}headphone=map=${hrtfLabels.join('|')}:hrir=stereo:gain=-9.118639${outputLabel}`
+    }
+
+    const filter =
+      mode === 'downmix'
+        ? this.buildMp3DownmixFilter(outputChannels)
+        : this.buildMp3StereoPairFilter(outputChannels)
+    return `${inputLabel}${filter}${outputLabel}`
+  }
+
+  buildMp3StereoPairFilter(outputChannels) {
+    const channels = Math.max(1, Number(outputChannels || 2))
+    if (channels === 1) {
+      return 'pan=stereo|c0=c0|c1=c0'
+    }
+    return 'pan=stereo|c0=c0|c1=c1'
+  }
+
+  buildMp3DownmixFilter(outputChannels) {
+    const channels = Math.max(1, Number(outputChannels || 2))
+    if (channels === 1) {
+      return 'pan=stereo|c0=c0|c1=c0,volume=0.707'
+    }
+
+    const leftTerms = ['c0']
+    const rightTerms = ['c1']
+    if (channels >= 3) {
+      leftTerms.push('0.707*c2')
+      rightTerms.push('0.707*c2')
+    }
+    if (channels >= 6) {
+      leftTerms.push('0.707*c4')
+      rightTerms.push('0.707*c5')
+    }
+    if (channels >= 8) {
+      leftTerms.push('0.707*c6')
+      rightTerms.push('0.707*c7')
+    }
+
+    return `pan=stereo|c0=${leftTerms.join('+')}|c1=${rightTerms.join('+')},volume=0.707`
+  }
+
+  buildMp3HrtfInputFilter(outputChannels, hrtfLabels) {
+    const channels = Math.max(1, Number(outputChannels || 2))
+    const layout = this.channelLayoutFor(channels) || `${channels}c`
+    const terms = Array.from({ length: channels }, (_value, index) => {
+      const gain = this.spatialChannelGain(hrtfLabels[index], index)
+      return `c${index}=${gain}*c${index}`
+    })
+    return `pan=${layout}|${terms.join('|')}`
+  }
+
+  spatialChannelGain(label, index) {
+    const value = this.normalizeHrtfLabel(label || this.defaultHrtfLabel(index))
+    if (value === 'LFE') return '0'
+    if (value === 'FC') return '0.707'
+    if (['SL', 'SR', 'BL', 'BR', 'TFL', 'TFR', 'TBL', 'TBR'].includes(value)) return '0.707'
+    return '1'
+  }
+
   getMonitorChannels(config, outputChannels = this.getOutputChannels(config)) {
     const channelSelection = this.getChannelSelection(config, outputChannels)
     return this.getPreEncodeInputChannels(config, channelSelection, outputChannels)
@@ -969,6 +1306,95 @@ class FFmpegManager extends EventEmitter {
   shouldUseFfmpegMonitor(config) {
     if (config?.directInputMonitor) return false
     return true
+  }
+
+  shouldUseMp3Simulcast(config) {
+    return !!config?.mp3Simulcast?.enabled
+  }
+
+  mp3AudioMode(config) {
+    const mode = config?.mp3Simulcast?.audioMode
+    return ['stereo', 'downmix', 'hrtf'].includes(mode) ? mode : 'stereo'
+  }
+
+  mp3HrtfLabels(config, outputChannels) {
+    const labels = Array.isArray(config?.streamChannelLabels) ? config.streamChannelLabels : []
+    return Array.from({ length: Math.max(1, Number(outputChannels || 2)) }, (_value, index) => {
+      return this.normalizeHrtfLabel(labels[index] || this.defaultHrtfLabel(index))
+    })
+  }
+
+  defaultHrtfLabel(index) {
+    return ['FL', 'FR', 'FC', 'LFE', 'SL', 'SR', 'BL', 'BR'][index] || (index % 2 ? 'FR' : 'FL')
+  }
+
+  normalizeHrtfLabel(label) {
+    const value = String(label || '').toUpperCase()
+    const aliases = {
+      L: 'FL',
+      R: 'FR',
+      C: 'FC',
+      LS: 'SL',
+      RS: 'SR',
+      LSR: 'BL',
+      RSR: 'BR'
+    }
+    return aliases[value] || value || 'FL'
+  }
+
+  hrtfPathFor(label) {
+    const filename = `${this.normalizeHrtfLabel(label)}.wav`
+    const candidates = app.isPackaged
+      ? [
+          join(process.resourcesPath, 'app.asar.unpacked', 'resources', 'ku100-hrir', filename),
+          join(process.resourcesPath, 'resources', 'ku100-hrir', filename)
+        ]
+      : [resolve(process.cwd(), 'resources', 'ku100-hrir', filename)]
+    const path = candidates.find((candidate) => existsSync(candidate))
+    if (!path) {
+      throw new Error(`KU100 HRIR asset is missing: ${filename}`)
+    }
+    return path
+  }
+
+  shouldUseOpusStream(config) {
+    return config?.encodingFormat !== 'mp3'
+  }
+
+  shouldUseShoutcast1Relay(config) {
+    return this.shouldUseMp3Simulcast(config) && config?.mp3Simulcast?.serverType === 'shoutcast1'
+  }
+
+  normalizedMp3SimulcastConfig(config, { sampleRate = this.getOutputSampleRate(config) } = {}) {
+    const mp3Config = config?.mp3Simulcast || {}
+    const serverType = mp3Config.serverType === 'shoutcast1' ? 'shoutcast1' : 'icecast'
+    return {
+      serverType,
+      host: String(mp3Config.host || '').trim(),
+      port: String(mp3Config.port || '').trim(),
+      mountPoint: this.normalizeMountPoint(mp3Config.mountPoint || '/stream.mp3'),
+      password: String(mp3Config.password || ''),
+      bitrate: this.normalizeMp3Bitrate(mp3Config.bitrate),
+      sampleRate
+    }
+  }
+
+  normalizeMp3Bitrate(value) {
+    const bitrate = String(value || '128k')
+      .trim()
+      .toLowerCase()
+    return /^\d+k$/.test(bitrate) ? bitrate : '128k'
+  }
+
+  normalizeMountPoint(value) {
+    const mountPoint = String(value || '/stream.mp3').trim()
+    if (!mountPoint) return '/stream.mp3'
+    return mountPoint.startsWith('/') ? mountPoint : `/${mountPoint}`
+  }
+
+  mp3SimulcastUrl(config) {
+    const encodedPassword = encodeURIComponent(config.password || '')
+    return `icecast://source:${encodedPassword}@${config.host}:${config.port}${config.mountPoint}`
   }
 
   getBackendInputChannels(config) {
@@ -1178,7 +1604,11 @@ class FFmpegManager extends EventEmitter {
   }
 
   redactArgs(args) {
-    return args.map((arg) => arg.replace(/(icecast:\/\/source:)[^@]+@/, '$1******@'))
+    return args.map((arg) => this.redactText(arg))
+  }
+
+  redactText(text) {
+    return String(text).replace(/(icecast:\/\/source:)[^@]+@/g, '$1******@')
   }
 
   lastMeaningfulLine(text) {
