@@ -57,15 +57,6 @@ export function setupIpcHandlers() {
     return { success: true }
   })
 
-  ipcMain.handle('monitor:start-app-audio', (_event, config) => {
-    try {
-      ffmpegManager.startAppAudioMonitor(config)
-      return { success: true }
-    } catch (error) {
-      return { success: false, error: error.message }
-    }
-  })
-
   ipcMain.handle('monitor:start-file', (_event, config) => {
     try {
       ffmpegManager.startFileMonitor(config)
@@ -84,6 +75,15 @@ export function setupIpcHandlers() {
     }
   })
 
+  ipcMain.handle('monitor:start-native-input-device', (_event, config) => {
+    try {
+      ffmpegManager.startNativeInputDeviceMonitor(config)
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: error.message }
+    }
+  })
+
   ipcMain.handle('monitor:stop-preview', () => {
     ffmpegManager.stopPreviewMonitor()
     return { success: true }
@@ -91,14 +91,6 @@ export function setupIpcHandlers() {
 
   ipcMain.handle('devices:list', async () => {
     return await audioBackend.listInputDevices()
-  })
-
-  ipcMain.handle('app-audio:list-processes', async () => {
-    return await audioBackend.listAppProcesses()
-  })
-
-  ipcMain.handle('app-audio:list-output-streams', async () => {
-    return await audioBackend.listAppOutputStreams()
   })
 
   ipcMain.handle('audio-backend:capabilities', () => {

@@ -58,11 +58,12 @@ class WindowsDshowBackend {
     return {
       platform: 'win32',
       backendName: 'windows-dshow-input',
-      appAudioCapture: true,
+      appAudioCapture: false,
       appAudioPerProcess: false,
       appAudioSurroundPreserve: false,
       inputDeviceCapture: true,
       inputDeviceMonitor: true,
+      nativeInputDeviceMonitor: false,
       fileSource: true,
       monitorPlayback: true,
       monitorDeviceEnumeration: false,
@@ -168,7 +169,7 @@ class WindowsDshowBackend {
   spawnInputDevicePCMStream(options = {}) {
     const descriptor = this.decodeDeviceUID(options.deviceUID)
     if (!descriptor?.id) {
-      throw new Error('Input Device capture requires a DirectShow device id')
+      throw new Error('Audio Input capture requires a DirectShow device id')
     }
 
     return this.spawnDshowPCMStream(descriptor)

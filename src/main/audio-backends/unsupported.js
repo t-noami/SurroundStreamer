@@ -12,6 +12,7 @@ class UnsupportedAudioBackend {
       appAudioSurroundPreserve: false,
       inputDeviceCapture: false,
       inputDeviceMonitor: false,
+      nativeInputDeviceMonitor: false,
       fileSource: true,
       monitorPlayback: true,
       monitorDeviceEnumeration: false,
@@ -40,7 +41,11 @@ class UnsupportedAudioBackend {
   }
 
   spawnInputDevicePCMStream() {
-    throw new Error(`Input Device capture is not implemented on ${this.platform}`)
+    throw new Error(`Audio Input capture is not implemented on ${this.platform}`)
+  }
+
+  spawnNativeInputDeviceMonitor() {
+    throw new Error(`Native Audio Input monitor is not implemented on ${this.platform}`)
   }
 }
 

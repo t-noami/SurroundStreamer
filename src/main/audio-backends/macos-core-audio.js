@@ -8,11 +8,12 @@ class MacOSCoreAudioBackend {
     return {
       platform: process.platform,
       backendName: 'macos-core-audio',
-      appAudioCapture: true,
-      appAudioPerProcess: true,
-      appAudioSurroundPreserve: true,
+      appAudioCapture: false,
+      appAudioPerProcess: false,
+      appAudioSurroundPreserve: false,
       inputDeviceCapture: true,
-      inputDeviceMonitor: false,
+      inputDeviceMonitor: true,
+      nativeInputDeviceMonitor: false,
       fileSource: true,
       monitorPlayback: true,
       monitorDeviceEnumeration: true,
@@ -42,6 +43,10 @@ class MacOSCoreAudioBackend {
 
   spawnInputDevicePCMStream(options = {}) {
     return coreAudioHelper.spawnInputDevicePCMStream(options)
+  }
+
+  spawnNativeInputDeviceMonitor(options = {}) {
+    return coreAudioHelper.spawnNativeInputDeviceMonitor(options)
   }
 }
 

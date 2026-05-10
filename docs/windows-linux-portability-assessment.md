@@ -8,7 +8,9 @@ This assessment is tracked in the repository because Windows/Linux support is a 
 
 Implementing Windows or Linux support is now a substantial platform-backend project, not a small packaging task.
 
-The current application is structurally macOS-first. The Electron UI and FFmpeg encoding pipeline are mostly reusable, but the important capture and routing features are coupled to macOS Core Audio helper behavior. A Windows or Linux build can likely open the UI and may support File source work after validation, but App Audio, Input Device, device enumeration, and monitor device routing need platform-specific replacements.
+Current beta decision: App Audio has been removed as a supported input source. This assessment still documents why the old App Audio path was hard to port, but active cross-platform work should prioritize File source and Audio Input capture.
+
+The current application is structurally macOS-first. The Electron UI and FFmpeg encoding pipeline are mostly reusable, but important capture and routing features are coupled to macOS Core Audio helper behavior. A Windows or Linux build can likely open the UI and may support File source work after validation, but Audio Input, device enumeration, and monitor device routing need platform-specific replacements.
 
 Feature parity on Windows or Linux should be treated as difficult.
 
@@ -24,13 +26,13 @@ Feature parity on Windows or Linux should be treated as difficult.
 
 ## Monitor Output Portability
 
-The current monitor path is portable because it is renderer/WebAudio based:
+The release Audio Input monitor path should prefer the shortest validated route available on the platform. In the current beta that means browser/WebAudio direct monitoring when audio-device access is available. If that direct path is unavailable, the app can fall back to the portable backend PCM monitor path:
 
 ```text
 backend PCM -> Electron main process -> renderer IPC -> WebAudio Worklet -> output device
 ```
 
-That path is not guaranteed to be low enough latency for App Audio monitoring, especially when the user expects near-realtime monitoring. Lowering renderer buffers and PCM forwarding helps, but the remaining latency may come from Electron/WebAudio scheduling and the operating-system audio output path.
+The backend PCM path is portable, but it is not guaranteed to be low enough latency for live musician monitoring. Lowering renderer buffers and PCM forwarding helps, but the remaining latency may come from Electron/WebAudio scheduling and the operating-system audio output path.
 
 If lower latency is required, the next step is not to add more macOS-specific logic to shared files. The correct architecture is an optional native monitor backend:
 
@@ -49,6 +51,7 @@ This should be exposed through backend capabilities such as:
 ```js
 {
   webAudioMonitorPlayback: true,
+  nativeInputDeviceMonitor: false,
   nativeMonitorPlayback: false,
   nativeMonitorOutputSelection: false,
   lowLatencyAppAudioMonitor: false
@@ -83,7 +86,7 @@ Current helper responsibilities:
 - List app/process capture candidates.
 - List output streams.
 - Capture App Audio PCM.
-- Capture Input Device PCM.
+- Capture Audio Input PCM.
 - Emit raw Float32 PCM to stdout.
 - Emit JSON status/format lines to stderr.
 
@@ -106,18 +109,18 @@ This is not just "select another FFmpeg input". The current design expects a per
 
 Without that backend, App Audio is not functional.
 
-### Input Device source
+### Audio Input source
 
 Current path:
 
 - `src/main/audio-backends/macos/device-scanner.js` uses FFmpeg `avfoundation` to list devices.
 - It then merges Core Audio stream metadata from `SurroundAudioBackend --list-input-streams`.
 - `src/main/ffmpeg-manager.js` requires `config.inputDeviceUID`.
-- `SurroundAudioBackend --stream-input-device --device-uid ...` produces Float32 PCM.
+- `SurroundAudioBackend --stream-audio-input --device-uid ...` produces Float32 PCM.
 
 This is also macOS-only. Windows/Linux need separate device enumeration and PCM capture.
 
-Important point: Input Device no longer uses direct FFmpeg capture as the main streaming path. It depends on the native helper for stable PCM pacing. That makes porting harder than a simple `ffmpeg -f dshow` or `ffmpeg -f alsa` swap.
+Important point: Audio Input no longer uses direct FFmpeg capture as the main streaming path. It depends on the native helper for stable PCM pacing. That makes porting harder than a simple `ffmpeg -f dshow` or `ffmpeg -f alsa` swap.
 
 ### Monitor output device enumeration
 
@@ -157,16 +160,16 @@ Minimum viable Windows backend:
 
 - Follow the Windows-specific guide: [Windows Backend Development Guide](windows-backend-development.md).
 - Add `src/main/audio-backends/windows-*`.
-- Implement input-device enumeration and capture.
+- Implement audio-input enumeration and capture.
 - Implement output-device or process/app capture.
-- Replace macOS `avfoundation` input-device scanning assumptions.
+- Replace macOS `avfoundation` audio-input scanning assumptions.
 - Gate unsupported App Audio features until the backend is ready.
 - Package a Windows helper binary if native APIs are required.
 
 Candidate APIs:
 
 - WASAPI loopback for output-device capture.
-- WASAPI input capture for input devices.
+- WASAPI input capture for audio inputs.
 - Windows MMDevice API for device enumeration.
 - Per-process capture may be possible on newer Windows APIs, but should be treated as a separate research task from simple loopback.
 
@@ -180,7 +183,7 @@ Risk:
 Rough difficulty:
 
 - File-only Windows build: low to medium. A `windows-dshow-input` backend entry point now exists, but still needs real Windows beta validation.
-- Basic Windows input-device capture: experimental DirectShow bridge exists; long-run pacing and device compatibility still need testing.
+- Basic Windows audio-input capture: experimental DirectShow bridge exists; long-run pacing and device compatibility still need testing.
 - Basic output-device loopback streaming: medium to high.
 - App-level capture with surround preservation: high.
 - Feature parity with current macOS App Audio behavior: high.
@@ -191,7 +194,7 @@ Minimum viable Linux backend:
 
 - Add `src/main/audio-backends/linux-*`.
 - Implement capture through PipeWire or PulseAudio monitor sources.
-- Implement input-device enumeration/capture.
+- Implement audio-input enumeration/capture.
 - Implement sink/source enumeration for monitor routing.
 - Gate unsupported features per detected backend.
 - Package/declare runtime dependencies.
@@ -200,7 +203,7 @@ Candidate APIs:
 
 - PipeWire for modern Linux desktop audio.
 - PulseAudio monitor sources for simpler output loopback.
-- ALSA for low-level input devices, but it is a poor fit for app-level capture.
+- ALSA for low-level audio inputs, but it is a poor fit for app-level capture.
 
 Risk:
 
@@ -297,7 +300,7 @@ Problems:
 - Device naming and enumeration differ per platform.
 - App/process capture is not a stable common FFmpeg abstraction.
 - Multichannel channel layouts differ per driver/backend.
-- Pacing and buffering can differ, which already mattered for Input Device stability.
+- Pacing and buffering can differ, which already mattered for Audio Input stability.
 - Preserve Surround is not just "read N channels"; it depends on endpoint/session routing.
 
 FFmpeg should remain the common encoder/output layer, but not the only capture abstraction.
@@ -326,7 +329,7 @@ These libraries can help create a shared native helper for input/output devices.
 
 Useful for:
 
-- cross-platform input-device capture
+- cross-platform audio-input capture
 - cross-platform output-device playback
 - possibly simpler monitor device handling
 
@@ -336,7 +339,7 @@ Not sufficient by themselves for:
 - output loopback on every OS
 - app-audio surround preservation
 
-They are good candidates for a shared "Input Device" helper, but not a complete replacement for Core Audio Process Tap.
+They are good candidates for a shared "Audio Input" helper, but not a complete replacement for Core Audio Process Tap.
 
 #### JUCE
 
@@ -379,7 +382,7 @@ SurroundStreamer audio backend contract
 
 Commands:
   --capabilities
-  --list-input-devices
+  --list-audio-inputs
   --list-output-devices
   --list-apps
   --list-app-output-streams
@@ -429,7 +432,7 @@ These features cannot be made common without platform backends:
 
 - App Audio process capture
 - App Audio preserve-surround stream selection
-- Input Device PCM capture with stable pacing
+- Audio Input PCM capture with stable pacing
 - monitor output device enumeration
 - per-platform audio permissions and diagnostics
 
@@ -513,7 +516,7 @@ Do not attempt Windows/Linux full parity immediately.
 Recommended staged approach:
 
 1. Add platform capability gating first.
-2. Make Windows/Linux builds open without presenting broken App Audio/Input Device controls. Windows now has a DirectShow input-device backend entry point for this path.
+2. Make Windows/Linux builds open without presenting broken App Audio/Audio Input controls. Windows now has a DirectShow audio-input backend entry point for this path.
 3. Support File source first on Windows/Linux.
 4. Add Windows output-device loopback as a research build.
 5. Add Linux PipeWire/PulseAudio monitor-source capture as a research build.

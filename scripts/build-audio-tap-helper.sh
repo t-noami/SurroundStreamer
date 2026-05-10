@@ -30,6 +30,8 @@ xcrun clang \
   "$SOURCE_FILE" \
   -framework Foundation \
   -framework AppKit \
+  -framework AudioToolbox \
+  -framework AudioUnit \
   -framework CoreAudio \
   -o "$OUTPUT_FILE"
 
