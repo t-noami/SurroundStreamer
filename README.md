@@ -57,7 +57,7 @@ The current practical target is macOS because the audio capture path depends on 
 - Opus output is constrained to supported sample rates. 44.1 kHz and 96 kHz sources are converted to 48 kHz for stream output.
 - 7.1.2 and 7.1.4 are not part of the standard build. The current production target is up to 7.1 because that maps cleanly to common Opus channel mapping support.
 - KU100 near-field HRIR data is included under CC BY 4.0. Attribution is listed below.
-- Public release capture is macOS-first. Windows beta development has started with conservative WASAPI/DirectShow Audio Input paths, but Windows downloads remain `Preparing` until a real beta is validated.
+- Public release capture is macOS-first. Windows beta development has started, but Windows downloads remain `Preparing` until a real beta is validated. For Windows surround input, ASIO is the primary validation target; WASAPI/MMDevice remains useful for generic mono/stereo inputs.
 - Linux build notes are kept for future platform work; Linux Audio Input capture is not implemented yet.
 
 ## User Manual

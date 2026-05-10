@@ -55,6 +55,7 @@ macOS backend parts:
 Windows beta backend parts:
 
 - WASAPI/MMDevice endpoint enumeration and PCM capture.
+- ASIO driver probing and ASIO input capture.
 - DirectShow audio-input capture for beta validation.
 - No validated native Audio Input monitor playback; `nativeInputDeviceMonitor` must remain `false`.
 
@@ -302,6 +303,7 @@ Initial target:
 
 - File-only Windows beta validation first.
 - Input-device capture second. The current native helper can capture MMDevice/WASAPI inputs and ASIO inputs, with DirectShow retained as a fallback.
+- Treat ASIO as the primary Windows surround-input path. WASAPI/MMDevice may be sufficient for mono/stereo devices, but it should not be assumed to expose 5.1 or 7.1 capture endpoints.
 - Per-app/process capture is research only and is not exposed as a supported source.
 - Native low-latency monitor playback is not part of the first Windows backend target.
 
@@ -406,6 +408,7 @@ Exit criteria:
 - The stable `0.1.0` build is macOS-first.
 - Windows/Linux builds are not release-ready.
 - Windows currently has native MMDevice/WASAPI input capture, ASIO probing/capture, and the older DirectShow audio-input bridge as fallback.
+- Windows surround-input validation currently assumes ASIO, because tested WASAPI/MMDevice endpoints exposed only mono/stereo formats.
 - WASAPI Process Loopback and DirectShow loopback work are retained as research/reference paths, not as supported App Audio sources.
 - Windows REAPER 5.1 validation currently uses ASIO input through Voicemeeter.
 - Linux application-audio capture is not in scope for the current beta line.

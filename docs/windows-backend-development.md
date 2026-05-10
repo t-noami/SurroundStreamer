@@ -23,7 +23,8 @@ Current Windows status:
 - Windows beta packaging script exists: `npm run build:beta:win`
 - `process.platform === 'win32'` now selects `src/main/audio-backends/windows-wasapi.js`.
 - File source is the first Windows validation target.
-- Audio Input capture now prefers native MMDevice/WASAPI through the Windows helper, with the earlier DirectShow/FFmpeg backend retained as fallback.
+- Audio Input capture supports native MMDevice/WASAPI and ASIO through the Windows helper, with the earlier DirectShow/FFmpeg backend retained as fallback.
+- ASIO is the primary validation path for Windows surround/multichannel input. MMDevice/WASAPI remains useful for generic mono/stereo input, but should not be assumed to expose 5.1 or 7.1 capture endpoints.
 - ASIO driver probing and ASIO input capture have an initial native helper path for multichannel virtual devices such as Voicemeeter.
 - WASAPI Process Loopback and the earlier DirectShow loopback-device bridge remain research/reference paths, not supported App Audio sources.
 
@@ -273,10 +274,11 @@ Tasks:
 
 - Enumerate audio inputs. Initial MMDevice path added.
 - Return stable endpoint IDs and display names. Initial MMDevice endpoint IDs added.
-- Capture PCM with stable pacing. Initial WASAPI shared-mode capture added; long-run pacing still needs testing.
+- Capture PCM with stable pacing. Initial WASAPI shared-mode capture and ASIO capture paths are added; long-run pacing still needs testing.
 - Emit JSON `format` events. Initial native helper path added.
 - Feed Float32 PCM to stdout, converting PCM integer mix formats to Float32 when necessary.
 - Expose ASIO devices when they can be probed, because Voicemeeter exposes multichannel virtual I/O through ASIO even when its WASAPI endpoints are stereo.
+- For surround/multichannel Windows validation, test ASIO first. Treat WASAPI/MMDevice as a mono/stereo input path unless a specific device proves multichannel capture.
 - Update capabilities:
   - `inputDeviceCapture: true` for the experimental DirectShow path
   - `inputDeviceMonitor: true` for the experimental DirectShow preview path

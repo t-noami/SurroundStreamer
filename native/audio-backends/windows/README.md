@@ -6,6 +6,9 @@ endpoints and ASIO input devices.
 Current app scope:
 
 - Supported app sources are Audio Input and File.
+- ASIO is the primary validation path for surround/multichannel Audio Input on Windows.
+- MMDevice/WASAPI is supported for generic mono/stereo Audio Input and may support more channels
+  only when a specific driver exposes them that way.
 - App Audio has been removed from the beta line.
 - WASAPI Process Loopback is retained as research/reference code only.
 - DirectShow fallback lives in the Electron/FFmpeg backend, not in this helper executable.

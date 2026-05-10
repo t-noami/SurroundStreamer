@@ -86,6 +86,9 @@ Required backend responsibilities:
 - Report actual sample rate and channel count before encoding begins.
 - Preserve or normalize channel ordering enough for Stereo Pair, Downmix, and KU100 HRTF to be meaningful.
 - Keep any native low-latency monitor implementation separate from stream encoding.
+- Treat ASIO as the primary validation path for Windows surround/multichannel input. WASAPI/MMDevice
+  can remain supported for generic mono/stereo inputs, but should not be assumed to expose 5.1 or
+  7.1 capture.
 
 What the Windows backend should not do:
 
@@ -328,8 +331,9 @@ Minimum viable Windows work from the current branch:
 
 - Follow the Windows-specific guide: [Windows Backend Development Guide](windows-backend-development.md).
 - Validate and harden `src/main/audio-backends/windows-wasapi.js`.
-- Validate native MMDevice/WASAPI Audio Input capture through `SurroundAudioBackend.exe`.
-- Validate ASIO input capture for multichannel devices.
+- Validate ASIO input capture for surround/multichannel devices.
+- Validate native MMDevice/WASAPI Audio Input capture through `SurroundAudioBackend.exe` as a
+  generic mono/stereo path unless a specific device exposes multichannel capture.
 - Keep DirectShow as a fallback path when the native helper is missing.
 - Keep App Audio unsupported; WASAPI Process Loopback remains research/reference code.
 - Make Windows helper build/package behavior reliable before release.
@@ -351,7 +355,9 @@ Risk:
 Rough difficulty from the current branch:
 
 - File-only Windows build: low to medium; still needs release validation.
-- Basic Windows audio-input capture: initial WASAPI/MMDevice and ASIO paths exist; long-run pacing and device compatibility still need testing.
+- Basic Windows audio-input capture: initial WASAPI/MMDevice and ASIO paths exist; ASIO is the
+  practical surround path, while WASAPI/MMDevice remains a generic input path. Long-run pacing and
+  device compatibility still need testing.
 - Basic output-device loopback streaming: medium to high.
 - App-level capture with surround preservation: high.
 - Reintroducing App Audio with parity to the old macOS process-tap behavior: high.

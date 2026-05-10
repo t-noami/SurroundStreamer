@@ -9,9 +9,9 @@ Do not treat `npm run build:win` or `npm run build:beta:win` as a supported publ
 ## Current Status
 
 - Official Windows release: not available.
-- Windows beta branch backend: `windows-wasapi` when the native helper is built, with MMDevice/WASAPI now preferred for Audio Input capture and DirectShow retained as a fallback.
+- Windows beta branch backend: `windows-wasapi` when the native helper is built. The helper supports MMDevice/WASAPI and ASIO Audio Input capture; ASIO is the primary validation target for surround/multichannel input, while MMDevice/WASAPI is useful for generic mono/stereo inputs. DirectShow is retained as a fallback.
 - App Audio capture: removed from the supported input-source UI. WASAPI Process Loopback source remains research/reference code only.
-- Audio Input capture: native MMDevice/WASAPI path is available for validation; the older FFmpeg DirectShow path remains as fallback when the native helper is missing.
+- Audio Input capture: native ASIO and MMDevice/WASAPI paths are available for validation. For 5.1 or higher channel counts, validate ASIO first. The older FFmpeg DirectShow path remains as fallback when the native helper is missing.
 - Audio Input Monitor Output: uses the shared WebAudio direct monitor path when browser audio-device access is available. Native Windows monitor paths are not exposed as release-ready.
 - Output loopback capture: the earlier DirectShow loopback/virtual-device bridge is kept as a development reference.
 - File source support: first practical Windows target, but not yet validated as a release build.
@@ -46,8 +46,9 @@ For the current platform assessment, see:
 `native/audio-backends/windows/.build/SurroundAudioBackend.exe` is already present, if any.
 
 The blocker for a public Windows release is no longer just "missing backend code." The current
-blockers are release validation, helper build/package reliability, device compatibility, channel
-ordering, and long-run capture stability across WASAPI, ASIO, and DirectShow fallback paths.
+blockers are release validation, helper build/package reliability, ASIO device compatibility,
+channel ordering, and long-run capture stability. WASAPI/MMDevice and DirectShow fallback remain
+secondary validation paths for non-surround input.
 
 The beta config currently disables Windows executable signing/resource editing with `win.signAndEditExecutable: false` so local unsigned development packaging does not require the `winCodeSign` symlink extraction path. Re-enable and retest signing/resource metadata before publishing any Windows build.
 
