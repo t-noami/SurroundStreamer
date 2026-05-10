@@ -1,6 +1,6 @@
 # Windows Backend Development Guide
 
-Last updated: 2026-05-08
+Last updated: 2026-05-10
 
 Branch: `beta/cross-platform-backend`
 
@@ -132,7 +132,7 @@ The selected Windows WASAPI backend reports App Audio as unsupported. Process-lo
 ```js
 {
   platform: 'win32',
-  backendName: 'windows-wasapi',
+  backendName: 'windows-wasapi', // helper present
   appAudioCapture: false,
   appAudioPerProcess: false,
   appAudioSurroundPreserve: false,
@@ -146,6 +146,10 @@ The selected Windows WASAPI backend reports App Audio as unsupported. Process-lo
   minimumWindowsBuild: 20348
 }
 ```
+
+If the native helper is missing, the backend reports `backendName: 'windows-wasapi-pending'` and
+falls back to the DirectShow bridge for Audio Input discovery/capture where possible. That mode is
+acceptable for development, but release validation should use the native helper path.
 
 ## Monitor Output Rules
 
@@ -167,14 +171,14 @@ Shared capability flags:
 }
 ```
 
-Expected contract:
+Current optional native input monitor hook:
 
 ```js
-startNativeMonitor(config)
-stopNativeMonitor()
-setNativeMonitorVolume(volume)
-setNativeMonitorOutputDevice(deviceId)
+spawnNativeInputDeviceMonitor(options)
 ```
+
+Future persistent native monitor control may add explicit start/stop/volume/output-device methods,
+but that should be a new capability-gated API.
 
 Windows-specific rule:
 
@@ -232,8 +236,8 @@ Goal: prove that the Electron app can run on Windows without macOS backend calls
 
 Tasks:
 
-- Ensure `process.platform === 'win32'` uses a Windows or file-only backend, not macOS. Done in `src/main/audio-backends/windows-dshow.js`.
-- Keep App Audio and Audio Input disabled through capabilities. Superseded for Audio Input by the experimental DirectShow backend.
+- Ensure `process.platform === 'win32'` uses a Windows backend, not macOS. Current selector uses `src/main/audio-backends/windows-wasapi.js`.
+- Keep App Audio disabled through capabilities. Audio Input is now enabled through the native helper path when available, with DirectShow fallback when the helper is missing.
 - Build with `npm run build:beta:win`.
 - Launch the generated installer/app on Windows.
 - Verify File source UI, file selection, Icecast settings, logs window, About window, and START/STOP behavior.
@@ -351,6 +355,12 @@ Do not promise macOS parity until real tests prove:
 
 Do not make Windows downloads public until at least Stage 1 is tested.
 
+Build the helper first when validating native Audio Input:
+
+```powershell
+npm run build:audio-helper:win
+```
+
 Beta build command:
 
 ```bash
@@ -363,9 +373,22 @@ Expected future artifact name:
 dist/beta/SurroundStreamer-beta-0.1.1-setup.exe
 ```
 
-If a native Windows helper is added, package it through `electron-builder.beta.yml` only after the file exists and the macOS packaging path still works.
+Current beta packaging uses `asarUnpack` for:
 
-Suggested future resource block:
+```text
+native/audio-backends/windows/.build/**
+```
+
+`src/main/audio-backends/windows-wasapi.js` can find the helper from the unpacked app path:
+
+```text
+app.asar.unpacked/native/audio-backends/windows/.build/SurroundAudioBackend.exe
+```
+
+`npm run build:beta:win` does not build the helper by itself. It packages the helper only if the
+helper already exists at the expected `.build` path.
+
+For a future stable Windows release, an explicit `win.extraResources` block may be preferable:
 
 ```yaml
 win:
@@ -374,7 +397,8 @@ win:
       to: audio-backend.exe
 ```
 
-Do not add this block until the helper is built in CI or documented local steps exist. A missing `from` path can break packaging.
+Do not switch stable packaging to that block until the helper is built in CI or documented local
+steps exist. A missing `from` path can break packaging.
 
 ## Required Checks Before Commit
 
@@ -399,10 +423,13 @@ Manual Windows checks:
 
 - App launches.
 - App Audio unavailable state is clear if not implemented.
-- Audio Input unavailable state is clear if not implemented.
+- Audio Input devices list through the native helper when present.
+- DirectShow fallback is clear when the native helper is absent.
 - File source can select a file.
 - Logs window opens.
 - Icecast settings persist after relaunch.
+- Opus, Opus+MP3, and MP3-only encoding modes start with valid test server settings.
+- MP3 Shoutcast 1 relay authenticates against a real compatible server.
 - START/STOP does not leave FFmpeg running.
 
 ## Files To Update With Progress

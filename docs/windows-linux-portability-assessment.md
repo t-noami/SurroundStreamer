@@ -238,11 +238,11 @@ The helper is Objective-C and depends on:
 
 The build script calls `xcrun clang`, requires a macOS SDK, and explicitly checks for `AudioHardwareTapping.h`. This has no Windows/Linux equivalent.
 
-Current helper responsibilities:
+Legacy/research helper responsibilities:
 
 - List app/process capture candidates.
 - List output streams.
-- Capture App Audio PCM.
+- Capture App Audio PCM for removed/research paths.
 - Capture Audio Input PCM.
 - Emit raw Float32 PCM to stdout.
 - Emit JSON status/format lines to stderr.
@@ -308,21 +308,31 @@ The current package scripts expose:
 - `npm run build:win`
 - `npm run build:linux`
 
-But those scripts only package the Electron app. They do not provide platform audio backends.
+Stable Windows/Linux packaging still should not be treated as release support. Packaging can produce
+an Electron app shell before the platform backend is release-ready.
 
-Additionally, `electron-builder.yml` packages the macOS helper under `mac.extraResources`. There is no Windows/Linux extra resource for an equivalent helper. So even if the app packages, the audio source paths that expect helper behavior will not be complete.
+The beta Windows path is more advanced than the stable packaging path:
+
+- `electron-builder.beta.yml` unpacks `native/audio-backends/windows/.build/**`.
+- `src/main/audio-backends/windows-wasapi.js` can load `SurroundAudioBackend.exe` from the
+  unpacked app path.
+- `npm run build:beta:win` does not build that helper; it packages whatever helper is already
+  present.
+
+The stable `electron-builder.yml` still packages only the macOS helper under `mac.extraResources`.
+Linux has no native backend resource yet.
 
 ## Likely Windows Path
 
-Minimum viable Windows backend:
+Minimum viable Windows work from the current branch:
 
 - Follow the Windows-specific guide: [Windows Backend Development Guide](windows-backend-development.md).
-- Add `src/main/audio-backends/windows-*`.
-- Implement audio-input enumeration and capture.
-- Implement output-device or process/app capture.
-- Replace macOS `avfoundation` audio-input scanning assumptions.
-- Gate unsupported App Audio features until the backend is ready.
-- Package a Windows helper binary if native APIs are required.
+- Validate and harden `src/main/audio-backends/windows-wasapi.js`.
+- Validate native MMDevice/WASAPI Audio Input capture through `SurroundAudioBackend.exe`.
+- Validate ASIO input capture for multichannel devices.
+- Keep DirectShow as a fallback path when the native helper is missing.
+- Keep App Audio unsupported; WASAPI Process Loopback remains research/reference code.
+- Make Windows helper build/package behavior reliable before release.
 
 Candidate APIs:
 
@@ -338,13 +348,13 @@ Risk:
 - Device/channel layout naming differs from the current Core Audio stream model.
 - SmartScreen/signing is a release issue separate from implementation.
 
-Rough difficulty:
+Rough difficulty from the current branch:
 
-- File-only Windows build: low to medium. A `windows-dshow-input` backend entry point now exists, but still needs real Windows beta validation.
-- Basic Windows audio-input capture: experimental DirectShow bridge exists; long-run pacing and device compatibility still need testing.
+- File-only Windows build: low to medium; still needs release validation.
+- Basic Windows audio-input capture: initial WASAPI/MMDevice and ASIO paths exist; long-run pacing and device compatibility still need testing.
 - Basic output-device loopback streaming: medium to high.
 - App-level capture with surround preservation: high.
-- Feature parity with current macOS App Audio behavior: high.
+- Reintroducing App Audio with parity to the old macOS process-tap behavior: high.
 
 ## Likely Linux Path
 
@@ -378,17 +388,18 @@ Rough difficulty:
 - PulseAudio/PipeWire output loopback streaming: medium.
 - Input-device capture with robust device selection: medium.
 - App-level capture with surround preservation: high.
-- Feature parity with current macOS App Audio behavior: high.
+- Reintroducing App Audio with parity to the old macOS process-tap behavior: high.
 
-## Architectural Work Needed Before Porting
+## Architectural Work Remaining Before Porting
 
-The main blocker is that platform behavior is currently embedded in specific modules rather than isolated behind a backend interface.
+The main backend boundary now exists. Remaining work is validation, hardening, and filling missing
+platform backends.
 
-Recommended refactor before Windows/Linux implementation:
+Current status and remaining work:
 
-1. Create a platform backend boundary.
+1. Platform backend boundary exists.
 
-   Suggested shape:
+   Current shape:
 
    ```text
    src/main/audio-backends/
@@ -396,35 +407,37 @@ Recommended refactor before Windows/Linux implementation:
      macos-core-audio.js
      windows-dshow.js
      windows-wasapi.js
-     linux-pipewire.js
      unsupported.js
    ```
 
-2. Define capability reporting.
+   A future Linux backend would likely add `linux-pipewire.js` or similar.
+
+2. Capability reporting exists, but should continue to mature.
 
    Example:
 
    ```js
    {
-     appAudioCapture: true,
-     appAudioPerProcess: true,
-     appAudioSurroundPreserve: true,
      inputDeviceCapture: true,
-     monitorDeviceEnumeration: true
+     fileSource: true,
+     monitorPlayback: true,
+     monitorDeviceEnumeration: true,
+     outputLoopbackCapture: false
    }
    ```
 
-3. Make renderer UI respond to capabilities.
+3. Renderer UI responds to capabilities for supported source controls.
 
-   Unsupported tabs/options should be disabled with clear labels rather than failing after click.
+   Unsupported tabs/options should continue to be disabled with clear labels rather than failing
+   after click.
 
 4. Keep direct macOS helper and FFmpeg `avfoundation` calls inside the macOS backend.
 
    The main process should call the selected backend, not `core-audio-helper` or macOS device scanner modules directly.
 
-5. Keep a stable PCM contract into FFmpeg.
+5. Keep hardening the stable PCM contract into FFmpeg.
 
-   Existing `ffmpeg-manager.js` can remain mostly reusable if each backend emits:
+   `ffmpeg-manager.js` remains reusable if each backend emits:
    - raw Float32 PCM stdout/stream
    - sample rate
    - channel count
@@ -439,7 +452,10 @@ Recommended refactor before Windows/Linux implementation:
 
 Short answer: not for the full feature set.
 
-There is no single OS-level audio capture standard that provides the same features as the current macOS Core Audio Process Tap path on Windows and Linux. The realistic answer is to create a shared internal contract for SurroundStreamer, then implement one backend per OS behind that contract.
+There is no single OS-level audio capture standard that provides the same features as the old macOS
+Core Audio Process Tap research path on Windows and Linux. The realistic answer is to create a
+shared internal contract for SurroundStreamer, then implement one backend per OS behind that
+contract.
 
 ### Candidate shared layers
 
@@ -674,7 +690,9 @@ Do not attempt Windows/Linux full parity immediately.
 Recommended staged approach:
 
 1. Add platform capability gating first.
-2. Make Windows/Linux builds open without presenting broken App Audio/Audio Input controls. Windows now has a DirectShow audio-input backend entry point for this path.
+2. Make Windows/Linux builds open without presenting broken source controls. Windows now has a
+   WASAPI backend with DirectShow fallback; Linux should keep Audio Input disabled until a Linux
+   backend exists.
 3. Support File source first on Windows/Linux.
 4. Add Windows output-device loopback as a research build.
 5. Add Linux PipeWire/PulseAudio monitor-source capture as a research build.

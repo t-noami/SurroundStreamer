@@ -38,6 +38,8 @@ Portable parts:
 - Settings persistence.
 - Icecast configuration.
 - FFmpeg/Ogg Opus output pipeline.
+- Stereo MP3 output pipeline, including MP3 Icecast and MP3 Shoutcast 1.
+- MP3 Audio Source modes: Stereo Pair, Stereo Downmix, and KU100 Near-field HRTF.
 - File source streaming path.
 - Stream channel template UI up to 7.1.
 - Logs/About windows.
@@ -56,13 +58,20 @@ Windows beta backend parts:
 - DirectShow audio-input capture for beta validation.
 - No validated native Audio Input monitor playback; `nativeInputDeviceMonitor` must remain `false`.
 
-The current native helper is:
+The current macOS native helper source is:
 
 ```text
 native/audio-tap-helper/Sources/AudioTapHelper/main.m
 ```
 
-It is Objective-C, built with `xcrun clang`, and depends on Apple Core Audio Process Tap APIs. It cannot be reused directly on Windows or Linux.
+It is Objective-C, built with `xcrun clang`, and depends on Apple Core Audio APIs. Current
+packaging uses the built helper at:
+
+```text
+native/audio-backends/macos/.build/SurroundAudioBackend
+```
+
+The helper cannot be reused directly on Windows or Linux.
 
 ## Development Goal
 
@@ -95,17 +104,22 @@ Electron should select a backend by `process.platform`, read backend capabilitie
 
 ## Backend Contract
 
-Each platform backend should eventually provide the same conceptual commands.
+Each platform backend should provide the same app-facing concepts for supported features.
 
-Required commands:
+Current required capture concepts:
 
 ```text
 --capabilities
 --list-audio-inputs
 --list-output-devices
+--capture-input --device-id <id> [--stream-index <n>]
+```
+
+Research-only concepts, not exposed as supported App Audio in the current beta:
+
+```text
 --list-apps
 --list-app-output-streams
---capture-input --device-id <id> [--stream-index <n>]
 --capture-app --app-id <id> [--output-id <id>] [--stream-index <n>]
 --capture-loopback --output-id <id>
 ```
@@ -186,14 +200,15 @@ Suggested future backend capabilities:
 }
 ```
 
-Suggested future backend methods:
+Current and future backend methods should align with the existing spawn-style backend interface.
+The current optional native input monitor hook is:
 
 ```js
-startNativeMonitor(config)
-stopNativeMonitor()
-setNativeMonitorVolume(volume)
-setNativeMonitorOutputDevice(deviceId)
+spawnNativeInputDeviceMonitor(options)
 ```
+
+If persistent native monitor control is added later, define explicit start/stop/volume/output-device
+methods as a new capability-gated API rather than overloading streaming capture.
 
 Rules:
 
@@ -252,8 +267,9 @@ Goal: make Windows/Linux app shells useful without pretending full capture suppo
 Tasks:
 
 - Ensure File source does not depend on macOS helper modules.
-- Select `windows-dshow-input` from `src/main/audio-backends/index.js` when `process.platform === 'win32'`.
-- Disable unsupported Audio Input features on Windows/Linux through backend capabilities.
+- Select `windows-wasapi.js` from `src/main/audio-backends/index.js` when `process.platform === 'win32'`.
+- Keep DirectShow as a fallback through `windows-wasapi.js` when the native helper is missing.
+- Disable unsupported Audio Input features on platforms that do not expose capture capabilities.
 - Verify FFmpeg binary availability and path resolution for Windows/Linux.
 - Verify settings persistence, Icecast connection UI, channel templates, logs, and About window.
 - Add Windows/Linux smoke-test checklists.
@@ -402,7 +418,8 @@ Exit criteria:
 ## Documentation Tasks
 
 - Keep `README.md` focused on the stable macOS release until Windows/Linux beta behavior is verified.
-- Keep `docs/build-windows.md` and `docs/build-linux.md` in "Preparing" state until File-only builds actually work.
+- Keep `docs/build-windows.md` and `docs/build-linux.md` in "Preparing" state until real platform
+  beta workflows are validated.
 - Use `docs/windows-linux-portability-assessment.md` as the architecture reference for cross-platform decisions.
 - Add beta release notes when `0.1.1-beta.10` is built.
 

@@ -76,7 +76,9 @@
             <div class="form-group">
               <label for="encoding-format">Encoding Format</label>
               <select id="encoding-format">
+                <option>Ogg Opus / Icecast (surround)</option>
                 <option selected>Ogg Opus + stereo MP3</option>
+                <option>Stereo MP3 only</option>
               </select>
             </div>
             <div class="form-group" id="opus-bitrate-group">
@@ -86,12 +88,6 @@
               >
               <select id="bitrate-select">
                 <option selected>128 kbps</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label for="mp3-audio-mode">MP3 Audio Source</label>
-              <select id="mp3-audio-mode">
-                <option selected>Stereo Downmix</option>
               </select>
             </div>
             <div class="form-group">
@@ -233,23 +229,73 @@
         </section>
 
         <section class="panel config-panel">
-          <h2>Icecast Settings</h2>
-          <div class="form-grid">
-            <div class="form-group">
-              <label for="icecast-host">Host</label>
-              <input type="text" id="icecast-host" value="stream.local" />
+          <h2>Stream Server Settings</h2>
+          <div class="server-settings-group" id="opus-icecast-settings">
+            <h3>Opus Icecast</h3>
+            <div class="form-grid">
+              <div class="form-group">
+                <label for="icecast-host">Opus Host</label>
+                <input type="text" id="icecast-host" value="stream.local" />
+              </div>
+              <div class="form-group">
+                <label for="icecast-port">Opus Port</label>
+                <input type="number" id="icecast-port" value="8000" />
+              </div>
+              <div class="form-group">
+                <label for="mount-point">Opus Mount Point</label>
+                <input type="text" id="mount-point" value="/stream" />
+              </div>
+              <div class="form-group">
+                <label for="source-password">Opus Password</label>
+                <input type="password" id="source-password" value="password" />
+              </div>
             </div>
-            <div class="form-group">
-              <label for="icecast-port">Port</label>
-              <input type="number" id="icecast-port" value="8000" />
-            </div>
-            <div class="form-group">
-              <label for="mount-point">Mount Point</label>
-              <input type="text" id="mount-point" value="/stream" />
-            </div>
-            <div class="form-group">
-              <label for="source-password">Password</label>
-              <input type="password" id="source-password" value="password" />
+          </div>
+          <div class="server-settings-group" id="mp3-output-settings">
+            <h3>Stereo MP3</h3>
+            <div class="form-grid">
+              <div class="form-group">
+                <label for="mp3-server-type">MP3 Server Type</label>
+                <select id="mp3-server-type">
+                  <option selected>MP3 Icecast</option>
+                  <option>MP3 Shoutcast 1</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="mp3-bitrate">MP3 Bitrate</label>
+                <select id="mp3-bitrate">
+                  <option>96 kbps</option>
+                  <option selected>128 kbps</option>
+                  <option>160 kbps</option>
+                  <option>192 kbps</option>
+                  <option>256 kbps</option>
+                  <option>320 kbps</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="mp3-audio-mode">MP3 Audio Source</label>
+                <select id="mp3-audio-mode">
+                  <option>Stereo Pair (L/R)</option>
+                  <option selected>Stereo Downmix</option>
+                  <option>KU100 Near-field HRTF</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="mp3-host">MP3 Host</label>
+                <input type="text" id="mp3-host" value="stream.local" />
+              </div>
+              <div class="form-group">
+                <label for="mp3-port">MP3 Port</label>
+                <input type="number" id="mp3-port" value="8000" />
+              </div>
+              <div class="form-group" id="mp3-mount-group">
+                <label for="mp3-mount-point">MP3 Mount Point</label>
+                <input type="text" id="mp3-mount-point" value="/stream.mp3" />
+              </div>
+              <div class="form-group">
+                <label for="mp3-password">MP3 Password</label>
+                <input type="password" id="mp3-password" value="password" />
+              </div>
             </div>
           </div>
         </section>

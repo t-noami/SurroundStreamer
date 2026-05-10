@@ -1,14 +1,21 @@
 # SurroundStreamer Windows Audio Backend
 
-This helper is the native Windows backend for WASAPI process loopback capture and
-MMDevice/WASAPI input-device capture.
+This helper is the native Windows backend for Audio Input capture through MMDevice/WASAPI
+endpoints and ASIO input devices.
+
+Current app scope:
+
+- Supported app sources are Audio Input and File.
+- App Audio has been removed from the beta line.
+- WASAPI Process Loopback is retained as research/reference code only.
+- DirectShow fallback lives in the Electron/FFmpeg backend, not in this helper executable.
 
 Supported Windows baseline:
 
 - Windows 10 Build 20348 or later
 
-Older Windows builds are intentionally unsupported because the backend depends on
-`AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK`.
+Build 20348 remains the baseline because the binary still includes process-loopback research code
+that depends on `AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK`.
 
 ## Build
 
@@ -24,24 +31,12 @@ Expected output:
 native/audio-backends/windows/.build/SurroundAudioBackend.exe
 ```
 
-## Runtime Contract
-
-Process loopback capture:
-
-```powershell
-SurroundAudioBackend.exe --stream-process-loopback --pid 1234 --sample-rate 48000 --channels 2
-```
+## Supported Runtime Contract
 
 Input device listing:
 
 ```powershell
 SurroundAudioBackend.exe --list-input-devices
-```
-
-Output device listing:
-
-```powershell
-SurroundAudioBackend.exe --list-output-devices
 ```
 
 ASIO device listing:
@@ -74,3 +69,27 @@ stderr:
 ```json
 { "event": "format", "sampleRate": 48000, "channels": 2, "layout": "stereo", "bitsPerChannel": 32 }
 ```
+
+## Fallback Path
+
+When `src/main/audio-backends/windows-wasapi.js` cannot find this native helper, it falls back to
+`src/main/audio-backends/windows-dshow.js` for FFmpeg DirectShow Audio Input listing and capture.
+That fallback is useful for development but should not be treated as the preferred release path.
+
+## Research-Only Commands
+
+Output device listing:
+
+```powershell
+SurroundAudioBackend.exe --list-output-devices
+```
+
+Process loopback capture:
+
+```powershell
+SurroundAudioBackend.exe --stream-process-loopback --pid 1234 --sample-rate 48000 --channels 2
+```
+
+Do not describe this path as supported App Audio or Preserve Surround. Multichannel preservation in
+the current beta is through selected Audio Input devices, especially ASIO devices when the driver
+exposes multichannel input.

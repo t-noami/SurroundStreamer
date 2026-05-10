@@ -42,7 +42,12 @@ For the current platform assessment, see:
 
 ## Packaging Note
 
-Electron Builder configuration may still be useful later, but packaging is not the blocker. The blocker is the missing Windows audio capture backend.
+`npm run build:beta:win` does not build the native helper by itself. It packages whatever
+`native/audio-backends/windows/.build/SurroundAudioBackend.exe` is already present, if any.
+
+The blocker for a public Windows release is no longer just "missing backend code." The current
+blockers are release validation, helper build/package reliability, device compatibility, channel
+ordering, and long-run capture stability across WASAPI, ASIO, and DirectShow fallback paths.
 
 The beta config currently disables Windows executable signing/resource editing with `win.signAndEditExecutable: false` so local unsigned development packaging does not require the `winCodeSign` symlink extraction path. Re-enable and retest signing/resource metadata before publishing any Windows build.
 

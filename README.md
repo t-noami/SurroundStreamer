@@ -62,7 +62,7 @@ The current practical target is macOS because the audio capture path depends on 
 
 ## User Manual
 
-SurroundStreamer sends audio from audio inputs or audio files to Icecast as Ogg Opus streams.
+SurroundStreamer sends audio from audio inputs or audio files as Ogg Opus, stereo MP3, or both.
 
 ### Basic Screen
 
@@ -73,13 +73,13 @@ The main screen is organized into these areas:
 - `Input Source`: Selects the streaming source.
 - `Monitor Output`: Configures monitor playback before or during streaming.
 - `Encoding Settings`: Configures bitrate, sample rate, and channel templates.
-- `Icecast Settings`: Configures the Icecast connection.
+- `Stream Server Settings`: Configures Opus Icecast and Stereo MP3 destinations.
 - `START STREAM` / `STOP STREAM`: Starts or stops the stream.
 - `Window > Show Logs`: Opens connection status and error messages in a separate window.
 
 ### First-Run Settings
 
-The first-run Icecast defaults are:
+The first-run Opus Icecast defaults are:
 
 - Host: empty
 - Port: `8000`
@@ -87,6 +87,9 @@ The first-run Icecast defaults are:
 - Password: empty
 
 Icecast settings are saved after editing and restored on the next launch. If settings are already saved, the saved values are used instead of the first-run defaults.
+
+Stereo MP3 settings are saved with the same settings set. MP3 defaults are Icecast mode, port
+`8000`, mount point `/stream.mp3`, and `128k` bitrate.
 
 ### Input Sources
 
@@ -178,7 +181,7 @@ While streaming, the following controls are locked to prevent accidental changes
 
 - `Input Source`
 - `Encoding Settings`
-- `Icecast Settings`
+- `Stream Server Settings`
 
 Click `STOP STREAM` to stop streaming. Closing the window with the macOS close button also quits the app and stops any streaming processes running in the background.
 
