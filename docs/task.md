@@ -24,7 +24,8 @@ Last updated: 2026-05-11
 - Stereo MP3 can target MP3 Icecast or MP3 Shoutcast 1.
 - Standard stream channel templates are Mono, Stereo, Stereo + C, 5.1, and 7.1.
 - 7.1.2 and 7.1.4 are excluded from the standard build and remain research-only topics.
-- Audio Input capture uses the native Core Audio helper and pipes PCM into FFmpeg.
+- On macOS, Audio Input capture uses the native Core Audio helper and pipes PCM into FFmpeg.
+- On Windows beta, Audio Input capture uses native ASIO and MMDevice/WASAPI paths, with DirectShow fallback when the native helper is unavailable.
 - File source supports playback/streaming and monitor preview.
 - App Audio capture has been removed from the current beta line.
 - Monitor Output is supported for Audio Input and File sources on macOS.
@@ -43,6 +44,7 @@ Last updated: 2026-05-11
 - [x] Draft beta Release created on GitHub as prerelease.
 - [x] Release notes stored in `docs/releases/v0.1.0-beta.1.md`.
 - [x] Release notes stored in `docs/releases/v0.1.0.md`.
+- [x] Current beta release notes stored in `docs/releases/v0.1.1-beta.10.md`.
 
 ## Release Checklist Before Publishing
 
@@ -88,7 +90,7 @@ Branch: `beta/cross-platform-backend`
 - [x] Add beta packaging scripts for macOS, Windows, and Linux.
 - [x] Add a main-process audio backend selection boundary.
 - [x] Wrap current macOS Core Audio helper access behind a macOS backend.
-- [x] Add an unsupported backend for non-macOS platforms.
+- [x] Add an unsupported fallback backend for platforms without a real backend.
 - [x] Expose audio backend capabilities to the renderer.
 - [x] Disable unsupported source controls based on backend capabilities.
 - [x] Add a Windows backend selector with WASAPI primary path and DirectShow fallback.

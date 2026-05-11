@@ -92,8 +92,8 @@ src/main/audio-backends/
     device-scanner.js
   windows-dshow.js
   windows-wasapi.js
-  linux-pipewire.js
   unsupported.js
+  linux-pipewire.js       # future/proposed; not present in the current source tree
 
 native/audio-backends/
   macos/
@@ -235,7 +235,7 @@ Tasks:
 - Add `src/main/audio-backends/`.
 - Add backend selection in one place.
 - Wrap existing macOS helper calls behind `macos-core-audio.js`.
-- Add `unsupported.js` for Windows/Linux until real backends exist.
+- Add `unsupported.js` as the fallback for platforms without a real backend. Windows now selects `windows-wasapi.js`; Linux still falls back to `unsupported.js`.
 - Make IPC handlers call the selected backend instead of directly calling macOS helper modules.
 - Keep current Audio Input and File source behavior unchanged on macOS.
 - Add a backend capability IPC endpoint for the renderer.
@@ -244,7 +244,7 @@ Exit criteria:
 
 - macOS Audio Input still streams.
 - File source still streams.
-- Windows/Linux builds, if run, show unsupported capture controls clearly instead of broken controls.
+- Windows builds expose capability-gated Windows backend features; Linux builds, if run, show unsupported capture controls clearly instead of broken controls.
 
 ### Phase 2: Packaging Layout
 
@@ -265,7 +265,7 @@ Exit criteria:
 - Regular `npm run build:mac` can still produce the stable app naming when run from the release line.
 - Packaging does not include private files such as `test_streamconfig.txt`.
 
-### Phase 3: File-Only Windows/Linux Beta
+### Phase 3: File-First Windows/Linux Beta
 
 Goal: make Windows/Linux app shells useful without pretending full capture support exists.
 
@@ -281,9 +281,9 @@ Tasks:
 
 Exit criteria:
 
-- Windows/Linux beta app opens.
-- File source can be tested without macOS helper calls.
-- Unsupported capture features are visibly disabled.
+- Windows beta app opens and can use File source without macOS helper calls.
+- Windows Audio Input is capability-gated through the native helper or DirectShow fallback.
+- Linux beta app, if generated, can use shared File source behavior while unsupported capture features are visibly disabled.
 
 ### Phase 4: Windows Backend Research Build
 
@@ -403,7 +403,7 @@ Questions:
 
 - Is per-app capture required in a future major scope, or is Audio Input routing acceptable?
 - Is surround preservation required on Windows/Linux v1, or can stereo/5.1 be staged?
-- Should Audio Input monitor output remain disabled across all OSes?
+- Should future non-ASIO native Audio Input monitor output remain disabled across all OSes?
 - Should File source become the first cross-platform public feature?
 
 Exit criteria:

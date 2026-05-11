@@ -10,7 +10,7 @@ Implementing Windows or Linux support is now a substantial platform-backend proj
 
 Current beta decision: App Audio has been removed as a supported input source. This assessment still documents why the old App Audio path was hard to port, but active cross-platform work should prioritize File source and Audio Input capture.
 
-The current application is structurally macOS-first. The Electron UI and FFmpeg encoding pipeline are mostly reusable, but important capture and routing features are coupled to macOS Core Audio helper behavior. A Windows or Linux build can likely open the UI and may support File source work after validation, but Audio Input, device enumeration, and monitor device routing need platform-specific replacements.
+The current stable application is structurally macOS-first. The Electron UI and FFmpeg encoding pipeline are mostly reusable. The beta branch now has a Windows backend for native MMDevice/WASAPI and ASIO Audio Input capture with DirectShow fallback. Linux still needs a platform backend before Audio Input can be supported there.
 
 Feature parity on Windows or Linux should be treated as difficult.
 
@@ -203,7 +203,7 @@ platform capture API -> platform native playback API
 
 Platform mapping:
 
-- macOS: Core Audio process tap into Core Audio output render path.
+- macOS: Core Audio input-device capture into a Core Audio output render path, if a native monitor is reintroduced.
 - Windows: WASAPI capture/loopback into WASAPI render-client playback path.
 - Linux: PipeWire/PulseAudio capture into PipeWire/PulseAudio playback path.
 
@@ -453,7 +453,7 @@ Current status and remaining work:
 
 6. Split release support from packaging support.
 
-   Packaging scripts can remain, but README/downloads should keep Windows/Linux as preparing until the backend and user workflows pass real tests.
+   Packaging scripts can remain, but README/downloads should keep Linux as preparing until a backend and user workflows pass real tests. Windows should be described as beta/pre-release, not stable, until signing, compatibility, and long-run validation are complete.
 
 ## Can One Shared Standard Cover macOS / Windows / Linux?
 
@@ -565,11 +565,7 @@ Commands:
   --capabilities
   --list-audio-inputs
   --list-output-devices
-  --list-apps
-  --list-app-output-streams
   --capture-input --device-id <id> [--stream-index <n>]
-  --capture-app --app-id <id> [--output-id <id>] [--stream-index <n>]
-  --capture-loopback --output-id <id>
 
 stdout:
   raw PCM, preferably 32-bit float little-endian
@@ -581,6 +577,10 @@ stderr:
     {"event":"status","message":"..."}
 ```
 
+Research-only commands such as `--list-apps`, `--list-app-output-streams`, `--capture-app`, and
+`--capture-loopback` should stay out of the active supported helper contract unless App Audio or
+loopback capture is deliberately reintroduced.
+
 Then the Electron/FFmpeg side can stay mostly common:
 
 - receive Float32 PCM
@@ -591,7 +591,7 @@ Then the Electron/FFmpeg side can stay mostly common:
 
 Platform-specific implementations would sit behind the helper contract:
 
-- macOS helper: Apple Core Audio Process Tap / Core Audio device capture
+- macOS helper: Apple Core Audio device capture
 - Windows helper: Microsoft Core Audio APIs / WASAPI / MMDevice / Audio Session APIs
 - Linux helper: PipeWire first, PulseAudio compatibility or ALSA as fallback
 

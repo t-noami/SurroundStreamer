@@ -47,7 +47,7 @@ The public stable target is macOS. The beta branch also contains a validated Win
 - Standard channel templates: Mono, Stereo, Stereo + C, 5.1, 7.1
 - Default encoding: 48 kHz, 128 kbps stereo-equivalent bitrate
 - Main source order: Audio Input, File
-- Audio Input capture: Core Audio helper PCM capture piped into FFmpeg
+- Audio Input capture: macOS uses the Core Audio helper PCM path; the Windows beta uses native ASIO and MMDevice/WASAPI capture with DirectShow fallback.
 - File source: file playback and preview monitor support
 - Monitor Output: Stereo Pair, Stereo Downmix, KU100 Near-field HRTF
 
@@ -230,7 +230,7 @@ Build instructions are split by operating system:
 - [Windows Backend Development Guide](docs/windows-backend-development.md)
 - [Windows / Linux Portability Assessment](docs/windows-linux-portability-assessment.md)
 
-macOS is the primary supported build target. Windows and Linux packaging notes are included for future platform work, but the current audio capture path depends on macOS Core Audio.
+macOS is the primary stable build target. The beta branch also includes a locally validated Windows backend for ASIO Audio Input, MMDevice/WASAPI Audio Input, File source, backend-owned ASIO monitor routing, and Icecast streaming. Linux packaging notes remain preparatory because Linux Audio Input capture is not implemented yet.
 
 ## Test Stream Config
 

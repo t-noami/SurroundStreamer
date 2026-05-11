@@ -97,7 +97,12 @@ spawnAppAudioPCMStream(pid, options)
 spawnInputDevicePCMStream(options)
 ```
 
-It is acceptable for early Windows work to return unsupported App Audio capabilities when the native helper executable has not been built yet.
+App Audio methods may exist only to satisfy the shared shape; App Audio remains unsupported in the current UI. The Windows backend may also implement capability-gated monitor methods used by the ASIO monitor path:
+
+```js
+listMonitorOutputDevices()
+spawnOutputPCMPlayback(options)
+```
 
 ## Capability Rules
 
@@ -142,7 +147,7 @@ The selected Windows WASAPI backend reports App Audio as unsupported. Process-lo
   nativeInputDeviceMonitor: false,
   fileSource: true,
   monitorPlayback: true,
-  monitorDeviceEnumeration: false,
+  monitorDeviceEnumeration: true,
   outputLoopbackCapture: false,
   minimumWindowsBuild: 20348
 }
@@ -261,7 +266,7 @@ Current bootstrap:
 - The same helper can probe registered ASIO drivers and capture ASIO input channels as Float32 PCM.
 - `src/main/audio-backends/windows-wasapi.js` uses the native helper for Audio Input when the helper is available.
 - `src/main/audio-backends/windows-dshow.js` enumerates DirectShow audio devices through bundled FFmpeg.
-- The backend captures selected audio inputs through FFmpeg `dshow`, converts to Float32 PCM, and emits the expected JSON `format` event.
+- The DirectShow fallback captures selected audio inputs through FFmpeg `dshow`, converts to Float32 PCM, and emits the expected JSON `format` event.
 - The DirectShow path is now a fallback bridge, not the preferred Windows Audio Input path.
 
 Likely APIs:
@@ -388,14 +393,20 @@ Current beta packaging uses `asarUnpack` for:
 native/audio-backends/windows/.build/**
 ```
 
-`src/main/audio-backends/windows-wasapi.js` can find the helper from the unpacked app path:
+`src/main/audio-backends/windows-wasapi.js` first looks for an explicitly packaged helper resource:
+
+```text
+process.resourcesPath/audio-backend.exe
+```
+
+It then falls back to the unpacked app path:
 
 ```text
 app.asar.unpacked/native/audio-backends/windows/.build/SurroundAudioBackend.exe
 ```
 
-`npm run build:beta:win` does not build the helper by itself. It packages the helper only if the
-helper already exists at the expected `.build` path.
+`npm run build:beta:win` builds the Windows helper first, then builds the app and packages with
+`electron-builder.beta.yml`.
 
 For a future stable Windows release, an explicit `win.extraResources` block may be preferable:
 
