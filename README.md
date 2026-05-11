@@ -4,8 +4,9 @@
 
 # SurroundStreamer
 
-SurroundStreamer is an Electron app for sending Ogg Opus audio streams to an Icecast server.
-It supports audio-input capture, file playback, stream channel templates up to 7.1, and monitor output for previewing supported sources.
+SurroundStreamer is a desktop streaming tool for musicians, engineers, and spatial-audio creators who want to deliver live music and multichannel audio in surround.
+It sends audio from an audio interface or audio file to an Icecast/Shoutcast-compatible streaming server as Ogg Opus surround audio, stereo MP3, or both.
+Monitor output, channel templates up to 7.1, and KU100 near-field HRIR preview help you check the stream before and during playback.
 The current release supports macOS Apple Silicon and Windows x64. Linux support is in preparation.
 
 <h2 align="center">DOWNLOAD</h2>
