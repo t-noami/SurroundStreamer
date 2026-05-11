@@ -19,8 +19,8 @@ The public stable target is macOS. The beta branch also contains a validated Win
 | Platform            | Download                                                                                                                      |
 | ------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | macOS Apple Silicon | [SurroundStreamer-0.1.1.dmg](https://github.com/t-noami/SurroundStreamer/releases/download/v0.1.1/SurroundStreamer-0.1.1.dmg) |
-| Windows             | Beta preparing for publication                                                                                                |
-| Linux               | Preparing                                                                                                                     |
+| Windows             | Beta preparing for publication on the `0.1.1` line                                                                             |
+| Linux               | Preparing on the `0.1.1` line; no public artifact yet                                                                         |
 
 ## System Requirements
 
@@ -31,8 +31,8 @@ The public stable target is macOS. The beta branch also contains a validated Win
 - Supported release target: macOS 14.2 or later on Apple Silicon
 - Audio Input capture: Core Audio helper path on macOS
 - File source: FFmpeg file playback path
-- Windows: beta branch only
-- Linux: Preparing
+- Windows: `0.1.1` beta/pre-release line only
+- Linux: `0.1.1` build line preparing; Audio Input is not implemented yet
 
 ## Developer
 

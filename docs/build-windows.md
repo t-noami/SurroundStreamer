@@ -10,6 +10,7 @@ native helper first.
 ## Current Status
 
 - Official Windows release: not available.
+- Windows release numbering: use the `0.1.1` line for release-preparation artifacts; the current beta metadata is `0.1.1-beta.10`.
 - Windows beta package: available locally from the beta branch after helper build and beta packaging.
 - Windows beta branch backend: `windows-wasapi` when the native helper is built. The helper supports MMDevice/WASAPI and ASIO Audio Input capture; ASIO is the primary validation target for surround/multichannel input, while MMDevice/WASAPI is useful for generic mono/stereo inputs. DirectShow is retained as a fallback.
 - App Audio capture: removed from the supported input-source UI. WASAPI Process Loopback source remains research/reference code only.
@@ -55,7 +56,7 @@ DirectShow fallback remain secondary validation paths for non-surround input.
 
 The beta config currently disables Windows executable signing/resource editing with `win.signAndEditExecutable: false` so local unsigned development packaging does not require the `winCodeSign` symlink extraction path. Re-enable and retest signing/resource metadata before publishing any Windows build.
 
-The beta packaging target is reserved for development experiments. If a Windows beta executable is generated from `beta/cross-platform-backend`, it should use the incremented beta version line, currently `0.1.1-beta.10`, rather than the stable `0.1.0` version.
+The beta packaging target is reserved for development experiments. If a Windows beta executable is generated from `beta/cross-platform-backend`, it should use the `0.1.1` release line with beta metadata, currently `0.1.1-beta.10`. Do not generate new Windows artifacts with the old `0.1.0` release number.
 
 Before changing shared backend files for Windows work, read [Windows Backend Development Guide](windows-backend-development.md). The current macOS beta backend must continue to build after Windows changes.
 

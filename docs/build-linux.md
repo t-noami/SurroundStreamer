@@ -9,6 +9,7 @@ Do not treat `npm run build:linux` or `npm run build:beta:linux` as a supported 
 ## Current Status
 
 - Official Linux release: not available.
+- Linux release numbering: use the `0.1.1` line for release-preparation artifacts; the current beta metadata is `0.1.1-beta.10`.
 - App Audio capture: removed from the supported input-source UI.
 - Audio Input capture: not implemented on Linux.
 - File source support: enabled by the shared app/backend capability model, but Linux packaging and release validation are not complete.
@@ -132,7 +133,7 @@ Recommended implementation order:
 
 Electron Builder configuration may still be useful for local experiments, but packaging alone is not enough for a public Linux release. The blocker is the missing Linux audio capture backend and Linux release validation.
 
-The beta packaging target is reserved for development experiments. If a Linux beta package is generated from `beta/cross-platform-backend`, it should use the incremented beta version line, currently `0.1.1-beta.10`, rather than the stable `0.1.0` version.
+The beta packaging target is reserved for development experiments. If a Linux beta package is generated from `beta/cross-platform-backend`, it should use the `0.1.1` release line with beta metadata, currently `0.1.1-beta.10`. Do not generate new Linux artifacts with the old `0.1.0` release number.
 
 For beta experiments, use:
 
