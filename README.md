@@ -11,14 +11,14 @@ The public stable target is macOS. The beta branch also contains a validated Win
 <h2 align="center">DOWNLOAD</h2>
 
 <p align="center">
-  <a href="https://github.com/t-noami/SurroundStreamer/releases/download/v0.1.0/SurroundStreamer-0.1.0.dmg">
-    <strong>Download SurroundStreamer 0.1.0 for macOS</strong>
+  <a href="https://github.com/t-noami/SurroundStreamer/releases/download/v0.1.1/SurroundStreamer-0.1.1.dmg">
+    <strong>Download SurroundStreamer 0.1.1 for macOS</strong>
   </a>
 </p>
 
 | Platform            | Download                                                                                                                      |
 | ------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| macOS Apple Silicon | [SurroundStreamer-0.1.0.dmg](https://github.com/t-noami/SurroundStreamer/releases/download/v0.1.0/SurroundStreamer-0.1.0.dmg) |
+| macOS Apple Silicon | [SurroundStreamer-0.1.1.dmg](https://github.com/t-noami/SurroundStreamer/releases/download/v0.1.1/SurroundStreamer-0.1.1.dmg) |
 | Windows             | Beta preparing for publication                                                                                                |
 | Linux               | Preparing                                                                                                                     |
 

@@ -4,7 +4,7 @@ Last updated: 2026-05-11
 
 ## Current Release State
 
-- [x] Repository is ready to be treated as `v0.1.0`.
+- [x] Repository is ready to be treated as `v0.1.1` release preparation.
 - [x] Application source is licensed under the MIT License.
 - [x] Third-party KU100 near-field HRIR attribution is documented in `README.md`.
 - [x] `README.md` is written in English.
@@ -12,8 +12,8 @@ Last updated: 2026-05-11
 - [x] `legacy/` has been removed from Git tracking.
 - [x] `SurroundWebPlayer/` has been removed from Git tracking and is excluded by `.gitignore`.
 - [x] `test_streamconfig.txt` is ignored and must remain private.
-- [x] Release notes are prepared for `v0.1.0`.
-- [x] The current beta implementation is promoted to the regular `0.1.0` build line.
+- [x] Release notes are prepared for `v0.1.1`.
+- [x] The current beta implementation is promoted to the regular `0.1.1` build line.
 
 ## Current Product Scope
 
@@ -39,11 +39,12 @@ Last updated: 2026-05-11
 - [x] `codesign --verify --deep --strict --verbose=2 dist/beta/mac-arm64/SurroundStreamer-beta-0.1.1.app`
 - [x] `npm run build:mac`
 - [x] `codesign --verify --deep --strict --verbose=2 dist/mac-arm64/SurroundStreamer.app`
-- [x] Verify `dist/SurroundStreamer-0.1.0.dmg` exists.
-- [x] `hdiutil verify dist/SurroundStreamer-0.1.0.dmg`
+- [ ] Verify `dist/SurroundStreamer-0.1.1.dmg` exists.
+- [ ] `hdiutil verify dist/SurroundStreamer-0.1.1.dmg`
 - [x] Draft beta Release created on GitHub as prerelease.
 - [x] Release notes stored in `docs/releases/v0.1.0-beta.1.md`.
 - [x] Release notes stored in `docs/releases/v0.1.0.md`.
+- [x] Release notes stored in `docs/releases/v0.1.1.md`.
 - [x] Current beta release notes stored in `docs/releases/v0.1.1-beta.10.md`.
 
 ## Release Checklist Before Publishing
@@ -56,11 +57,11 @@ Last updated: 2026-05-11
 - [ ] Confirm Monitor Output for File source.
 - [ ] Confirm Monitor Output for Audio Input source.
 - [ ] Confirm app quit stops FFmpeg and helper processes.
-- [ ] Decide whether to publish the `v0.1.0` Release as-is or rebuild with notarization.
+- [ ] Decide whether to publish the `v0.1.1` Release as-is or rebuild with notarization.
 
 ## Known Limitations
 
-- The `0.1.0` app is ad-hoc signed and not notarized.
+- The `0.1.1` release app is expected to remain ad-hoc signed unless notarization is added.
 - App Audio capture is no longer a supported source.
 - Windows packages are beta-ready locally, but not stable/public-release ready because signing, broader ASIO device compatibility, channel-order documentation, and long-run capture tests remain.
 - Linux packages are not release-ready because Linux Audio Input capture is not implemented.
