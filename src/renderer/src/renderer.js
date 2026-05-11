@@ -670,11 +670,15 @@ function selectedFileMonitorConfig() {
     inputChannels: fileInputInfo?.channels || selectedChannels.length || inputInfo.channels,
     selectedChannels,
     streamChannelLayout: selectedStreamLayout(),
+    streamChannelLabels: selectedStreamChannelLabels(),
     sampleRate: inputInfo.sampleRate || Number(sampleRateSelect.value),
+    monitorEnabled: true,
     monitorMode: monitorMode.value,
     monitorPairStart: Number(monitorSourcePair.value || 0),
     monitorLatencyMs: Number(monitorLatency.value || 80),
     monitorLowLatency: false,
+    monitorOutputDeviceId: selectedMonitorOutputDeviceId(),
+    monitorOutputDeviceName: selectedMonitorOutputDeviceName(),
     monitorVolume: monitorVolumePercent(),
     loopFile: loopFileInput.checked
   }
@@ -852,7 +856,7 @@ function shouldUseBackendAsioOutputMonitor(config = null) {
 function shouldUseBackendMonitorOutputDevices() {
   return (
     audioBackendCapabilities.platform === 'win32' &&
-    isAsioInputConfig() &&
+    (currentInputType === 'file' || isAsioInputConfig()) &&
     typeof window.api.listMonitorOutputDevices === 'function'
   )
 }

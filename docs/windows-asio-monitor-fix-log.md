@@ -195,7 +195,10 @@ Notes:
   the fix with proxy inheritance, then passed after clearing the proxy variables and using the
   Opus-compatible `5.1` layout.
 
-## Beta Builds Produced During Investigation
+## Historical Beta Builds Produced During Investigation
+
+These paths are historical local artifacts from the ASIO monitor investigation. The current main
+Windows release-preparation artifact is documented in [Build On Windows](build-windows.md).
 
 Earlier intermediate builds:
 

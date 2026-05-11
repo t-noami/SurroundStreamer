@@ -3,28 +3,43 @@ productName: SurroundStreamer
 copyright: Copyright © 2026 Non-REM Studio
 directories:
   buildResources: build
+afterPack: scripts/after-pack-win-icon.cjs
 files:
   - '!**/.vscode/*'
   - '!src/**'
+  - '!scripts/**'
+  - '!docs/**'
+  - '!native/**'
   - '!dist/**'
   - '!legacy/**'
   - '!SurroundWebPlayer/**'
+  - '!icecast/**'
   - '!node_modules/.cache/**'
   - '!docs/manual-assets/capture.html'
   - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!electron-builder*.yml'
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml,test_streamconfig.txt}'
 asarUnpack:
   - resources/**
-  - native/audio-backends/windows/.build/**
 win:
   executableName: SurroundStreamer
+  icon: icon.ico
   signAndEditExecutable: false
+  extraResources:
+    - from: native/audio-backends/windows/.build/SurroundAudioBackend.exe
+      to: audio-backend.exe
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
+  installerIcon: icon.ico
+  uninstallerIcon: icon.ico
+  installerHeaderIcon: icon.ico
+  oneClick: false
+  allowToChangeInstallationDirectory: true
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
+  createStartMenuShortcut: true
 mac:
   category: public.app-category.music
   entitlements: build/entitlements.mac.plist

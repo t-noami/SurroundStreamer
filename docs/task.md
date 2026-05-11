@@ -29,7 +29,7 @@ Last updated: 2026-05-11
 - File source supports playback/streaming and monitor preview.
 - App Audio capture has been removed from the current beta line.
 - Monitor Output is supported for Audio Input and File sources on macOS.
-- Windows beta supports ASIO Audio Input, MMDevice/WASAPI Audio Input, File source, backend-owned ASIO monitor output routing, and Icecast Opus streaming.
+- Windows beta supports ASIO Audio Input, MMDevice/WASAPI Audio Input, File source, backend-owned ASIO/File monitor output routing, and Icecast Opus streaming.
 
 ## Verified Locally
 

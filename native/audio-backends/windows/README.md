@@ -9,8 +9,8 @@ Current app scope:
 - ASIO is the primary validation path for surround/multichannel Audio Input on Windows.
 - MMDevice/WASAPI is supported for generic mono/stereo Audio Input and may support more channels
   only when a specific driver exposes them that way.
-- Windows ASIO Audio Input monitor output can be routed through the backend-owned FFmpeg/WASAPI
-  renderer path in the beta app.
+- Windows ASIO Audio Input and Windows File-source monitor output can be routed through the
+  backend-owned FFmpeg/WASAPI renderer path in the beta app.
 - App Audio has been removed from the beta line.
 - WASAPI Process Loopback is retained as research/reference code only.
 - DirectShow fallback lives in the Electron/FFmpeg backend, not in this helper executable.
@@ -35,6 +35,19 @@ Expected output:
 ```text
 native/audio-backends/windows/.build/SurroundAudioBackend.exe
 ```
+
+When packaged by the main Windows Electron Builder config, this build output is copied as:
+
+```text
+process.resourcesPath/audio-backend.exe
+```
+
+The packaged app should use `audio-backend.exe` as the primary helper path. The historical
+`app.asar.unpacked/native/audio-backends/windows/.build/SurroundAudioBackend.exe` lookup remains a
+fallback for older/beta packages.
+
+Release builds disable helper debug/PDB information so local developer paths are not embedded in
+the packaged helper executable.
 
 ## Recent Investigation Log
 
@@ -71,13 +84,13 @@ ASIO input capture:
 SurroundAudioBackend.exe --stream-asio-input --clsid "{...}" --channels 6
 ```
 
-Output device listing for ASIO monitor routing:
+Output device listing for backend monitor routing:
 
 ```powershell
 SurroundAudioBackend.exe --list-output-devices
 ```
 
-WASAPI output playback for backend-owned ASIO monitor routing:
+WASAPI output playback for backend-owned monitor routing:
 
 ```powershell
 SurroundAudioBackend.exe --play-wasapi-output --sample-rate 48000 --channels 2

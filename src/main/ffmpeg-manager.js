@@ -206,7 +206,7 @@ class FFmpegManager extends EventEmitter {
         const chunk = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)
         if (this.monitorPlaybackProcess) {
           this.writeMonitorPlayback(data)
-        } else if (this.shouldUseAsioOutputMonitor(this.config)) {
+        } else if (this.shouldUseBackendOutputMonitor(this.config)) {
           return
         } else if (this.monitorForwarding) {
           this.queueMonitorAudio(chunk)
@@ -249,7 +249,7 @@ class FFmpegManager extends EventEmitter {
   }
 
   startMonitorPlaybackProcess() {
-    if (!this.shouldUseAsioOutputMonitor(this.config) || this.monitorPlaybackProcess) return
+    if (!this.shouldUseBackendOutputMonitor(this.config) || this.monitorPlaybackProcess) return
     this.monitorPlaybackProcess = audioBackend.spawnOutputPCMPlayback({
       deviceUID: this.config?.monitorOutputDeviceId,
       deviceName: this.config?.monitorOutputDeviceName,
@@ -277,7 +277,7 @@ class FFmpegManager extends EventEmitter {
       this.emit('log', { type: 'error', message: `WASAPI backend monitor process error: ${error.message}` })
     })
     this.attachMonitorPlaybackStdinHandlers(this.monitorPlaybackProcess, 'WASAPI backend monitor')
-    this.emit('log', { type: 'system', message: 'ASIO monitor output attached to WASAPI backend renderer.' })
+    this.emit('log', { type: 'system', message: 'Monitor output attached to WASAPI backend renderer.' })
   }
 
   writeMonitorPlayback(data) {
@@ -298,12 +298,12 @@ class FFmpegManager extends EventEmitter {
     try {
       playbackProcess.stdin.write(data, (error) => {
         if (error && error.code !== 'EPIPE' && error.code !== 'EOF') {
-          this.emit('log', { type: 'error', message: `ASIO monitor output write error: ${error.message}` })
+          this.emit('log', { type: 'error', message: `Backend monitor output write error: ${error.message}` })
         }
       })
     } catch (error) {
       if (error.code !== 'EPIPE' && error.code !== 'EOF') {
-        this.emit('log', { type: 'error', message: `ASIO monitor output write error: ${error.message}` })
+        this.emit('log', { type: 'error', message: `Backend monitor output write error: ${error.message}` })
       }
     }
   }
@@ -713,9 +713,10 @@ class FFmpegManager extends EventEmitter {
     this.stopPreviewMonitor()
 
     const outputChannels = this.getOutputChannels(config)
-    const channels = this.getMonitorChannels(config, outputChannels)
+    const backendOutputMonitor = this.shouldUseBackendFileMonitor(config)
+    const channels = backendOutputMonitor ? 2 : this.getMonitorChannels(config, outputChannels)
     const sampleRate = this.getOutputSampleRate(config)
-    const layout = this.channelLayoutFor(channels)
+    const layout = this.channelLayoutFor(channels, config)
     this.monitorFormat = {
       mode: config.monitorMode || 'stereo-pair',
       latencyMs: this.getMonitorLatencyMs(config),
@@ -735,7 +736,54 @@ class FFmpegManager extends EventEmitter {
     if (config.loopFile !== false) {
       args.push('-stream_loop', '-1')
     }
-    args.push('-re', '-i', config.inputPath, '-vn')
+    args.push('-re', '-i', config.inputPath)
+
+    if (backendOutputMonitor) {
+      const hrtfLabels =
+        (config.monitorMode || 'stereo-pair') === 'binaural'
+          ? this.mp3HrtfLabels(config, outputChannels)
+          : []
+      args.push(
+        ...this.buildHrtfInputArgs(hrtfLabels),
+        '-vn',
+        '-filter_complex',
+        `[0:a]${this.buildBackendMonitorFilter(config, outputChannels, {
+          hrtfLabels,
+          hrtfInputStart: 1
+        })}[mon]`,
+        '-map',
+        '[mon]'
+      )
+      this.monitorPlaybackProcess = audioBackend.spawnOutputPCMPlayback({
+        deviceUID: config.monitorOutputDeviceId,
+        deviceName: config.monitorOutputDeviceName,
+        sampleRate,
+        channels
+      })
+      this.monitorPlaybackProcess.stderr.on('data', (data) => {
+        const message = data.toString().trim()
+        if (!message) return
+        const parsed = this.tryParseJSON(message)
+        if (parsed?.event === 'format') {
+          this.emit('log', {
+            type: 'system',
+            message: `File preview WASAPI output format: ${parsed.channels}ch @ ${this.formatSampleRate(parsed.sampleRate)}`
+          })
+          return
+        }
+        if (parsed?.event === 'error') {
+          this.emit('log', { type: 'error', message: `File preview WASAPI output error: ${parsed.message}` })
+          return
+        }
+        this.emit('log', { type: 'system', message: `File preview WASAPI output: ${message}` })
+      })
+      this.monitorPlaybackProcess.on('error', (error) => {
+        this.emit('log', { type: 'error', message: `File preview WASAPI output process error: ${error.message}` })
+      })
+      this.attachMonitorPlaybackStdinHandlers(this.monitorPlaybackProcess, 'File preview WASAPI output')
+    } else {
+      args.push('-vn')
+    }
 
     args.push('-ar', String(sampleRate), '-ac', String(channels))
     if (layout) {
@@ -747,7 +795,9 @@ class FFmpegManager extends EventEmitter {
     this.previewMonitorProcess = monitorProcess
 
     monitorProcess.stdout.on('data', (data) => {
-      if (this.monitorForwarding) {
+      if (backendOutputMonitor && this.monitorPlaybackProcess) {
+        this.writeMonitorPlayback(data)
+      } else if (this.monitorForwarding) {
         this.queueMonitorAudio(data)
       }
     })
@@ -777,6 +827,7 @@ class FFmpegManager extends EventEmitter {
       if (!this.process) {
         this.monitorForwarding = false
         this.monitorPipeEnabled = false
+        this.cleanupMonitorPlaybackProcess()
         this.resetMonitorAudioQueue()
         this.emit('monitor-stop')
       }
@@ -1281,7 +1332,7 @@ class FFmpegManager extends EventEmitter {
       monitorOutputDeviceId: config.monitorOutputDeviceId || '',
       monitorOutputDeviceName: config.monitorOutputDeviceName || ''
     }
-    if (!this.process || !this.shouldUseAsioOutputMonitor(this.config) || !this.monitorPipeEnabled) {
+    if (!this.process || !this.shouldUseBackendOutputMonitor(this.config) || !this.monitorPipeEnabled) {
       return
     }
     this.cleanupMonitorPlaybackProcess()
@@ -1371,7 +1422,7 @@ class FFmpegManager extends EventEmitter {
       mp3SimulcastEnabled && mp3AudioMode === 'hrtf'
         ? this.mp3HrtfLabels(config, outputChannels)
         : []
-    const monitorHrtfLabels = this.shouldUseAsioOutputMonitor(config)
+    const monitorHrtfLabels = this.shouldUseBackendOutputMonitor(config)
       ? this.mp3HrtfLabels(config, outputChannels)
       : []
     const hrtfInputLabels = [...mp3HrtfLabels, ...monitorHrtfLabels]
@@ -1609,18 +1660,22 @@ class FFmpegManager extends EventEmitter {
   }
 
   buildMonitorFilter(config, outputChannels, { hrtfLabels = [], hrtfInputStart = 1 } = {}) {
-    if (this.shouldUseAsioOutputMonitor(config)) {
-      const filters = this.buildPreEncodeFilters(config, outputChannels)
-      const mode = config?.monitorMode || 'stereo-pair'
-      const monitorFilter =
-        mode === 'binaural'
-          ? this.buildHrtfMonitorFilter(outputChannels, hrtfLabels, hrtfInputStart)
-          : mode === 'downmix'
-            ? this.buildMp3DownmixFilter(outputChannels)
-            : this.buildMp3StereoPairFilter(outputChannels)
-      return this.filterChain(filters, monitorFilter)
+    if (this.shouldUseBackendOutputMonitor(config)) {
+      return this.buildBackendMonitorFilter(config, outputChannels, { hrtfLabels, hrtfInputStart })
     }
     return 'anull'
+  }
+
+  buildBackendMonitorFilter(config, outputChannels, { hrtfLabels = [], hrtfInputStart = 1 } = {}) {
+    const filters = this.buildPreEncodeFilters(config, outputChannels)
+    const mode = config?.monitorMode || 'stereo-pair'
+    const monitorFilter =
+      mode === 'binaural'
+        ? this.buildHrtfMonitorFilter(outputChannels, hrtfLabels, hrtfInputStart)
+        : mode === 'downmix'
+          ? this.buildMp3DownmixFilter(outputChannels)
+          : this.buildMp3StereoPairFilter(outputChannels)
+    return this.filterChain(filters, monitorFilter)
   }
 
   buildMp3FilterChain(inputLabel, outputLabel, outputChannels, mode, hrtfLabels) {
@@ -1696,7 +1751,7 @@ class FFmpegManager extends EventEmitter {
   }
 
   getMonitorChannels(config, outputChannels = this.getOutputChannels(config)) {
-    if (this.shouldUseAsioOutputMonitor(config)) {
+    if (this.shouldUseBackendOutputMonitor(config)) {
       return 2
     }
     const channelSelection = this.getChannelSelection(config, outputChannels)
@@ -1705,7 +1760,7 @@ class FFmpegManager extends EventEmitter {
 
   getMonitorFormat(config) {
     const outputChannels = this.getOutputChannels(config)
-    if (this.shouldUseAsioOutputMonitor(config)) {
+    if (this.shouldUseBackendOutputMonitor(config)) {
       return {
         mode: config.monitorMode || 'stereo-pair',
         latencyMs: this.getMonitorLatencyMs(config),
@@ -1745,9 +1800,22 @@ class FFmpegManager extends EventEmitter {
   }
 
   shouldUseFfmpegMonitor(config) {
-    if (this.shouldUseAsioOutputMonitor(config)) return true
+    if (this.shouldUseBackendOutputMonitor(config)) return true
     if (config?.directInputMonitor) return false
     return true
+  }
+
+  shouldUseBackendOutputMonitor(config) {
+    return this.shouldUseAsioOutputMonitor(config) || this.shouldUseBackendFileMonitor(config)
+  }
+
+  shouldUseBackendFileMonitor(config) {
+    return (
+      process.platform === 'win32' &&
+      config?.inputType === 'file' &&
+      !!config?.monitorEnabled &&
+      typeof audioBackend.spawnOutputPCMPlayback === 'function'
+    )
   }
 
   shouldUseAsioOutputMonitor(config) {

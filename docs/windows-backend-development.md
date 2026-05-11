@@ -1,6 +1,6 @@
 # Windows Backend Development Guide
 
-Last updated: 2026-05-10
+Last updated: 2026-05-11
 
 Branch: `beta/cross-platform-backend`
 
@@ -20,11 +20,11 @@ Verified on macOS:
 Current Windows status:
 
 - Official Windows release: not available.
-- Windows beta packaging script exists: `npm run build:beta:win`
+- Windows local package script exists: `npm run build:win`
 - `process.platform === 'win32'` now selects `src/main/audio-backends/windows-wasapi.js`.
-- File source is implemented but still needs final packaged-app smoke testing.
+- File source is implemented, including packaged Windows monitor output through the backend WASAPI renderer.
 - Audio Input capture supports native MMDevice/WASAPI and ASIO through the Windows helper, with the earlier DirectShow/FFmpeg backend retained as fallback.
-- Native ASIO and MMDevice/WASAPI Audio Input, ASIO monitor routing, and Icecast Opus streaming have local beta validation.
+- Native ASIO and MMDevice/WASAPI Audio Input, ASIO/File monitor routing, and Icecast Opus streaming have local beta validation.
 - ASIO is the primary validation path for Windows surround/multichannel input. MMDevice/WASAPI remains useful for generic mono/stereo input, but should not be assumed to expose 5.1 or 7.1 capture endpoints.
 - ASIO driver probing and ASIO input capture have an initial native helper path for multichannel virtual devices such as Voicemeeter.
 - WASAPI Process Loopback and the earlier DirectShow loopback-device bridge remain research/reference paths, not supported App Audio sources.
@@ -248,7 +248,7 @@ Tasks:
 
 - Ensure `process.platform === 'win32'` uses a Windows backend, not macOS. Current selector uses `src/main/audio-backends/windows-wasapi.js`.
 - Keep App Audio disabled through capabilities. Audio Input is now enabled through the native helper path when available, with DirectShow fallback when the helper is missing.
-- Build with `npm run build:beta:win`.
+- Build with `npm run build:win`.
 - Launch the generated installer/app on Windows.
 - Verify File source UI, file selection, Icecast settings, logs window, About window, and START/STOP behavior.
 - Verify File source streaming to Icecast if FFmpeg packaging works.
@@ -373,28 +373,27 @@ Build the helper first when validating native Audio Input:
 npm run build:audio-helper:win
 ```
 
-Beta build command:
+Current local Windows package command:
 
-```bash
-npm run build:beta:win
+```powershell
+npm run build:win
 ```
 
-Expected beta artifact name:
+Expected local artifact names:
 
 ```text
-dist/beta/SurroundStreamer-beta-0.1.1-setup.exe
+dist/surround-streamer-0.1.1-setup.exe
+dist/win-unpacked/SurroundStreamer.exe
 ```
 
-The latest local validation build used during the Windows ASIO stream-live fix was:
+The Windows beta config may still be used for beta-branch experiments, but the main
+release-preparation path is `electron-builder.yml`.
+
+Current main packaging copies the helper as an explicit Electron resource:
 
 ```text
-dist/beta-stream-live-fix/SurroundStreamer-beta-0.1.1-setup.exe
-```
-
-Current beta packaging uses `asarUnpack` for:
-
-```text
-native/audio-backends/windows/.build/**
+native/audio-backends/windows/.build/SurroundAudioBackend.exe
+-> process.resourcesPath/audio-backend.exe
 ```
 
 `src/main/audio-backends/windows-wasapi.js` first looks for an explicitly packaged helper resource:
@@ -409,20 +408,29 @@ It then falls back to the unpacked app path:
 app.asar.unpacked/native/audio-backends/windows/.build/SurroundAudioBackend.exe
 ```
 
-`npm run build:beta:win` builds the Windows helper first, then builds the app and packages with
-`electron-builder.beta.yml`.
+That fallback exists for older/beta packages and development builds. Current main packaging should
+not rely on unpacking `native/audio-backends/windows/.build/**`; only the helper executable should be
+packaged.
 
-For a future stable Windows release, an explicit `win.extraResources` block may be preferable:
+The relevant main config is:
 
 ```yaml
 win:
+  signAndEditExecutable: false
   extraResources:
     - from: native/audio-backends/windows/.build/SurroundAudioBackend.exe
       to: audio-backend.exe
+
+afterPack: scripts/after-pack-win-icon.cjs
 ```
 
-Do not switch stable packaging to that block until the helper is built in CI or documented local
-steps exist. A missing `from` path can break packaging.
+The helper Release build disables debug/PDB information so the packaged `audio-backend.exe` does not
+embed local developer PDB paths. Keep this property when changing native build settings.
+
+Windows local packages remain unsigned. `win.signAndEditExecutable` stays disabled to avoid the
+`winCodeSign` symlink extraction path. The icon is embedded after packaging by
+`scripts/after-pack-win-icon.cjs`, which calls the vendored `rcedit.exe` on
+`dist/win-unpacked/SurroundStreamer.exe`.
 
 ## Required Checks Before Commit
 
@@ -440,7 +448,7 @@ On Windows after Windows changes:
 npm install
 npm run build:audio-helper:win
 npm run build
-npm run build:beta:win
+npm run build:win
 ```
 
 Manual Windows checks:
@@ -450,11 +458,19 @@ Manual Windows checks:
 - Audio Input devices list through the native helper when present.
 - DirectShow fallback is clear when the native helper is absent.
 - File source can select a file.
+- File source monitor output is clean through the backend WASAPI monitor path.
 - Logs window opens.
+- Desktop and Start Menu shortcuts are created by the NSIS installer.
+- Shortcut icons resolve from the installed `SurroundStreamer.exe`.
 - Icecast settings persist after relaunch.
 - Opus, Opus+MP3, and MP3-only encoding modes start with valid test server settings.
 - MP3 Shoutcast 1 relay authenticates against a real compatible server.
 - START/STOP does not leave FFmpeg running.
+- Scan the installer and unpacked app for local absolute paths before sharing:
+
+```powershell
+rg -a -n --no-messages "C:\\Users|Desktop\\SurroundStreamer|SurroundAudioBackend.pdb" dist\surround-streamer-0.1.1-setup.exe dist\win-unpacked
+```
 
 ## Files To Update With Progress
 

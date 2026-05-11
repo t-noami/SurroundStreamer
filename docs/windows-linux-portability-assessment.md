@@ -100,7 +100,9 @@ What the Windows backend should not do:
 Windows validation status and remaining checks:
 
 - Build the Windows helper with `npm run build:audio-helper:win` before Windows beta packaging.
-- Confirm the packaged app can find `native/audio-backends/windows/.build/SurroundAudioBackend.exe` from the unpacked app resources. This has been verified for the local beta package.
+- Confirm the packaged app can find `process.resourcesPath/audio-backend.exe`. The main Windows
+  package copies `native/audio-backends/windows/.build/SurroundAudioBackend.exe` there through
+  `win.extraResources`.
 - Confirm the Windows packaged FFmpeg binary has `libmp3lame` encoding and the `headphone` audio filter available.
 - Confirm `resources/ku100-hrir/**` is unpacked and reachable from the packaged Windows app.
 - Confirm the Windows backend reports real channel count and sample rate for multichannel input devices. This has been validated with Voicemeeter Virtual ASIO in the local beta workflow.
@@ -109,7 +111,9 @@ Windows validation status and remaining checks:
 
 Risk:
 
-- The current Windows build scripts and stable packaging config are packaging scaffolds, not a complete release pipeline for the Windows helper.
+- The current Windows build scripts and stable packaging config can produce a local unsigned
+  installer, but they are still not a complete public release pipeline because signing, SmartScreen,
+  broader device compatibility, and long-run validation remain open.
 - DirectShow fallback may expose only stereo or driver-dependent layouts.
 - ASIO/WASAPI channel ordering may not match the macOS/Core Audio labels. If labels are unavailable, the UI should clearly treat the mapping as backend-reported or default-order only.
 - Stable Windows Audio Input is now mainly a release-hardening issue: signing, broader device
@@ -315,18 +319,18 @@ The current package scripts expose:
 Stable Windows/Linux packaging still should not be treated as release support. Packaging can produce
 an Electron app shell before the platform backend is release-ready.
 
-The Windows beta path is more advanced than the Linux path:
+The Windows path is more advanced than the Linux path:
 
-- `electron-builder.beta.yml` unpacks `native/audio-backends/windows/.build/**`.
+- `electron-builder.yml` copies `native/audio-backends/windows/.build/SurroundAudioBackend.exe` to
+  `resources/audio-backend.exe` through `win.extraResources`.
 - `src/main/audio-backends/windows-wasapi.js` can load `SurroundAudioBackend.exe` from the
-  unpacked app path.
-- `npm run build:beta:win` builds the Windows helper first through `build:audio-helper:win`, then
+  packaged resource path, with the older unpacked `.build` path kept as a fallback.
+- `npm run build:win` builds the Windows helper first through `build:audio-helper:win`, then
   packages the app.
 
-The regular `electron-builder.yml` also has the Windows helper path in `asarUnpack`, and
-`npm run build:win` builds the Windows helper first. Stable Windows release support is still blocked
-by signing/SmartScreen, broader device compatibility, channel-order documentation, and long-run
-capture stability, not only by packaging. Linux has no native backend resource yet.
+Stable Windows release support is still blocked by signing/SmartScreen, broader device
+compatibility, channel-order documentation, and long-run capture stability, not only by packaging.
+Linux has no native backend resource yet.
 
 ## Likely Windows Path
 

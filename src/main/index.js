@@ -197,7 +197,7 @@ function createWindow() {
     height: 670,
     show: false,
     autoHideMenuBar: process.platform === 'darwin',
-    ...(process.platform === 'linux' ? { icon } : {}),
+    ...(process.platform !== 'darwin' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -251,7 +251,7 @@ function createLogWindow() {
     show: false,
     autoHideMenuBar: true,
     parent: mainWindow ?? undefined,
-    ...(process.platform === 'linux' ? { icon } : {}),
+    ...(process.platform !== 'darwin' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -295,7 +295,7 @@ function createAboutWindow() {
     autoHideMenuBar: true,
     parent: mainWindow ?? undefined,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
-    ...(process.platform === 'linux' ? { icon } : {}),
+    ...(process.platform !== 'darwin' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
