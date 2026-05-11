@@ -66,14 +66,14 @@ Outputs:
 
 ```text
 dist/mac-arm64/SurroundStreamer.app
-dist/SurroundStreamer-0.1.0.dmg
-dist/SurroundStreamer-0.1.0-arm64-mac.zip
+dist/SurroundStreamer-0.1.1.dmg
+dist/SurroundStreamer-0.1.1-arm64-mac.zip
 ```
 
 For public release downloads, use the DMG artifact:
 
 ```text
-dist/SurroundStreamer-0.1.0.dmg
+dist/SurroundStreamer-0.1.1.dmg
 ```
 
 ## Build Beta App
@@ -115,13 +115,13 @@ codesign --verify --deep --strict --verbose=2 dist/mac-arm64/SurroundStreamer.ap
 Verify the DMG before attaching it to a GitHub Release:
 
 ```bash
-hdiutil verify dist/SurroundStreamer-0.1.0.dmg
+hdiutil verify dist/SurroundStreamer-0.1.1.dmg
 ```
 
 Generate a checksum for release notes or support:
 
 ```bash
-shasum -a 256 dist/SurroundStreamer-0.1.0.dmg
+shasum -a 256 dist/SurroundStreamer-0.1.1.dmg
 ```
 
 For beta builds:

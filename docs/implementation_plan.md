@@ -8,24 +8,24 @@ Branch: `beta/cross-platform-backend`
 
 This branch is the beta development line for making SurroundStreamer easier to build and extend on macOS, Windows, and Linux.
 
-The current stable line is `v0.1.0` on `main`. That line should remain macOS-first and release-oriented. This beta branch may temporarily contain incomplete or disabled Windows/Linux behavior while the platform backend architecture is separated.
+The current stable line is preparing for `v0.1.1` on `main`. That line should remain macOS-first and release-oriented. This beta branch may temporarily contain incomplete or disabled Windows/Linux behavior while the platform backend architecture is separated.
 
 ## Version Policy
 
-Stable release:
+Stable release target:
 
-- Current stable version: `0.1.0`
-- Current stable macOS artifact: `SurroundStreamer-0.1.0.dmg`
+- Release version: `0.1.1`
+- Release macOS artifact: `SurroundStreamer-0.1.1.dmg`
 
-Beta builds from this branch must use the next version number:
+Beta builds from this branch use the matching prerelease line:
 
-- Next beta version: `0.1.1-beta.10`
+- Current beta version: `0.1.1-beta.10`
 - Beta app name target: `SurroundStreamer-beta-0.1.1`
 - macOS beta app target: `dist/beta/mac-arm64/SurroundStreamer-beta-0.1.1.app`
 - Windows beta installer target: `SurroundStreamer-beta-0.1.1-setup.exe`
 - Latest local Windows beta output used during validation: `dist/beta-stream-live-fix`
 
-Rule: when generating a beta app or Windows beta executable, do not reuse the stable `0.1.0` version number. Increment the beta line first.
+Rule: regular release builds use the stable `0.1.1` version number. Isolated beta builds keep the `0.1.1-beta.10` beta metadata until the beta line is incremented again.
 
 ## Architecture Summary
 
@@ -414,7 +414,7 @@ Exit criteria:
 
 ## Current Known Limitations
 
-- The stable `0.1.0` build is macOS-first.
+- The stable `0.1.1` release target is macOS-first.
 - Windows stable release is not ready, but the Windows beta backend is locally validated for ASIO Audio Input, MMDevice/WASAPI Audio Input, File source, ASIO monitor output routing, and Icecast Opus streaming.
 - Linux builds are not release-ready.
 - Windows currently has native MMDevice/WASAPI input capture, ASIO probing/capture, and the older DirectShow audio-input bridge as fallback.
