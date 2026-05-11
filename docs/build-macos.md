@@ -133,6 +133,7 @@ codesign --verify --deep --strict --verbose=2 dist/beta/mac-arm64/SurroundStream
 ## Notes
 
 - The macOS build includes the Core Audio helper used for Audio Input capture.
+- For surround Audio Input streaming on macOS, use a Core Audio audio interface or virtual audio device with 6 or more channels for 5.1 or larger layouts.
 - `test_streamconfig.txt` is intentionally excluded from packaged apps.
 - The release DMG name is generated from Electron Builder's `productName`, so it should remain `SurroundStreamer-<version>.dmg`.
 - The current Electron Builder config has notarization disabled.

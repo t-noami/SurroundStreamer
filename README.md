@@ -119,6 +119,8 @@ Use Audio Input when streaming from an audio interface, virtual input, or microp
 
 Monitor Output is available for Audio Input source through the shared WebAudio direct monitor path when browser audio-device access is available. The Windows beta also supports ASIO Audio Input monitoring through the backend-owned FFmpeg/WASAPI renderer path; this remains beta/pre-release and is not part of the stable macOS release line.
 
+For surround Audio Input streaming, the input device must expose enough real input channels for the selected stream layout. On macOS, use a Core Audio audio interface or virtual audio device with 6 or more channels for 5.1 or larger layouts. On Windows, use an ASIO-capable audio interface or ASIO virtual audio device with 6 or more input/output channels; WASAPI/MMDevice endpoints are useful for mono/stereo inputs, but should not be assumed to expose surround capture.
+
 On macOS, audio-input streaming requires microphone permission. If streaming does not capture input audio, confirm that macOS Privacy settings allow microphone access for SurroundStreamer.
 
 ### Encoding Settings

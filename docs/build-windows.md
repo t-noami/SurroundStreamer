@@ -16,6 +16,7 @@ native helper first.
 - Windows beta branch backend: `windows-wasapi` when the native helper is built. The helper supports MMDevice/WASAPI and ASIO Audio Input capture; ASIO is the primary validation target for surround/multichannel input, while MMDevice/WASAPI is useful for generic mono/stereo inputs. DirectShow is retained as a fallback.
 - App Audio capture: removed from the supported input-source UI. WASAPI Process Loopback source remains research/reference code only.
 - Audio Input capture: native ASIO and MMDevice/WASAPI paths are available. For 5.1 or higher channel counts, validate ASIO first. The older FFmpeg DirectShow path remains as fallback when the native helper is missing.
+- Surround Audio Input requirement: for 5.1 or larger Windows streaming, use an ASIO-capable audio interface or ASIO virtual audio device with 6 or more input/output channels. Do not rely on WASAPI/MMDevice endpoints for surround capture unless that specific device exposes a verified multichannel input format.
 - Audio Input Monitor Output: Windows ASIO input can use the backend-owned FFmpeg/WASAPI monitor renderer with backend WASAPI output-device selection. Generic device/file paths still use the shared WebAudio monitor where appropriate.
 - Output loopback capture: the earlier DirectShow loopback/virtual-device bridge is kept as a development reference.
 - File source support: available in the Windows beta app.
