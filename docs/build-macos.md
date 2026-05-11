@@ -51,8 +51,10 @@ npm run build:audio-helper
 The helper output is:
 
 ```text
-native/audio-tap-helper/.build/AudioTapHelper
+native/audio-backends/macos/.build/SurroundAudioBackend
 ```
+
+A legacy copy is also written to `native/audio-tap-helper/.build/AudioTapHelper` during the transition.
 
 ## Build Regular App
 
@@ -85,7 +87,7 @@ npm run build:beta:mac
 Output:
 
 ```text
-dist/beta/mac-arm64/SurroundStreamer-beta-0.1.0.app
+dist/beta/mac-arm64/SurroundStreamer-beta-0.1.1.app
 ```
 
 ## Optional Packaged macOS Artifact
@@ -125,12 +127,12 @@ shasum -a 256 dist/SurroundStreamer-0.1.0.dmg
 For beta builds:
 
 ```bash
-codesign --verify --deep --strict --verbose=2 dist/beta/mac-arm64/SurroundStreamer-beta-0.1.0.app
+codesign --verify --deep --strict --verbose=2 dist/beta/mac-arm64/SurroundStreamer-beta-0.1.1.app
 ```
 
 ## Notes
 
-- The macOS build includes the Core Audio helper used for App Audio capture and Input Device capture.
+- The macOS build includes the Core Audio helper used for Audio Input capture.
 - `test_streamconfig.txt` is intentionally excluded from packaged apps.
 - The release DMG name is generated from Electron Builder's `productName`, so it should remain `SurroundStreamer-<version>.dmg`.
 - The current Electron Builder config has notarization disabled.

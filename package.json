@@ -19,15 +19,19 @@
     "lint": "eslint --cache .",
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
-    "build": "electron-vite build",
+    "build": "npm run build:hrir && electron-vite build",
+    "build:hrir": "node scripts/generate-ku100-hrir-assets.mjs",
     "postinstall": "electron-builder install-app-deps",
     "build:unpack": "npm run build:audio-helper && npm run build && electron-builder --dir",
-    "build:win": "npm run build && electron-builder --win",
+    "build:win": "npm run build:audio-helper:win && npm run build && electron-builder --win",
     "build:mac": "npm run build:audio-helper && npm run build && electron-builder --mac",
     "build:mac:dir": "npm run build:audio-helper && npm run build && electron-builder --dir --config electron-builder.yml",
     "build:beta:mac": "npm run build:audio-helper && npm run build && electron-builder --dir --config electron-builder.beta.yml",
+    "build:beta:win": "npm run build:audio-helper:win && npm run build && electron-builder --win --config electron-builder.beta.yml",
+    "build:beta:linux": "npm run build && electron-builder --linux --config electron-builder.beta.yml",
     "build:linux": "npm run build && electron-builder --linux",
-    "build:audio-helper": "bash scripts/build-audio-tap-helper.sh"
+    "build:audio-helper": "bash scripts/build-audio-tap-helper.sh",
+    "build:audio-helper:win": "powershell -ExecutionPolicy Bypass -File scripts/build-windows-audio-helper.ps1"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",

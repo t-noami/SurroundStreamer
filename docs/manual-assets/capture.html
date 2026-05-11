@@ -41,9 +41,18 @@
         <section class="panel input-panel">
           <h2>Input Source</h2>
           <div class="tabs">
-            <button id="tab-app-audio" class="tab-btn active">App Audio</button>
-            <button id="tab-device" class="tab-btn">Input Device</button>
+            <button id="tab-device" class="tab-btn active">Audio Input</button>
             <button id="tab-file" class="tab-btn">File</button>
+          </div>
+
+          <div id="device-input-section" class="input-section">
+            <div class="input-field-group">
+              <label for="device-list">Audio Input</label>
+              <select id="device-list" class="select-field">
+                <option>BlackHole 16ch (16ch, 48 kHz, loopback/virtual)</option>
+              </select>
+            </div>
+            <button id="btn-refresh-devices" class="btn-refresh">Refresh</button>
           </div>
 
           <div id="file-input-section" class="input-section hidden">
@@ -56,42 +65,27 @@
               <span>Loop</span>
             </label>
           </div>
-
-          <div id="device-input-section" class="input-section hidden">
-            <div class="input-field-group">
-              <label for="device-list">Input Device</label>
-              <select id="device-list" class="select-field">
-                <option>BlackHole 16ch (16ch, 48 kHz, loopback/virtual)</option>
-              </select>
-            </div>
-            <button id="btn-refresh-devices" class="btn-refresh">Refresh</button>
+          <div class="capture-note">
+            Use Audio Input when streaming from an audio interface, virtual input, or microphone.
           </div>
-
-          <div id="app-audio-input-section" class="input-section">
-            <div class="input-field-group">
-              <label for="app-audio-list">App</label>
-              <select id="app-audio-list" class="select-field">
-                <option>VLC [12345]</option>
-              </select>
-            </div>
-            <div class="input-field-group">
-              <label for="app-audio-output-stream">App Output Capture Source</label>
-              <select id="app-audio-output-stream" class="select-field">
-                <option>MacBook Pro Speakers app output / Stream 0: 6ch @ 48 kHz</option>
-              </select>
-            </div>
-            <button id="btn-refresh-app-audio" class="btn-refresh">Refresh</button>
-          </div>
-          <div class="capture-note">Use App Audio when capturing audio from another application.</div>
         </section>
 
         <section class="panel encode-panel">
           <h2>Encoding Settings</h2>
           <div class="form-grid">
             <div class="form-group">
+              <label for="encoding-format">Encoding Format</label>
+              <select id="encoding-format">
+                <option>Ogg Opus / Icecast (surround)</option>
+                <option selected>Ogg Opus + stereo MP3</option>
+                <option>Stereo MP3 only</option>
+              </select>
+            </div>
+            <div class="form-group" id="opus-bitrate-group">
               <label for="bitrate-select"
-                >Bitrate (Stereo Equivalent) <span id="bitrate-actual-value">384 kbps actual</span
-              ></label>
+                >Opus Bitrate (Stereo Equivalent)
+                <span id="bitrate-actual-value">384 kbps actual</span></label
+              >
               <select id="bitrate-select">
                 <option selected>128 kbps</option>
               </select>
@@ -115,12 +109,24 @@
               <button id="btn-select-default-channels" class="btn-small">Default</button>
             </div>
             <div id="channel-selector" class="channel-selector">
-              <label class="channel-toggle"><input type="checkbox" checked /><span>1 L</span></label>
-              <label class="channel-toggle"><input type="checkbox" checked /><span>2 R</span></label>
-              <label class="channel-toggle"><input type="checkbox" checked /><span>3 C</span></label>
-              <label class="channel-toggle"><input type="checkbox" checked /><span>4 LFE</span></label>
-              <label class="channel-toggle"><input type="checkbox" checked /><span>5 LS</span></label>
-              <label class="channel-toggle"><input type="checkbox" checked /><span>6 RS</span></label>
+              <label class="channel-toggle"
+                ><input type="checkbox" checked /><span>1 L</span></label
+              >
+              <label class="channel-toggle"
+                ><input type="checkbox" checked /><span>2 R</span></label
+              >
+              <label class="channel-toggle"
+                ><input type="checkbox" checked /><span>3 C</span></label
+              >
+              <label class="channel-toggle"
+                ><input type="checkbox" checked /><span>4 LFE</span></label
+              >
+              <label class="channel-toggle"
+                ><input type="checkbox" checked /><span>5 LS</span></label
+              >
+              <label class="channel-toggle"
+                ><input type="checkbox" checked /><span>6 RS</span></label
+              >
             </div>
           </div>
           <div class="meter-panel">
@@ -129,12 +135,36 @@
               <span id="meter-state">IDLE</span>
             </div>
             <div id="peak-meter-list" class="peak-meter-list">
-              <div class="peak-row"><div class="peak-label">CH1</div><div class="peak-track"><div class="peak-fill" style="width: 72%"></div></div><div class="peak-value">-16.8 dB</div></div>
-              <div class="peak-row"><div class="peak-label">CH2</div><div class="peak-track"><div class="peak-fill" style="width: 74%"></div></div><div class="peak-value">-15.4 dB</div></div>
-              <div class="peak-row"><div class="peak-label">CH3</div><div class="peak-track"><div class="peak-fill warn" style="width: 91%"></div></div><div class="peak-value">-5.4 dB</div></div>
-              <div class="peak-row"><div class="peak-label">CH4</div><div class="peak-track"><div class="peak-fill" style="width: 0%"></div></div><div class="peak-value">-inf</div></div>
-              <div class="peak-row"><div class="peak-label">CH5</div><div class="peak-track"><div class="peak-fill" style="width: 64%"></div></div><div class="peak-value">-21.4 dB</div></div>
-              <div class="peak-row"><div class="peak-label">CH6</div><div class="peak-track"><div class="peak-fill" style="width: 66%"></div></div><div class="peak-value">-20.1 dB</div></div>
+              <div class="peak-row">
+                <div class="peak-label">CH1</div>
+                <div class="peak-track"><div class="peak-fill" style="width: 72%"></div></div>
+                <div class="peak-value">-16.8 dB</div>
+              </div>
+              <div class="peak-row">
+                <div class="peak-label">CH2</div>
+                <div class="peak-track"><div class="peak-fill" style="width: 74%"></div></div>
+                <div class="peak-value">-15.4 dB</div>
+              </div>
+              <div class="peak-row">
+                <div class="peak-label">CH3</div>
+                <div class="peak-track"><div class="peak-fill warn" style="width: 91%"></div></div>
+                <div class="peak-value">-5.4 dB</div>
+              </div>
+              <div class="peak-row">
+                <div class="peak-label">CH4</div>
+                <div class="peak-track"><div class="peak-fill" style="width: 0%"></div></div>
+                <div class="peak-value">-inf</div>
+              </div>
+              <div class="peak-row">
+                <div class="peak-label">CH5</div>
+                <div class="peak-track"><div class="peak-fill" style="width: 64%"></div></div>
+                <div class="peak-value">-21.4 dB</div>
+              </div>
+              <div class="peak-row">
+                <div class="peak-label">CH6</div>
+                <div class="peak-track"><div class="peak-fill" style="width: 66%"></div></div>
+                <div class="peak-value">-20.1 dB</div>
+              </div>
             </div>
           </div>
         </section>
@@ -158,10 +188,10 @@
                 <option selected>KU100 Near-field HRTF</option>
               </select>
             </div>
-            <div class="form-group" id="monitor-buffer-group">
+            <div class="form-group hidden" id="monitor-buffer-group">
               <label for="monitor-latency">Monitor Buffer</label>
-              <select id="monitor-latency">
-                <option selected>80 ms</option>
+              <select id="monitor-latency" disabled>
+                <option selected>5 ms</option>
               </select>
             </div>
             <div class="form-group" id="monitor-pair-group">
@@ -171,7 +201,9 @@
               </select>
             </div>
             <div class="form-group monitor-volume-group">
-              <label for="monitor-volume">Monitor Volume <span id="monitor-volume-value">85%</span></label>
+              <label for="monitor-volume"
+                >Monitor Volume <span id="monitor-volume-value">85%</span></label
+              >
               <input type="range" id="monitor-volume" min="0" max="100" step="1" value="85" />
             </div>
           </div>
@@ -181,31 +213,89 @@
               <span id="monitor-meter-state">PREVIEW</span>
             </div>
             <div id="monitor-peak-meter-list" class="peak-meter-list monitor-peak-meter-list">
-              <div class="peak-row"><div class="peak-label">CH1</div><div class="peak-track"><div class="peak-fill" style="width: 73%"></div></div><div class="peak-value">-16.1 dB</div></div>
-              <div class="peak-row"><div class="peak-label">CH2</div><div class="peak-track"><div class="peak-fill" style="width: 72%"></div></div><div class="peak-value">-16.5 dB</div></div>
+              <div class="peak-row">
+                <div class="peak-label">CH1</div>
+                <div class="peak-track"><div class="peak-fill" style="width: 73%"></div></div>
+                <div class="peak-value">-16.1 dB</div>
+              </div>
+              <div class="peak-row">
+                <div class="peak-label">CH2</div>
+                <div class="peak-track"><div class="peak-fill" style="width: 72%"></div></div>
+                <div class="peak-value">-16.5 dB</div>
+              </div>
             </div>
           </div>
           <button id="btn-refresh-monitor-devices" class="btn">Refresh Monitor Devices</button>
         </section>
 
         <section class="panel config-panel">
-          <h2>Icecast Settings</h2>
-          <div class="form-grid">
-            <div class="form-group">
-              <label for="icecast-host">Host</label>
-              <input type="text" id="icecast-host" value="stream.local" />
+          <h2>Stream Server Settings</h2>
+          <div class="server-settings-group" id="opus-icecast-settings">
+            <h3>Opus Icecast</h3>
+            <div class="form-grid">
+              <div class="form-group">
+                <label for="icecast-host">Opus Host</label>
+                <input type="text" id="icecast-host" value="stream.local" />
+              </div>
+              <div class="form-group">
+                <label for="icecast-port">Opus Port</label>
+                <input type="number" id="icecast-port" value="8000" />
+              </div>
+              <div class="form-group">
+                <label for="mount-point">Opus Mount Point</label>
+                <input type="text" id="mount-point" value="/stream" />
+              </div>
+              <div class="form-group">
+                <label for="source-password">Opus Password</label>
+                <input type="password" id="source-password" value="password" />
+              </div>
             </div>
-            <div class="form-group">
-              <label for="icecast-port">Port</label>
-              <input type="number" id="icecast-port" value="8000" />
-            </div>
-            <div class="form-group">
-              <label for="mount-point">Mount Point</label>
-              <input type="text" id="mount-point" value="/stream" />
-            </div>
-            <div class="form-group">
-              <label for="source-password">Password</label>
-              <input type="password" id="source-password" value="password" />
+          </div>
+          <div class="server-settings-group" id="mp3-output-settings">
+            <h3>Stereo MP3</h3>
+            <div class="form-grid">
+              <div class="form-group">
+                <label for="mp3-server-type">MP3 Server Type</label>
+                <select id="mp3-server-type">
+                  <option selected>MP3 Icecast</option>
+                  <option>MP3 Shoutcast 1</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="mp3-bitrate">MP3 Bitrate</label>
+                <select id="mp3-bitrate">
+                  <option>96 kbps</option>
+                  <option selected>128 kbps</option>
+                  <option>160 kbps</option>
+                  <option>192 kbps</option>
+                  <option>256 kbps</option>
+                  <option>320 kbps</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="mp3-audio-mode">MP3 Audio Source</label>
+                <select id="mp3-audio-mode">
+                  <option>Stereo Pair (L/R)</option>
+                  <option selected>Stereo Downmix</option>
+                  <option>KU100 Near-field HRTF</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="mp3-host">MP3 Host</label>
+                <input type="text" id="mp3-host" value="stream.local" />
+              </div>
+              <div class="form-group">
+                <label for="mp3-port">MP3 Port</label>
+                <input type="number" id="mp3-port" value="8000" />
+              </div>
+              <div class="form-group" id="mp3-mount-group">
+                <label for="mp3-mount-point">MP3 Mount Point</label>
+                <input type="text" id="mp3-mount-point" value="/stream.mp3" />
+              </div>
+              <div class="form-group">
+                <label for="mp3-password">MP3 Password</label>
+                <input type="password" id="mp3-password" value="password" />
+              </div>
             </div>
           </div>
         </section>
@@ -223,24 +313,22 @@
           <div id="log-output" class="log-container">
             <div class="log-entry system">Ready to stream.</div>
             <div class="log-entry system">SurroundStreamer initialized.</div>
-            <div class="log-entry system">Found app output capture sources.</div>
+            <div class="log-entry system">File source ready.</div>
           </div>
         </section>
       </main>
     </div>
 
     <script>
-      const state = new URLSearchParams(location.search).get('state') || 'app'
+      const state = new URLSearchParams(location.search).get('state') || 'device'
       const inputPanel = document.querySelector('.input-panel')
       const encodePanel = document.querySelector('.encode-panel')
       const configPanel = document.querySelector('.config-panel')
       const tabs = {
-        app: document.getElementById('tab-app-audio'),
         device: document.getElementById('tab-device'),
         file: document.getElementById('tab-file')
       }
       const sections = {
-        app: document.getElementById('app-audio-input-section'),
         device: document.getElementById('device-input-section'),
         file: document.getElementById('file-input-section')
       }
@@ -256,11 +344,8 @@
       }
 
       if (state === 'device') {
-        document.querySelector('.monitor-panel').classList.add('disabled-panel')
-        document.getElementById('monitor-enabled').checked = false
-        document.getElementById('monitor-meter-state').textContent = 'IDLE'
         document.querySelector('.capture-note').textContent =
-          'Input Device streaming is available, but monitor controls are disabled for this source.'
+          'Use Audio Input when streaming from an audio interface, virtual input, or microphone.'
       }
 
       if (state === 'live') {

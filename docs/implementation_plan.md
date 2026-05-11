@@ -1,332 +1,445 @@
-# SurroundStreamer Implementation Plan
+# SurroundStreamer Cross-Platform Backend Plan
 
-Last updated: 2026-05-08
+Last updated: 2026-05-11
 
-## Project Summary
+Branch: `beta/cross-platform-backend`
 
-SurroundStreamer is a macOS Electron application for streaming Ogg Opus audio to Icecast.
-The current practical target is macOS Apple Silicon because the audio capture implementation depends on Core Audio process taps and a native Core Audio helper.
+## Purpose
 
-The current public-facing release line is `v0.1.0`.
+This branch is the beta development line for making SurroundStreamer easier to build and extend on macOS, Windows, and Linux.
 
-## Repository State
+The current stable line is `v0.1.0` on `main`. That line should remain macOS-first and release-oriented. This beta branch may temporarily contain incomplete or disabled Windows/Linux behavior while the platform backend architecture is separated.
 
-- Application license: MIT License.
-- Third-party HRIR data: KU100 near-field HRIR extraction, CC BY 4.0.
-- Main documentation: `README.md`.
-- Build documents:
-  - `docs/build-macos.md`
-  - `docs/build-windows.md`
-  - `docs/build-linux.md`
-- Release notes:
-  - `docs/releases/v0.1.0.md`
-  - `docs/releases/v0.1.0-beta.1.md`
-- Release status:
-  - The current beta implementation is promoted to the regular `0.1.0` build line.
-  - Regular macOS release artifact target: `dist/SurroundStreamer-0.1.0.dmg`.
-  - Previous beta GitHub Release exists as a draft prerelease for `v0.1.0-beta.1`.
-- Removed from Git tracking:
-  - `legacy/`
-  - `SurroundWebPlayer/`
-- Private local-only file:
-  - `test_streamconfig.txt`
+## Version Policy
 
-## Current Architecture
+Stable release:
 
-```text
-Renderer UI
-  -> preload IPC bridge
-  -> Electron main process
-  -> FFmpeg manager
-  -> FFmpeg process
-  -> Icecast Ogg Opus stream
-```
+- Current stable version: `0.1.0`
+- Current stable macOS artifact: `SurroundStreamer-0.1.0.dmg`
 
-### Main Process
+Beta builds from this branch must use the next version number:
 
-Key modules:
+- Next beta version: `0.1.1-beta.10`
+- Beta app name target: `SurroundStreamer-beta-0.1.1`
+- macOS beta app target: `dist/beta/mac-arm64/SurroundStreamer-beta-0.1.1.app`
+- Windows beta installer target: `SurroundStreamer-beta-0.1.1-setup.exe`
+- Latest local Windows beta output used during validation: `dist/beta-stream-live-fix`
 
-- `src/main/index.js`
-  - Electron app lifecycle.
-  - Main window creation.
-  - Quit handling and process cleanup.
-- `src/main/ipc-handlers.js`
-  - Renderer/Main IPC registration.
-- `src/main/ffmpeg-manager.js`
-  - Builds FFmpeg arguments.
-  - Starts/stops streaming processes.
-  - Handles App Audio, Input Device, and File sources.
-  - Parses FFmpeg logs and meter data.
-- `src/main/app-audio-helper.js`
-  - Launches the native Core Audio helper for App Audio process taps.
-- `src/main/device-scanner.js`
-  - Lists input devices.
-- `src/main/monitor-scanner.js`
-  - Lists monitor output devices.
-- `src/main/media-prober.js`
-  - Reads media metadata for File source.
-- `src/main/ffmpeg-path.js`
-  - Resolves bundled/system FFmpeg path.
+Rule: when generating a beta app or Windows beta executable, do not reuse the stable `0.1.0` version number. Increment the beta line first.
 
-### Native Helper
+## Architecture Summary
 
-Path:
+SurroundStreamer is structured as a cross-platform Electron app. The stable public release line is still macOS-first, while the beta line now contains a locally validated Windows Audio Input backend. Linux Audio Input capture is not implemented yet.
+
+Current beta direction: App Audio is no longer a supported input source. Cross-platform work should focus on Audio Input capture and File source first. Previous App Audio and process-loopback work remains useful as research/reference code only.
+
+Portable parts:
+
+- Renderer UI structure.
+- Settings persistence.
+- Icecast configuration.
+- FFmpeg/Ogg Opus output pipeline.
+- Stereo MP3 output pipeline, including MP3 Icecast and MP3 Shoutcast 1.
+- MP3 Audio Source modes: Stereo Pair, Stereo Downmix, and KU100 Near-field HRTF.
+- File source streaming path.
+- Stream channel template UI up to 7.1.
+- Logs/About windows.
+- KU100 near-field HRTF monitor rendering data and channel mapping logic.
+
+macOS backend parts:
+
+- Audio Input PCM capture.
+- Core Audio device and stream metadata.
+- Monitor output device enumeration.
+- macOS microphone permission flow.
+
+Windows beta backend parts:
+
+- WASAPI/MMDevice endpoint enumeration and PCM capture.
+- ASIO driver probing and ASIO input capture.
+- Backend-owned ASIO monitor output routing through FFmpeg monitor PCM and WASAPI render playback.
+- DirectShow audio-input capture for beta validation.
+- `nativeInputDeviceMonitor` remains `false`; the Windows ASIO monitor path is a separate
+  capability-gated backend monitor renderer rather than the generic native input monitor API.
+
+The current macOS native helper source is:
 
 ```text
 native/audio-tap-helper/Sources/AudioTapHelper/main.m
 ```
 
-Responsibilities:
-
-- List Core Audio process/app capture candidates.
-- List Core Audio output streams.
-- Create process taps for App Audio capture.
-- Capture Input Device PCM.
-- Stream Float32 PCM to the Electron main process.
-
-Build command:
-
-```bash
-npm run build:audio-helper
-```
-
-The helper requires a full Xcode macOS SDK that contains Core Audio process tap headers.
-
-### Renderer
-
-Key files:
-
-- `src/renderer/index.html`
-- `src/renderer/src/renderer.js`
-- `src/renderer/src/monitor-audio.js`
-- `src/renderer/src/monitor-worklet.js`
-- `src/renderer/public/monitor-worklet.js`
-- `src/renderer/src/ku100-near-hrir.js`
-- `src/renderer/assets/main.css`
-
-Responsibilities:
-
-- Source selection UI.
-- Encoding settings UI.
-- Icecast settings persistence.
-- Peak meter rendering.
-- Monitor Output Web Audio graph.
-- KU100 near-field HRTF monitor rendering.
-
-## Input Sources
-
-### App Audio
-
-Current behavior:
-
-- Primary source tab.
-- Captures audio from a selected macOS app using Core Audio process taps.
-- Uses `App Output Capture Source` to select the Core Audio output stream.
-- Preserves multichannel capture when the selected stream and source app provide it.
-- Stops stale preview/monitor processes when switching source tabs.
-
-Open verification:
-
-- Real-device channel order should be checked per output device and app.
-- App Audio capture is macOS-specific.
-
-### Input Device
-
-Current behavior:
-
-- Captures from a selected Core Audio input device through the native helper.
-- Streams Float32 PCM into FFmpeg.
-- Monitor Output controls are disabled while Input Device source is active.
-- Requires macOS microphone permission.
-
-Open verification:
-
-- Real-device streaming stability should be checked with physical and virtual devices.
-- Monitor Output for Input Device remains out of scope for the current standard build.
-
-### File
-
-Current behavior:
-
-- Uses selected audio file as source.
-- Supports loop playback.
-- Supports preview/monitor output once a playable file is selected.
-- Maximum standard channel template is 7.1.
-
-Open verification:
-
-- File source should be retested with mono, stereo, 5.1, and 7.1 samples before publishing a release.
-
-## Encoding Model
-
-Current defaults:
-
-- Format: Ogg Opus.
-- Sample rate: 48 kHz.
-- Bitrate display: stereo-equivalent bitrate.
-- Default bitrate: 128 kbps stereo-equivalent.
-- Standard channel templates:
-  - Mono
-  - Stereo
-  - Stereo + C
-  - 5.1
-  - 7.1
-
-Implementation notes:
-
-- 44.1 kHz and 96 kHz sources are normalized to Opus-compatible output behavior.
-- Actual bitrate is adjusted by selected channel count.
-- 7.1.2 and 7.1.4 are intentionally excluded from the standard build because common Ogg Opus player compatibility is not proven.
-
-## Monitor Output
-
-Current modes:
-
-- Stereo Pair
-- Stereo Downmix
-- KU100 Near-field HRTF
-
-Current behavior:
-
-- Monitor Output is available for App Audio and File sources.
-- Monitor Output is disabled for Input Device source.
-- Monitor Volume is applied after monitor mode processing and does not affect streamed audio.
-- Monitor meters display two-channel monitor output.
-- Meter color thresholds:
-  - above `-6 dB`: yellow
-  - above `-1 dB`: red
-
-KU100 HRIR notes:
-
-- Uses a reduced JavaScript extraction from the KU100 near-field 1.0 m circular SOFA dataset.
-- Third-party license: CC BY 4.0.
-- Attribution is listed in `README.md`.
-- LFE is not treated as a normal localized speaker in binaural rendering.
-
-## Packaging
-
-### macOS
-
-Primary supported build.
-
-Commands:
-
-```bash
-npm install
-npm run build:mac
-```
-
-Important outputs:
+It is Objective-C, built with `xcrun clang`, and depends on Apple Core Audio APIs. Current
+packaging uses the built helper at:
 
 ```text
-dist/mac-arm64/SurroundStreamer.app
-dist/SurroundStreamer-0.1.0.dmg
+native/audio-backends/macos/.build/SurroundAudioBackend
 ```
 
-Current release build status:
+The helper cannot be reused directly on Windows or Linux.
 
-- Ad-hoc signed.
-- Not notarized.
-- Suitable for local distribution/testing, not yet notarized for public macOS distribution.
+## Development Goal
 
-### Windows
+The goal is not to find one universal OS audio API. The goal is to define a SurroundStreamer-owned backend contract, then implement OS-specific helpers behind that contract.
 
-Documentation exists, but release support is not ready.
+Target structure:
 
-Blocked by:
+```text
+src/main/audio-backends/
+  index.js
+  macos-core-audio.js
+  macos/
+    core-audio-helper.js
+    device-scanner.js
+  windows-dshow.js
+  windows-wasapi.js
+  unsupported.js
+  linux-pipewire.js       # future/proposed; not present in the current source tree
 
-- No Windows audio capture backend.
-- App Audio likely needs WASAPI loopback or equivalent.
-- Input Device needs a Windows-specific capture path.
-- Monitor Output/device routing needs platform validation.
+native/audio-backends/
+  macos/
+    .build/SurroundAudioBackend
+  windows/
+    .build/SurroundAudioBackend.exe
+  linux/
+    .build/surround-audio-backend
+```
 
-### Linux
+Electron should select a backend by `process.platform`, read backend capabilities, and expose only supported UI options.
 
-Documentation exists, but release support is not ready.
+## Backend Contract
 
-Blocked by:
+Each platform backend should provide the same app-facing concepts for supported features.
 
-- No Linux audio capture backend.
-- App Audio likely needs PipeWire or PulseAudio monitor-source support.
-- Input Device needs a Linux-specific capture path.
-- AppImage/snap/deb need separate runtime validation.
+Current required capture concepts:
 
-## Release Process
+```text
+--capabilities
+--list-audio-inputs
+--list-output-devices
+--capture-input --device-id <id> [--stream-index <n>]
+```
 
-For regular macOS releases:
+Research-only concepts, not exposed as supported App Audio in the current beta:
 
-1. Ensure working tree is clean.
-2. Run:
+```text
+--list-apps
+--list-app-output-streams
+--capture-app --app-id <id> [--output-id <id>] [--stream-index <n>]
+--capture-loopback --output-id <id>
+```
 
-   ```bash
-   npm run build:mac
-   ```
+PCM contract:
 
-3. Verify signing:
+```text
+stdout:
+  raw PCM, preferably 32-bit float little-endian
 
-   ```bash
-   codesign --verify --deep --strict --verbose=2 \
-     dist/mac-arm64/SurroundStreamer.app
-   ```
+stderr:
+  JSON events
+```
 
-4. Verify the DMG exists:
+Example JSON events:
 
-   ```bash
-   ls -lh dist/SurroundStreamer-0.1.0.dmg
-   ```
+```json
+{"event":"format","sampleRate":48000,"channels":6,"layout":"5.1","bitsPerChannel":32}
+{"event":"status","message":"capture started"}
+{"event":"error","message":"capture failed"}
+```
 
-5. Update release notes under `docs/releases/`.
-6. Commit and push.
-7. Tag the release, for example:
+FFmpeg should continue to receive backend PCM using the existing common path:
 
-   ```bash
-   git tag -a v0.1.0 -m "SurroundStreamer v0.1.0"
-   git push origin v0.1.0
-   ```
+```text
+-f f32le -ar <sampleRate> -ac <channels> -i pipe:0
+```
 
-8. Create or update the GitHub Release.
+## Platform Capability Model
 
-Current release target:
+Renderer UI must be driven by backend capabilities instead of assuming macOS behavior.
 
-- Tag: `v0.1.0`
-- Title: `SurroundStreamer v0.1.0`
-- Artifact: `dist/SurroundStreamer-0.1.0.dmg`
+Proposed capability object:
 
-## Roadmap
+```js
+{
+  platform: 'darwin',
+  backendName: 'macos-core-audio',
+  appAudioCapture: false,
+  appAudioPerProcess: false,
+  appAudioSurroundPreserve: false,
+  inputDeviceCapture: true,
+  inputDeviceMonitor: true,
+  nativeInputDeviceMonitor: false,
+  fileSource: true,
+  monitorPlayback: true,
+  webAudioMonitorPlayback: true,
+  nativeMonitorPlayback: false,
+  lowLatencyAppAudioMonitor: false,
+  monitorDeviceEnumeration: true,
+  outputLoopbackCapture: false
+}
+```
 
-### Near Term
+Unsupported controls should be disabled before the user clicks them. They should not fail only after streaming starts.
 
-- Launch and smoke-test the DMG app on a clean macOS environment.
-- Verify App Audio streaming to Icecast.
-- Verify File source streaming to Icecast.
-- Verify Stream Playback Check with `https://non-rem.com/SurroundWebPlayer/`.
-- Verify quit cleanup for FFmpeg and helper processes.
-- Verify the macOS About panel includes MIT and KU100 CC BY 4.0 attribution.
-- Decide whether the first public release should remain ad-hoc signed or wait for notarization.
+## Monitor Output Architecture
 
-### Product Improvements
+The current monitor path is portable but not the lowest possible latency:
 
-- Add clearer unsupported-platform messaging if Windows/Linux builds are produced.
-- Improve real-device diagnostics for App Audio channel order.
-- Add optional MP3 stereo streaming if compatibility pressure justifies it.
-- Investigate Ogg Vorbis multichannel up to 7.1 as an optional path.
+```text
+backend PCM -> Electron main process -> renderer IPC -> WebAudio Worklet -> selected output device
+```
 
-### Research Only
+This path should remain the default cross-platform monitor implementation because it works with the existing renderer-side Stereo Pair, Binaural HRTF, volume, meter, and output-device UI.
 
-- 7.1.2 / 7.1.4 streaming compatibility.
-- KU100 far-field HRIR mode.
-- Full-sphere HRIR extraction for height-channel monitoring.
-- Platform-specific audio capture backends for Windows and Linux.
+If lower latency becomes necessary, add it as an optional backend capability rather than a shared renderer requirement.
 
-## Historical Notes
+Suggested future backend capabilities:
 
-Older plans referenced:
+```js
+{
+  monitorPlayback: true,
+  webAudioMonitorPlayback: true,
+  nativeMonitorPlayback: false,
+  nativeMonitorOutputSelection: false,
+  lowLatencyAppAudioMonitor: false
+}
+```
 
-- AVFoundation input-device capture through FFmpeg.
-- A `Tap Test` UI path.
-- `Stereo Mixdown` as an App Audio primary mode.
-- 7.1.2 / 7.1.4 as standard UI templates.
-- Keeping `legacy/SurroundStreamer-old-version/` in the repository.
-- Keeping `SurroundWebPlayer/` in the repository.
+Current and future backend methods should align with the existing spawn-style backend interface.
+The current optional native input monitor hook is:
 
-Those items are no longer the current plan. The current standard path is the macOS `0.1.0` release line described above.
+```js
+spawnNativeInputDeviceMonitor(options)
+```
+
+If persistent native monitor control is added later, define explicit start/stop/volume/output-device
+methods as a new capability-gated API rather than overloading streaming capture.
+
+Rules:
+
+- WebAudio monitor stays as the fallback for all platforms.
+- Native monitor is opt-in per backend.
+- macOS native monitor, if implemented, may use Core Audio directly.
+- Windows native monitor, if implemented, must be a separate WASAPI render path, not Core Audio.
+- Linux native monitor, if implemented, must be a separate PipeWire/PulseAudio playback path.
+- Keep streaming output and monitor output independent. Monitor changes must not alter Icecast/FFmpeg stream pacing or channel mapping.
+- Keep Binaural HRTF in the WebAudio path until there is a clear reason to port that DSP into native helpers.
+
+## Phased Development Plan
+
+### Phase 1: Backend Boundary
+
+Goal: keep macOS behavior working while moving platform-specific assumptions behind a backend interface.
+
+Tasks:
+
+- Add `src/main/audio-backends/`.
+- Add backend selection in one place.
+- Wrap existing macOS helper calls behind `macos-core-audio.js`.
+- Add `unsupported.js` as the fallback for platforms without a real backend. Windows now selects `windows-wasapi.js`; Linux still falls back to `unsupported.js`.
+- Make IPC handlers call the selected backend instead of directly calling macOS helper modules.
+- Keep current Audio Input and File source behavior unchanged on macOS.
+- Add a backend capability IPC endpoint for the renderer.
+
+Exit criteria:
+
+- macOS Audio Input still streams.
+- File source still streams.
+- Windows builds expose capability-gated Windows backend features; Linux builds, if run, show unsupported capture controls clearly instead of broken controls.
+
+### Phase 2: Packaging Layout
+
+Goal: make app packaging expect one platform backend resource per OS.
+
+Tasks:
+
+- Move or wrap the current macOS helper into the future `native/audio-backends/macos/` layout.
+- Update Electron Builder resources to use platform-specific backend paths.
+- Keep existing macOS helper build command functional during the transition.
+- Add placeholder packaging paths for Windows/Linux only after placeholders do not break packaging.
+- Keep Linux public docs marked as "Preparing" until real validation. Windows docs may describe the
+  validated beta path, but stable public release wording should remain conservative.
+
+Exit criteria:
+
+- `npm run build:beta:mac` produces `SurroundStreamer-beta-0.1.1.app`.
+- Regular `npm run build:mac` can still produce the stable app naming when run from the release line.
+- Packaging does not include private files such as `test_streamconfig.txt`.
+
+### Phase 3: File-First Windows/Linux Beta
+
+Goal: make Windows/Linux app shells useful without pretending full capture support exists.
+
+Tasks:
+
+- Ensure File source does not depend on macOS helper modules.
+- Select `windows-wasapi.js` from `src/main/audio-backends/index.js` when `process.platform === 'win32'`.
+- Keep DirectShow as a fallback through `windows-wasapi.js` when the native helper is missing.
+- Disable unsupported Audio Input features on platforms that do not expose capture capabilities.
+- Verify FFmpeg binary availability and path resolution for Windows/Linux.
+- Verify settings persistence, Icecast connection UI, channel templates, logs, and About window.
+- Add Windows/Linux smoke-test checklists.
+
+Exit criteria:
+
+- Windows beta app opens and can use File source without macOS helper calls.
+- Windows Audio Input is capability-gated through the native helper or DirectShow fallback.
+- Linux beta app, if generated, can use shared File source behavior while unsupported capture features are visibly disabled.
+
+### Phase 4: Windows Backend Research Build
+
+Goal: add a first real Windows capture backend.
+
+Development guardrail:
+
+- Follow `docs/windows-backend-development.md`.
+- Do not edit macOS-owned backend files unless the change is explicitly platform-neutral.
+- After shared backend changes, re-run the macOS beta build before committing.
+
+Candidate APIs:
+
+- Microsoft Core Audio APIs.
+- WASAPI.
+- MMDevice API.
+- Audio Session APIs.
+- Process loopback APIs on supported Windows versions.
+
+Initial target:
+
+- File source and input-device Windows beta validation first.
+- Input-device capture is implemented for MMDevice/WASAPI inputs and ASIO inputs, with DirectShow retained as a fallback.
+- Treat ASIO as the primary Windows surround-input path. WASAPI/MMDevice may be sufficient for mono/stereo devices, but it should not be assumed to expose 5.1 or 7.1 capture endpoints.
+- Per-app/process capture is research only and is not exposed as a supported source.
+- Generic native low-latency monitor playback is not part of the first Windows backend target.
+- ASIO monitor output routing is implemented as a beta backend-owned FFmpeg/WASAPI path, not as
+  generic native monitor parity.
+
+Windows validation snapshot, 2026-05-09:
+
+- WASAPI/MMDevice endpoints on the current Windows test machine expose only mono/stereo formats, including Voicemeeter WDM endpoints.
+- Voicemeeter ASIO exposes multichannel virtual devices. `Voicemeeter Virtual ASIO` has been validated as 8 in / 8 out, and the native helper can read 6ch Float32 PCM from it.
+- REAPER multichannel output has been validated through `REAPER -> Voicemeeter Virtual ASIO -> SurroundStreamer ASIO input`.
+- REAPER must route Master hardware outputs explicitly: source 1/2 to output 1/2, source 3/4 to output 3/4, and source 5/6 to output 5/6. Setting the Master track to 6ch alone is insufficient.
+- The FFmpeg pre-encode path now explicitly maps selected backend channels when input and output channel counts differ, so an 8ch ASIO input can feed a 5.1 stream without relying on FFmpeg's implicit `-ac` behavior.
+- FFmpeg child processes clear inherited proxy variables before streaming so Icecast output is not
+  accidentally routed through development proxy settings.
+- Opus output uses an Opus-compatible `5.1` layout even when the UI/monitor path uses `5.1(side)`.
+- Voicemeeter itself does not publish to Icecast. The intended chain is `REAPER -> Voicemeeter ASIO -> SurroundStreamer -> Icecast`.
+- WASAPI Process Loopback remains a separate research path. It should not be expected to capture ASIO output from REAPER.
+- On the current test machine, the REAPER WASAPI process-loopback smoke test failed during `IAudioClient::Initialize` with `0x88890021`.
+
+Risks:
+
+- Per-process loopback support depends on Windows version and API behavior.
+- Multichannel preservation depends on endpoint format and driver behavior. On Windows, ASIO may be the only visible multichannel path even when the matching WASAPI endpoints are stereo.
+- Windows channel layout names will not map exactly to Core Audio stream concepts.
+- Signing and SmartScreen are release issues separate from backend correctness.
+
+Exit criteria:
+
+- Windows backend emits Float32 PCM and format JSON.
+- FFmpeg receives correctly paced PCM.
+- A Windows beta executable can be generated with the incremented beta version.
+
+### Phase 4.5: Optional Native Monitor Backend
+
+Goal: reduce monitor latency without damaging Windows/Linux backend work.
+
+This phase should start only after the platform capture backend boundary is stable.
+
+Implementation order:
+
+- Keep the WebAudio monitor as default.
+- Add the `nativeMonitorPlayback` capability flag.
+- Add backend methods for native monitor start/stop/volume/output-device selection.
+- Implement native monitor only after the supported Audio Input and File paths are stable.
+- Keep Binaural HRTF and complex downmix modes on WebAudio unless native DSP is explicitly planned.
+- Do not require Windows/Linux to implement native monitor before their capture backends work.
+
+Windows expectation:
+
+- Windows native monitor would be a WASAPI render-client feature.
+- It should be planned separately from WASAPI capture.
+- It must not reuse macOS Core Audio naming, Core Audio stream IDs, or aggregate-device assumptions.
+
+Exit criteria:
+
+- Native monitor latency improves in real listening tests if that path is implemented.
+- WebAudio monitor still works as fallback.
+- Windows file-only and future WASAPI backend work is not blocked by native macOS monitor code.
+
+### Phase 5: Linux Backend Research Build
+
+Goal: add a first real Linux capture backend.
+
+Candidate APIs:
+
+- PipeWire first.
+- PulseAudio monitor sources as compatibility path.
+- ALSA only for limited audio-input work.
+
+Initial target:
+
+- PipeWire or PulseAudio output monitor capture.
+- Input-device capture after output monitor capture is stable.
+
+Risks:
+
+- Distribution differences are significant.
+- PipeWire/PulseAudio availability and default configuration vary.
+- AppImage/snap/deb have different runtime and permission constraints.
+- True app-level capture is not the same as output monitor capture.
+
+Exit criteria:
+
+- Linux backend emits Float32 PCM and format JSON.
+- FFmpeg receives correctly paced PCM.
+- Linux beta package opens and clearly reports backend capability state.
+
+### Phase 6: Feature Parity Review
+
+Goal: decide whether Windows/Linux should remain Audio Input/File focused or add new capture modes later.
+
+Questions:
+
+- Is per-app capture required in a future major scope, or is Audio Input routing acceptable?
+- Is surround preservation required on Windows/Linux v1, or can stereo/5.1 be staged?
+- Should future non-ASIO native Audio Input monitor output remain disabled across all OSes?
+- Should File source become the first cross-platform public feature?
+
+Exit criteria:
+
+- Updated support matrix in README.
+- Updated release notes for the next beta.
+- Clear decision on whether Windows/Linux remain beta-only.
+
+## Current Known Limitations
+
+- The stable `0.1.0` build is macOS-first.
+- Windows stable release is not ready, but the Windows beta backend is locally validated for ASIO Audio Input, MMDevice/WASAPI Audio Input, File source, ASIO monitor output routing, and Icecast Opus streaming.
+- Linux builds are not release-ready.
+- Windows currently has native MMDevice/WASAPI input capture, ASIO probing/capture, and the older DirectShow audio-input bridge as fallback.
+- Windows surround-input validation currently assumes ASIO, because tested WASAPI/MMDevice endpoints exposed only mono/stereo formats.
+- WASAPI Process Loopback and DirectShow loopback work are retained as research/reference paths, not as supported App Audio sources.
+- Windows REAPER 5.1 validation currently uses ASIO input through Voicemeeter.
+- Linux application-audio capture is not in scope for the current beta line.
+- Linux Audio Input capture is not implemented.
+- Windows ASIO monitor output device enumeration is implemented through the Windows helper.
+- 7.1.2 and 7.1.4 remain research-only.
+- Audio Input monitor output uses the shared WebAudio direct monitor path when browser audio-device access is available. Windows ASIO has a validated beta backend/WASAPI monitor path; other native per-backend monitor paths remain experimental and should stay capability-gated until validated.
+- macOS release is ad-hoc signed and not notarized.
+
+## Documentation Tasks
+
+- Keep `README.md` focused on the stable macOS release while noting the validated Windows beta.
+- Keep `docs/build-linux.md` in "Preparing" state until real Linux beta workflows are validated.
+- Keep `docs/build-windows.md` aligned with the validated Windows beta workflow and latest local artifact path.
+- Use `docs/windows-linux-portability-assessment.md` as the architecture reference for cross-platform decisions.
+- Add beta release notes when `0.1.1-beta.10` is built.
+
+## Immediate Next Tasks
+
+1. Smoke-test macOS File source after App Audio removal.
+2. Smoke-test macOS Audio Input streaming and Monitor Output.
+3. Re-run `npm run lint` and `npm run build`.
+4. Retest packaged Windows beta end-to-end after install, including File source and MP3 modes.
+5. Keep loopback/process-capture research separate from supported input-source UI.

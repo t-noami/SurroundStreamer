@@ -1,7 +1,6 @@
 import { ipcMain, dialog, BrowserWindow } from 'electron'
 import ffmpegManager from './ffmpeg-manager'
-import deviceScanner from './device-scanner'
-import appAudioHelper from './app-audio-helper'
+import audioBackend from './audio-backends'
 import mediaProber from './media-prober'
 import logStore from './log-store'
 
@@ -25,6 +24,10 @@ export function setupIpcHandlers() {
 
   ffmpegManager.on('monitor-audio', (payload) => {
     eventSendAll('monitor:audio', payload)
+  })
+
+  ffmpegManager.on('monitor-peaks', (payload) => {
+    eventSendAll('monitor:peaks', payload)
   })
 
   ffmpegManager.on('monitor-stop', () => {
@@ -58,9 +61,9 @@ export function setupIpcHandlers() {
     return { success: true }
   })
 
-  ipcMain.handle('monitor:start-app-audio', (_event, config) => {
+  ipcMain.handle('monitor:set-output', (_event, config) => {
     try {
-      ffmpegManager.startAppAudioMonitor(config)
+      ffmpegManager.setMonitorOutput(config)
       return { success: true }
     } catch (error) {
       return { success: false, error: error.message }
@@ -76,30 +79,42 @@ export function setupIpcHandlers() {
     }
   })
 
-  ipcMain.handle('monitor:start-input-device', (_event, config) => {
+  ipcMain.handle('monitor:start-input-device', async (_event, config) => {
     try {
-      ffmpegManager.startInputDeviceMonitor(config)
+      await ffmpegManager.startInputDeviceMonitor(config)
       return { success: true }
     } catch (error) {
       return { success: false, error: error.message }
     }
   })
 
-  ipcMain.handle('monitor:stop-preview', () => {
-    ffmpegManager.stopPreviewMonitor()
+  ipcMain.handle('monitor:start-native-input-device', (_event, config) => {
+    try {
+      ffmpegManager.startNativeInputDeviceMonitor(config)
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: error.message }
+    }
+  })
+
+  ipcMain.handle('monitor:stop-preview', async () => {
+    await ffmpegManager.stopPreviewMonitor({ waitForExit: true })
     return { success: true }
   })
 
   ipcMain.handle('devices:list', async () => {
-    return await deviceScanner.listAudioDevices()
+    return await audioBackend.listInputDevices()
   })
 
-  ipcMain.handle('app-audio:list-processes', async () => {
-    return await appAudioHelper.listProcesses()
+  ipcMain.handle('devices:list-monitor-outputs', async () => {
+    if (typeof audioBackend.listMonitorOutputDevices === 'function') {
+      return await audioBackend.listMonitorOutputDevices()
+    }
+    return { devices: [] }
   })
 
-  ipcMain.handle('app-audio:list-output-streams', async () => {
-    return await appAudioHelper.listOutputStreams()
+  ipcMain.handle('audio-backend:capabilities', () => {
+    return audioBackend.getCapabilities()
   })
 
   ipcMain.handle('media:probe-audio', async (_event, path) => {

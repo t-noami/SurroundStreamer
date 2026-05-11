@@ -1,18 +1,42 @@
 #import <AppKit/AppKit.h>
+#import <AudioToolbox/AudioToolbox.h>
+#import <AudioUnit/AudioUnit.h>
 #import <CoreAudio/AudioHardware.h>
 #import <CoreAudio/AudioHardwareTapping.h>
 #import <CoreAudio/CATapDescription.h>
 #import <Foundation/Foundation.h>
+#import <pthread.h>
 #import <signal.h>
 #import <unistd.h>
 
 static volatile sig_atomic_t shouldStopStreaming = 0;
+static const UInt32 kNativeMonitorOutputBufferCount = 3;
 
 typedef struct {
   AudioStreamBasicDescription format;
   uint8_t *scratchBuffer;
   UInt32 scratchBufferSize;
 } StreamContext;
+
+typedef struct {
+  AudioStreamBasicDescription inputFormat;
+  AudioStreamBasicDescription outputFormat;
+  UInt32 pairStart;
+  Float32 *ringBuffer;
+  UInt32 ringFrames;
+  UInt32 readFrame;
+  UInt32 writeFrame;
+  UInt32 availableFrames;
+  pthread_mutex_t lock;
+} NativeMonitorContext;
+
+typedef struct {
+  AudioUnit audioUnit;
+  UInt32 inputChannels;
+  UInt32 pairStart;
+  UInt32 maxFrames;
+  Float32 *inputBuffer;
+} AUHALMonitorContext;
 
 static void handleStopSignal(int signalNumber) {
   (void)signalNumber;
@@ -366,6 +390,107 @@ static AudioObjectID findDeviceByUID(NSString *deviceUID, NSError **error) {
   return result;
 }
 
+static AudioObjectID defaultOutputDevice(void) {
+  AudioObjectID deviceID = kAudioObjectUnknown;
+  UInt32 dataSize = sizeof(deviceID);
+  AudioObjectPropertyAddress address = addressFor(kAudioHardwarePropertyDefaultOutputDevice);
+  if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &address, 0, NULL, &dataSize, &deviceID) != noErr) {
+    return kAudioObjectUnknown;
+  }
+  return deviceID;
+}
+
+static NSString *normalizedDeviceName(NSString *name) {
+  NSMutableString *result = [NSMutableString string];
+  NSCharacterSet *alphanumeric = [NSCharacterSet alphanumericCharacterSet];
+  BOOL previousWasSpace = YES;
+  NSString *lowercase = name.lowercaseString ?: @"";
+
+  for (NSUInteger index = 0; index < lowercase.length; index++) {
+    unichar character = [lowercase characterAtIndex:index];
+    if ([alphanumeric characterIsMember:character]) {
+      [result appendFormat:@"%C", character];
+      previousWasSpace = NO;
+    } else if (!previousWasSpace) {
+      [result appendString:@" "];
+      previousWasSpace = YES;
+    }
+  }
+
+  return [result stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+}
+
+static AudioObjectID findOutputDeviceByName(NSString *deviceName) {
+  NSString *targetName = normalizedDeviceName(deviceName);
+  if (targetName.length == 0 || [targetName isEqualToString:@"system default"]) {
+    return defaultOutputDevice();
+  }
+
+  AudioObjectPropertyAddress devicesAddress = addressFor(kAudioHardwarePropertyDevices);
+  UInt32 devicesDataSize = 0;
+  if (AudioObjectGetPropertyDataSize(kAudioObjectSystemObject, &devicesAddress, 0, NULL, &devicesDataSize) != noErr) {
+    return kAudioObjectUnknown;
+  }
+
+  UInt32 deviceCount = devicesDataSize / sizeof(AudioObjectID);
+  AudioObjectID *deviceIDs = calloc(deviceCount, sizeof(AudioObjectID));
+  if (!deviceIDs) {
+    return kAudioObjectUnknown;
+  }
+
+  AudioObjectID result = kAudioObjectUnknown;
+  if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &devicesAddress, 0, NULL, &devicesDataSize, deviceIDs) == noErr) {
+    for (UInt32 index = 0; index < deviceCount; index++) {
+      NSString *candidateName = normalizedDeviceName(getStringProperty(deviceIDs[index], kAudioObjectPropertyName));
+      if ([candidateName isEqualToString:targetName] ||
+          [candidateName containsString:targetName] ||
+          [targetName containsString:candidateName]) {
+        result = deviceIDs[index];
+        break;
+      }
+    }
+  }
+
+  free(deviceIDs);
+  return result;
+}
+
+static AudioObjectID createMonitorAggregateDevice(NSString *inputDeviceUID,
+                                                  NSString *outputDeviceUID,
+                                                  NSError **error) {
+  if (inputDeviceUID.length == 0 || outputDeviceUID.length == 0) {
+    return kAudioObjectUnknown;
+  }
+
+  NSString *aggregateUID = [NSString stringWithFormat:@"com.surroundstreamer.monitor.%d.%llu",
+                                                      getpid(),
+                                                      (unsigned long long)(NSDate.date.timeIntervalSince1970 * 1000000.0)];
+  NSArray *subDevices = @[
+    @{
+      @(kAudioSubDeviceUIDKey): inputDeviceUID,
+      @(kAudioSubDeviceDriftCompensationKey): @YES
+    },
+    @{
+      @(kAudioSubDeviceUIDKey): outputDeviceUID,
+      @(kAudioSubDeviceDriftCompensationKey): @YES
+    }
+  ];
+  NSDictionary *description = @{
+    @(kAudioAggregateDeviceNameKey): @"SurroundStreamer Native Monitor",
+    @(kAudioAggregateDeviceUIDKey): aggregateUID,
+    @(kAudioAggregateDeviceIsPrivateKey): @YES,
+    @(kAudioAggregateDeviceSubDeviceListKey): subDevices,
+    @(kAudioAggregateDeviceMasterSubDeviceKey): outputDeviceUID
+  };
+
+  AudioObjectID aggregateDeviceID = kAudioObjectUnknown;
+  OSStatus status = AudioHardwareCreateAggregateDevice((__bridge CFDictionaryRef)description, &aggregateDeviceID);
+  if (!checkStatus(status, @"Failed to create native monitor aggregate device", error)) {
+    return kAudioObjectUnknown;
+  }
+  return aggregateDeviceID;
+}
+
 static BOOL getDeviceStreamFormat(AudioObjectID deviceID, AudioObjectPropertyScope scope, NSInteger streamIndex, AudioStreamBasicDescription *format, NSError **error) {
   AudioObjectPropertyAddress streamsAddress = addressForScope(kAudioDevicePropertyStreams, scope);
   UInt32 streamsDataSize = 0;
@@ -539,6 +664,51 @@ static AudioObjectID createAggregateDevice(NSString *tapUID, NSError **error) {
   return aggregateDeviceID;
 }
 
+static UInt32 clampBufferFrameSize(AudioObjectID deviceID, UInt32 requestedFrames) {
+  if (requestedFrames == 0) {
+    return 0;
+  }
+
+  AudioValueRange frameRange = {0};
+  UInt32 dataSize = sizeof(frameRange);
+  AudioObjectPropertyAddress rangeAddress = addressFor(kAudioDevicePropertyBufferFrameSizeRange);
+  OSStatus status = AudioObjectGetPropertyData(deviceID, &rangeAddress, 0, NULL, &dataSize, &frameRange);
+  if (status != noErr || frameRange.mMinimum <= 0 || frameRange.mMaximum <= 0) {
+    return requestedFrames;
+  }
+
+  Float64 clamped = requestedFrames;
+  if (clamped < frameRange.mMinimum) {
+    clamped = frameRange.mMinimum;
+  }
+  if (clamped > frameRange.mMaximum) {
+    clamped = frameRange.mMaximum;
+  }
+  return (UInt32)clamped;
+}
+
+static void requestDeviceBufferFrameSize(AudioObjectID deviceID, UInt32 requestedFrames) {
+  UInt32 targetFrames = clampBufferFrameSize(deviceID, requestedFrames);
+  if (targetFrames == 0) {
+    return;
+  }
+
+  AudioObjectPropertyAddress bufferAddress = addressFor(kAudioDevicePropertyBufferFrameSize);
+  UInt32 dataSize = sizeof(targetFrames);
+  OSStatus status = AudioObjectSetPropertyData(deviceID, &bufferAddress, 0, NULL, dataSize, &targetFrames);
+  if (status == noErr) {
+    fprintf(stderr,
+            "{\"event\":\"status\",\"message\":\"Requested Core Audio IO buffer: %u frames\"}\n",
+            targetFrames);
+  } else {
+    fprintf(stderr,
+            "{\"event\":\"status\",\"message\":\"Could not set Core Audio IO buffer to %u frames (%s)\"}\n",
+            targetFrames,
+            statusMessage(status).UTF8String);
+  }
+  fflush(stderr);
+}
+
 static OSStatus captureIOProc(AudioObjectID inDevice,
                               const AudioTimeStamp *inNow,
                               const AudioBufferList *inInputData,
@@ -599,7 +769,234 @@ static OSStatus captureIOProc(AudioObjectID inDevice,
   return noErr;
 }
 
-static BOOL streamPCM(pid_t pid, NSString *deviceUID, NSInteger streamIndex, NSError **error) {
+static Float32 monitorSampleAt(const AudioBufferList *bufferList,
+                               AudioStreamBasicDescription format,
+                               UInt32 frame,
+                               UInt32 channel) {
+  UInt32 channels = MAX(1, format.mChannelsPerFrame);
+  if (!bufferList || channel >= channels || bufferList->mNumberBuffers == 0) {
+    return 0.0f;
+  }
+
+  if (bufferList->mNumberBuffers == 1) {
+    const AudioBuffer buffer = bufferList->mBuffers[0];
+    if (!buffer.mData) {
+      return 0.0f;
+    }
+    const Float32 *samples = (const Float32 *)buffer.mData;
+    return samples[(frame * channels) + channel];
+  }
+
+  if (channel >= bufferList->mNumberBuffers || !bufferList->mBuffers[channel].mData) {
+    return 0.0f;
+  }
+  const Float32 *samples = (const Float32 *)bufferList->mBuffers[channel].mData;
+  return samples[frame];
+}
+
+static void nativeMonitorPushFrame(NativeMonitorContext *context, Float32 left, Float32 right) {
+  if (!context || !context->ringBuffer || context->ringFrames == 0) {
+    return;
+  }
+
+  pthread_mutex_lock(&context->lock);
+  context->ringBuffer[(context->writeFrame * 2) + 0] = left;
+  context->ringBuffer[(context->writeFrame * 2) + 1] = right;
+  context->writeFrame = (context->writeFrame + 1) % context->ringFrames;
+  if (context->availableFrames < context->ringFrames) {
+    context->availableFrames += 1;
+  } else {
+    context->readFrame = (context->readFrame + 1) % context->ringFrames;
+  }
+  pthread_mutex_unlock(&context->lock);
+}
+
+static OSStatus nativeMonitorInputIOProc(AudioObjectID inDevice,
+                                         const AudioTimeStamp *inNow,
+                                         const AudioBufferList *inInputData,
+                                         const AudioTimeStamp *inInputTime,
+                                         AudioBufferList *outOutputData,
+                                         const AudioTimeStamp *inOutputTime,
+                                         void *inClientData) {
+  (void)inDevice;
+  (void)inNow;
+  (void)inInputTime;
+  (void)outOutputData;
+  (void)inOutputTime;
+
+  NativeMonitorContext *context = (NativeMonitorContext *)inClientData;
+  if (!context || !inInputData || inInputData->mNumberBuffers == 0) {
+    return noErr;
+  }
+
+  UInt32 channels = MAX(1, context->inputFormat.mChannelsPerFrame);
+  UInt32 bytesPerSample = context->inputFormat.mBitsPerChannel / 8;
+  if (bytesPerSample != sizeof(Float32)) {
+    return noErr;
+  }
+
+  UInt32 frames = 0;
+  if (inInputData->mNumberBuffers == 1) {
+    frames = inInputData->mBuffers[0].mDataByteSize / (bytesPerSample * channels);
+  } else {
+    frames = inInputData->mBuffers[0].mDataByteSize / bytesPerSample;
+  }
+
+  UInt32 leftChannel = MIN(context->pairStart, channels - 1);
+  UInt32 rightChannel = MIN(leftChannel + 1, channels - 1);
+  for (UInt32 frame = 0; frame < frames; frame++) {
+    nativeMonitorPushFrame(context,
+                           monitorSampleAt(inInputData, context->inputFormat, frame, leftChannel),
+                           monitorSampleAt(inInputData, context->inputFormat, frame, rightChannel));
+  }
+
+  return noErr;
+}
+
+static void nativeMonitorOutputCallback(void *inUserData,
+                                        AudioQueueRef inAQ,
+                                        AudioQueueBufferRef inBuffer) {
+  (void)inAQ;
+  NativeMonitorContext *context = (NativeMonitorContext *)inUserData;
+  UInt32 frameBytes = context ? context->outputFormat.mBytesPerFrame : sizeof(Float32) * 2;
+  UInt32 frames = inBuffer->mAudioDataBytesCapacity / frameBytes;
+  Float32 *output = (Float32 *)inBuffer->mAudioData;
+
+  if (!context || !context->ringBuffer) {
+    memset(output, 0, frames * frameBytes);
+    inBuffer->mAudioDataByteSize = frames * frameBytes;
+    AudioQueueEnqueueBuffer(inAQ, inBuffer, 0, NULL);
+    return;
+  }
+
+  pthread_mutex_lock(&context->lock);
+  for (UInt32 frame = 0; frame < frames; frame++) {
+    if (context->availableFrames > 0) {
+      output[(frame * 2) + 0] = context->ringBuffer[(context->readFrame * 2) + 0];
+      output[(frame * 2) + 1] = context->ringBuffer[(context->readFrame * 2) + 1];
+      context->readFrame = (context->readFrame + 1) % context->ringFrames;
+      context->availableFrames -= 1;
+    } else {
+      output[(frame * 2) + 0] = 0.0f;
+      output[(frame * 2) + 1] = 0.0f;
+    }
+  }
+  pthread_mutex_unlock(&context->lock);
+
+  inBuffer->mAudioDataByteSize = frames * frameBytes;
+  AudioQueueEnqueueBuffer(inAQ, inBuffer, 0, NULL);
+}
+
+static AudioStreamBasicDescription packedFloatFormat(Float64 sampleRate, UInt32 channels) {
+  AudioStreamBasicDescription format = {0};
+  format.mSampleRate = sampleRate;
+  format.mFormatID = kAudioFormatLinearPCM;
+  format.mFormatFlags = kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked;
+  format.mBytesPerPacket = sizeof(Float32) * channels;
+  format.mFramesPerPacket = 1;
+  format.mBytesPerFrame = sizeof(Float32) * channels;
+  format.mChannelsPerFrame = channels;
+  format.mBitsPerChannel = 32;
+  return format;
+}
+
+static void clearAudioBufferList(AudioBufferList *ioData, UInt32 frameCount) {
+  if (!ioData) {
+    return;
+  }
+  for (UInt32 bufferIndex = 0; bufferIndex < ioData->mNumberBuffers; bufferIndex++) {
+    AudioBuffer *buffer = &ioData->mBuffers[bufferIndex];
+    if (buffer->mData && buffer->mDataByteSize > 0) {
+      memset(buffer->mData, 0, buffer->mDataByteSize);
+    } else if (buffer->mData && buffer->mNumberChannels > 0) {
+      memset(buffer->mData, 0, frameCount * buffer->mNumberChannels * sizeof(Float32));
+    }
+  }
+}
+
+static void writeStereoOutput(AudioBufferList *ioData,
+                              UInt32 frameCount,
+                              const Float32 *input,
+                              UInt32 inputChannels,
+                              UInt32 pairStart) {
+  if (!ioData || !input || inputChannels == 0) {
+    clearAudioBufferList(ioData, frameCount);
+    return;
+  }
+
+  UInt32 leftChannel = MIN(pairStart, inputChannels - 1);
+  UInt32 rightChannel = MIN(leftChannel + 1, inputChannels - 1);
+  if (ioData->mNumberBuffers == 1) {
+    AudioBuffer *buffer = &ioData->mBuffers[0];
+    Float32 *output = (Float32 *)buffer->mData;
+    UInt32 outputChannels = MAX(1, buffer->mNumberChannels);
+    if (!output) {
+      return;
+    }
+    for (UInt32 frame = 0; frame < frameCount; frame++) {
+      output[(frame * outputChannels) + 0] = input[(frame * inputChannels) + leftChannel];
+      if (outputChannels > 1) {
+        output[(frame * outputChannels) + 1] = input[(frame * inputChannels) + rightChannel];
+      }
+      for (UInt32 channel = 2; channel < outputChannels; channel++) {
+        output[(frame * outputChannels) + channel] = 0.0f;
+      }
+    }
+    return;
+  }
+
+  for (UInt32 bufferIndex = 0; bufferIndex < ioData->mNumberBuffers; bufferIndex++) {
+    AudioBuffer *buffer = &ioData->mBuffers[bufferIndex];
+    Float32 *output = (Float32 *)buffer->mData;
+    if (!output) {
+      continue;
+    }
+    UInt32 sourceChannel = bufferIndex == 0 ? leftChannel : rightChannel;
+    for (UInt32 frame = 0; frame < frameCount; frame++) {
+      output[frame] = bufferIndex < 2 ? input[(frame * inputChannels) + sourceChannel] : 0.0f;
+    }
+  }
+}
+
+static OSStatus auhalMonitorRenderCallback(void *inRefCon,
+                                           AudioUnitRenderActionFlags *ioActionFlags,
+                                           const AudioTimeStamp *inTimeStamp,
+                                           UInt32 inBusNumber,
+                                           UInt32 inNumberFrames,
+                                           AudioBufferList *ioData) {
+  (void)inBusNumber;
+  AUHALMonitorContext *context = (AUHALMonitorContext *)inRefCon;
+  if (!context || !context->audioUnit || !context->inputBuffer || inNumberFrames > context->maxFrames) {
+    clearAudioBufferList(ioData, inNumberFrames);
+    return noErr;
+  }
+
+  AudioBufferList inputList = {0};
+  inputList.mNumberBuffers = 1;
+  inputList.mBuffers[0].mNumberChannels = context->inputChannels;
+  inputList.mBuffers[0].mDataByteSize = inNumberFrames * context->inputChannels * sizeof(Float32);
+  inputList.mBuffers[0].mData = context->inputBuffer;
+
+  OSStatus status = AudioUnitRender(context->audioUnit,
+                                    ioActionFlags,
+                                    inTimeStamp,
+                                    1,
+                                    inNumberFrames,
+                                    &inputList);
+  if (status != noErr) {
+    clearAudioBufferList(ioData, inNumberFrames);
+    return noErr;
+  }
+
+  writeStereoOutput(ioData,
+                    inNumberFrames,
+                    context->inputBuffer,
+                    context->inputChannels,
+                    context->pairStart);
+  return noErr;
+}
+
+static BOOL streamPCM(pid_t pid, NSString *deviceUID, NSInteger streamIndex, UInt32 requestedBufferFrames, NSError **error) {
   if (@available(macOS 14.2, *)) {
     AudioObjectID processObjectID = translatePIDToProcessObject(pid, error);
     if (processObjectID == kAudioObjectUnknown) {
@@ -632,6 +1029,8 @@ static BOOL streamPCM(pid_t pid, NSString *deviceUID, NSInteger streamIndex, NSE
     if (aggregateDeviceID == kAudioObjectUnknown) {
       goto cleanup;
     }
+
+    requestDeviceBufferFrameSize(aggregateDeviceID, requestedBufferFrames);
 
     context.format = format;
     context.scratchBufferSize = 1024 * 1024;
@@ -766,6 +1165,344 @@ cleanup:
   return success;
 }
 
+static BOOL monitorInputDevice(NSString *inputDeviceUID,
+                               NSInteger inputStreamIndex,
+                               NSString *outputDeviceName,
+                               UInt32 pairStart,
+                               UInt32 requestedBufferFrames,
+                               NSError **error) {
+  AudioObjectID inputDeviceID = findDeviceByUID(inputDeviceUID, error);
+  if (inputDeviceID == kAudioObjectUnknown) {
+    return NO;
+  }
+
+  AudioObjectID outputDeviceID = findOutputDeviceByName(outputDeviceName);
+  if (outputDeviceID == kAudioObjectUnknown) {
+    if (error) {
+      *error = [NSError errorWithDomain:@"AudioTapHelper"
+                                   code:-12
+                               userInfo:@{NSLocalizedDescriptionKey: @"Failed to resolve monitor output device"}];
+    }
+    return NO;
+  }
+
+  AudioStreamBasicDescription inputFormat = {0};
+  AudioStreamBasicDescription outputFormat = {0};
+  AudioDeviceIOProcID inputIOProcID = NULL;
+  AudioQueueRef outputQueue = NULL;
+  AudioQueueBufferRef outputBuffers[kNativeMonitorOutputBufferCount] = {NULL};
+  NativeMonitorContext context = {0};
+  NSString *outputDeviceUID = nil;
+  BOOL success = NO;
+
+  if (!getDeviceStreamFormat(inputDeviceID, kAudioDevicePropertyScopeInput, inputStreamIndex, &inputFormat, error)) {
+    goto cleanup;
+  }
+
+  if (inputFormat.mFormatID != kAudioFormatLinearPCM ||
+      !(inputFormat.mFormatFlags & kAudioFormatFlagIsFloat) ||
+      inputFormat.mBitsPerChannel != 32) {
+    if (error) {
+      *error = [NSError errorWithDomain:@"AudioTapHelper"
+                                   code:-11
+                               userInfo:@{NSLocalizedDescriptionKey: @"Input device virtual format is not 32-bit float PCM"}];
+    }
+    goto cleanup;
+  }
+
+  UInt32 bufferFrames = requestedBufferFrames > 0 ? requestedBufferFrames : 64;
+  requestDeviceBufferFrameSize(inputDeviceID, bufferFrames);
+  requestDeviceBufferFrameSize(outputDeviceID, bufferFrames);
+
+  outputFormat.mSampleRate = inputFormat.mSampleRate;
+  outputFormat.mFormatID = kAudioFormatLinearPCM;
+  outputFormat.mFormatFlags = kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked;
+  outputFormat.mBytesPerPacket = sizeof(Float32) * 2;
+  outputFormat.mFramesPerPacket = 1;
+  outputFormat.mBytesPerFrame = sizeof(Float32) * 2;
+  outputFormat.mChannelsPerFrame = 2;
+  outputFormat.mBitsPerChannel = 32;
+
+  context.inputFormat = inputFormat;
+  context.outputFormat = outputFormat;
+  context.pairStart = pairStart;
+  context.ringFrames = MAX(bufferFrames * 4, 256);
+  context.ringBuffer = calloc(context.ringFrames * 2, sizeof(Float32));
+  pthread_mutex_init(&context.lock, NULL);
+  if (!context.ringBuffer) {
+    if (error) {
+      *error = [NSError errorWithDomain:@"AudioTapHelper"
+                                   code:-4
+                               userInfo:@{NSLocalizedDescriptionKey: @"Failed to allocate native monitor ring buffer"}];
+    }
+    goto cleanup;
+  }
+
+  if (!checkStatus(AudioQueueNewOutput(&outputFormat,
+                                       nativeMonitorOutputCallback,
+                                       &context,
+                                       CFRunLoopGetCurrent(),
+                                       kCFRunLoopCommonModes,
+                                       0,
+                                       &outputQueue),
+                   @"Failed to create native monitor output queue",
+                   error)) {
+    goto cleanup;
+  }
+
+  outputDeviceUID = getStringProperty(outputDeviceID, kAudioDevicePropertyDeviceUID);
+  if (outputDeviceUID.length > 0) {
+    CFStringRef outputUIDRef = (__bridge CFStringRef)outputDeviceUID;
+    AudioQueueSetProperty(outputQueue, kAudioQueueProperty_CurrentDevice, &outputUIDRef, sizeof(outputUIDRef));
+  }
+
+  UInt32 outputBufferBytes = bufferFrames * outputFormat.mBytesPerFrame;
+  for (UInt32 index = 0; index < kNativeMonitorOutputBufferCount; index++) {
+    if (!checkStatus(AudioQueueAllocateBuffer(outputQueue, outputBufferBytes, &outputBuffers[index]),
+                     @"Failed to allocate native monitor output buffer",
+                     error)) {
+      goto cleanup;
+    }
+    memset(outputBuffers[index]->mAudioData, 0, outputBufferBytes);
+    outputBuffers[index]->mAudioDataByteSize = outputBufferBytes;
+    if (!checkStatus(AudioQueueEnqueueBuffer(outputQueue, outputBuffers[index], 0, NULL),
+                     @"Failed to prime native monitor output buffer",
+                     error)) {
+      goto cleanup;
+    }
+  }
+
+  if (!checkStatus(AudioDeviceCreateIOProcID(inputDeviceID, nativeMonitorInputIOProc, &context, &inputIOProcID),
+                   @"Failed to create native monitor input IO proc",
+                   error)) {
+    goto cleanup;
+  }
+
+  fprintf(stderr,
+          "{\"event\":\"format\",\"sampleRate\":%.0f,\"channels\":2,\"bitsPerChannel\":32,\"mode\":\"native-input-monitor\"}\n",
+          outputFormat.mSampleRate);
+  fflush(stderr);
+
+  if (!checkStatus(AudioQueueStart(outputQueue, NULL), @"Failed to start native monitor output queue", error)) {
+    goto cleanup;
+  }
+
+  if (!checkStatus(AudioDeviceStart(inputDeviceID, inputIOProcID), @"Failed to start native monitor input IO", error)) {
+    goto cleanup;
+  }
+
+  while (!shouldStopStreaming) {
+    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
+  }
+
+  success = YES;
+
+cleanup:
+  if (inputIOProcID) {
+    AudioDeviceStop(inputDeviceID, inputIOProcID);
+    AudioDeviceDestroyIOProcID(inputDeviceID, inputIOProcID);
+  }
+  if (outputQueue) {
+    AudioQueueStop(outputQueue, true);
+    AudioQueueDispose(outputQueue, true);
+  }
+  free(context.ringBuffer);
+  pthread_mutex_destroy(&context.lock);
+  return success;
+}
+
+static BOOL monitorInputDeviceAUHAL(NSString *inputDeviceUID,
+                                    NSInteger inputStreamIndex,
+                                    NSString *outputDeviceName,
+                                    UInt32 pairStart,
+                                    UInt32 requestedBufferFrames,
+                                    NSError **error) {
+  AudioObjectID inputDeviceID = findDeviceByUID(inputDeviceUID, error);
+  if (inputDeviceID == kAudioObjectUnknown) {
+    return NO;
+  }
+
+  AudioObjectID outputDeviceID = findOutputDeviceByName(outputDeviceName);
+  if (outputDeviceID == kAudioObjectUnknown) {
+    if (error) {
+      *error = [NSError errorWithDomain:@"AudioTapHelper"
+                                   code:-12
+                               userInfo:@{NSLocalizedDescriptionKey: @"Failed to resolve monitor output device"}];
+    }
+    return NO;
+  }
+
+  NSString *outputDeviceUID = getStringProperty(outputDeviceID, kAudioDevicePropertyDeviceUID);
+  AudioObjectID monitorDeviceID = inputDeviceID;
+  AudioObjectID aggregateDeviceID = kAudioObjectUnknown;
+  AudioStreamBasicDescription inputFormat = {0};
+  AudioComponentInstance audioUnit = NULL;
+  AUHALMonitorContext context = {0};
+  BOOL success = NO;
+
+  if (!getDeviceStreamFormat(inputDeviceID, kAudioDevicePropertyScopeInput, inputStreamIndex, &inputFormat, error)) {
+    goto cleanup;
+  }
+
+  if (inputFormat.mFormatID != kAudioFormatLinearPCM ||
+      !(inputFormat.mFormatFlags & kAudioFormatFlagIsFloat) ||
+      inputFormat.mBitsPerChannel != 32) {
+    if (error) {
+      *error = [NSError errorWithDomain:@"AudioTapHelper"
+                                   code:-11
+                               userInfo:@{NSLocalizedDescriptionKey: @"Input device virtual format is not 32-bit float PCM"}];
+    }
+    goto cleanup;
+  }
+
+  if (![inputDeviceUID isEqualToString:outputDeviceUID]) {
+    aggregateDeviceID = createMonitorAggregateDevice(inputDeviceUID, outputDeviceUID, error);
+    if (aggregateDeviceID == kAudioObjectUnknown) {
+      goto cleanup;
+    }
+    monitorDeviceID = aggregateDeviceID;
+  }
+
+  UInt32 bufferFrames = requestedBufferFrames > 0 ? requestedBufferFrames : 64;
+  requestDeviceBufferFrameSize(inputDeviceID, bufferFrames);
+  requestDeviceBufferFrameSize(outputDeviceID, bufferFrames);
+  requestDeviceBufferFrameSize(monitorDeviceID, bufferFrames);
+
+  AudioComponentDescription description = {0};
+  description.componentType = kAudioUnitType_Output;
+  description.componentSubType = kAudioUnitSubType_HALOutput;
+  description.componentManufacturer = kAudioUnitManufacturer_Apple;
+  AudioComponent component = AudioComponentFindNext(NULL, &description);
+  if (!component) {
+    if (error) {
+      *error = [NSError errorWithDomain:@"AudioTapHelper"
+                                   code:-13
+                               userInfo:@{NSLocalizedDescriptionKey: @"Failed to find AUHAL component"}];
+    }
+    goto cleanup;
+  }
+
+  if (!checkStatus(AudioComponentInstanceNew(component, &audioUnit),
+                   @"Failed to create AUHAL instance",
+                   error)) {
+    goto cleanup;
+  }
+
+  UInt32 enableIO = 1;
+  if (!checkStatus(AudioUnitSetProperty(audioUnit,
+                                        kAudioOutputUnitProperty_EnableIO,
+                                        kAudioUnitScope_Input,
+                                        1,
+                                        &enableIO,
+                                        sizeof(enableIO)),
+                   @"Failed to enable AUHAL input",
+                   error)) {
+    goto cleanup;
+  }
+  if (!checkStatus(AudioUnitSetProperty(audioUnit,
+                                        kAudioOutputUnitProperty_EnableIO,
+                                        kAudioUnitScope_Output,
+                                        0,
+                                        &enableIO,
+                                        sizeof(enableIO)),
+                   @"Failed to enable AUHAL output",
+                   error)) {
+    goto cleanup;
+  }
+  if (!checkStatus(AudioUnitSetProperty(audioUnit,
+                                        kAudioOutputUnitProperty_CurrentDevice,
+                                        kAudioUnitScope_Global,
+                                        0,
+                                        &monitorDeviceID,
+                                        sizeof(monitorDeviceID)),
+                   @"Failed to set AUHAL current device",
+                   error)) {
+    goto cleanup;
+  }
+
+  AudioStreamBasicDescription inputClientFormat = packedFloatFormat(inputFormat.mSampleRate, inputFormat.mChannelsPerFrame);
+  AudioStreamBasicDescription outputClientFormat = packedFloatFormat(inputFormat.mSampleRate, 2);
+  if (!checkStatus(AudioUnitSetProperty(audioUnit,
+                                        kAudioUnitProperty_StreamFormat,
+                                        kAudioUnitScope_Output,
+                                        1,
+                                        &inputClientFormat,
+                                        sizeof(inputClientFormat)),
+                   @"Failed to set AUHAL input client format",
+                   error)) {
+    goto cleanup;
+  }
+  if (!checkStatus(AudioUnitSetProperty(audioUnit,
+                                        kAudioUnitProperty_StreamFormat,
+                                        kAudioUnitScope_Input,
+                                        0,
+                                        &outputClientFormat,
+                                        sizeof(outputClientFormat)),
+                   @"Failed to set AUHAL output client format",
+                   error)) {
+    goto cleanup;
+  }
+
+  context.audioUnit = audioUnit;
+  context.inputChannels = inputFormat.mChannelsPerFrame;
+  context.pairStart = pairStart;
+  context.maxFrames = 16384;
+  context.inputBuffer = calloc(context.maxFrames * context.inputChannels, sizeof(Float32));
+  if (!context.inputBuffer) {
+    if (error) {
+      *error = [NSError errorWithDomain:@"AudioTapHelper"
+                                   code:-4
+                               userInfo:@{NSLocalizedDescriptionKey: @"Failed to allocate AUHAL monitor input buffer"}];
+    }
+    goto cleanup;
+  }
+
+  AURenderCallbackStruct callback = {0};
+  callback.inputProc = auhalMonitorRenderCallback;
+  callback.inputProcRefCon = &context;
+  if (!checkStatus(AudioUnitSetProperty(audioUnit,
+                                        kAudioUnitProperty_SetRenderCallback,
+                                        kAudioUnitScope_Input,
+                                        0,
+                                        &callback,
+                                        sizeof(callback)),
+                   @"Failed to set AUHAL render callback",
+                   error)) {
+    goto cleanup;
+  }
+
+  if (!checkStatus(AudioUnitInitialize(audioUnit), @"Failed to initialize AUHAL monitor", error)) {
+    goto cleanup;
+  }
+
+  fprintf(stderr,
+          "{\"event\":\"format\",\"sampleRate\":%.0f,\"channels\":2,\"bitsPerChannel\":32,\"mode\":\"auhal-input-monitor\"}\n",
+          inputFormat.mSampleRate);
+  fflush(stderr);
+
+  if (!checkStatus(AudioOutputUnitStart(audioUnit), @"Failed to start AUHAL monitor", error)) {
+    goto cleanup;
+  }
+
+  while (!shouldStopStreaming) {
+    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
+  }
+
+  success = YES;
+
+cleanup:
+  if (audioUnit) {
+    AudioOutputUnitStop(audioUnit);
+    AudioUnitUninitialize(audioUnit);
+    AudioComponentInstanceDispose(audioUnit);
+  }
+  if (aggregateDeviceID != kAudioObjectUnknown) {
+    AudioHardwareDestroyAggregateDevice(aggregateDeviceID);
+  }
+  free(context.inputBuffer);
+  return success;
+}
+
 static void printJSON(id object) {
   NSData *data = [NSJSONSerialization dataWithJSONObject:object options:NSJSONWritingPrettyPrinted | NSJSONWritingSortedKeys error:nil];
   if (data) {
@@ -800,6 +1537,7 @@ static void printHelp(void) {
   puts("  --create-tap --pid <pid> [--duration <seconds>] [--device-uid <uid> --stream-index <index>]");
   puts("  --stream-pcm --pid <pid> [--device-uid <uid> --stream-index <index>]");
   puts("  --stream-input-device --device-uid <uid> [--stream-index <index>]");
+  puts("  --monitor-input-device --device-uid <uid> [--stream-index <index>] [--output-device-name <name>] [--pair-start <index>] [--buffer-frames <frames>]");
 }
 
 int main(int argc, const char *argv[]) {
@@ -867,8 +1605,9 @@ int main(int argc, const char *argv[]) {
 
       NSString *deviceUID = argumentValue(arguments, @"--device-uid");
       NSInteger streamIndex = argumentIntegerValue(arguments, @"--stream-index", -1);
+      NSInteger bufferFrames = argumentIntegerValue(arguments, @"--buffer-frames", 0);
       setvbuf(stdout, NULL, _IONBF, 0);
-      if (!streamPCM((pid_t)pidString.intValue, deviceUID, streamIndex, &error)) {
+      if (!streamPCM((pid_t)pidString.intValue, deviceUID, streamIndex, (UInt32)MAX(0, bufferFrames), &error)) {
         fprintf(stderr, "{\"event\":\"error\",\"message\":\"%s\"}\n", (error.localizedDescription ?: @"Failed to stream PCM").UTF8String);
         return 1;
       }
@@ -886,6 +1625,29 @@ int main(int argc, const char *argv[]) {
       setvbuf(stdout, NULL, _IONBF, 0);
       if (!streamInputDevicePCM(deviceUID, streamIndex, &error)) {
         fprintf(stderr, "{\"event\":\"error\",\"message\":\"%s\"}\n", (error.localizedDescription ?: @"Failed to stream input device PCM").UTF8String);
+        return 1;
+      }
+      return 0;
+    }
+
+    if ([arguments containsObject:@"--monitor-input-device"]) {
+      NSString *deviceUID = argumentValue(arguments, @"--device-uid");
+      if (!deviceUID) {
+        printJSON(@{@"error": @"--monitor-input-device requires --device-uid <uid>"});
+        return 1;
+      }
+
+      NSInteger streamIndex = argumentIntegerValue(arguments, @"--stream-index", -1);
+      NSString *outputDeviceName = argumentValue(arguments, @"--output-device-name") ?: @"";
+      NSInteger pairStart = argumentIntegerValue(arguments, @"--pair-start", 0);
+      NSInteger bufferFrames = argumentIntegerValue(arguments, @"--buffer-frames", 64);
+      if (!monitorInputDevice(deviceUID,
+                              streamIndex,
+                              outputDeviceName,
+                              (UInt32)MAX(0, pairStart),
+                              (UInt32)MAX(16, bufferFrames),
+                              &error)) {
+        fprintf(stderr, "{\"event\":\"error\",\"message\":\"%s\"}\n", (error.localizedDescription ?: @"Failed to monitor input device").UTF8String);
         return 1;
       }
       return 0;

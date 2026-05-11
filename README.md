@@ -4,9 +4,9 @@
 
 # SurroundStreamer
 
-SurroundStreamer is a macOS Electron app for sending Ogg Opus audio streams to an Icecast server.
-It supports App Audio capture, input-device capture, file playback, stream channel templates up to 7.1, and monitor output for previewing supported sources.
-The current practical target is macOS because the audio capture path depends on Core Audio.
+SurroundStreamer is a macOS-first Electron app for sending Ogg Opus audio streams to an Icecast server.
+It supports audio-input capture, file playback, stream channel templates up to 7.1, and monitor output for previewing supported sources.
+The public stable target is macOS. The beta branch also contains a validated Windows ASIO/MMDevice Audio Input backend.
 
 <h2 align="center">DOWNLOAD</h2>
 
@@ -16,22 +16,23 @@ The current practical target is macOS because the audio capture path depends on 
   </a>
 </p>
 
-| Platform | Download |
-| --- | --- |
+| Platform            | Download                                                                                                                      |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | macOS Apple Silicon | [SurroundStreamer-0.1.0.dmg](https://github.com/t-noami/SurroundStreamer/releases/download/v0.1.0/SurroundStreamer-0.1.0.dmg) |
-| Windows | Preparing |
-| Linux | Preparing |
+| Windows             | Beta preparing for publication                                                                                                |
+| Linux               | Preparing                                                                                                                     |
 
 ## System Requirements
 
 > [!IMPORTANT]
-> SurroundStreamer 0.1.0 requires **macOS 14.2 or later** for App Audio capture and App Audio Monitor Output.
-> macOS 12.x and 13.x do not provide the Core Audio Process Tap API used by this app, so App Audio capture will not work on those systems.
+> SurroundStreamer now focuses on Audio Input and File sources.
+> App Audio capture has been removed from the current beta line.
 
 - Supported release target: macOS 14.2 or later on Apple Silicon
-- App Audio capture: requires macOS 14.2 or later
-- App Audio Monitor Output: requires macOS 14.2 or later because it uses the same capture backend
-- Windows/Linux: Preparing
+- Audio Input capture: Core Audio helper path on macOS
+- File source: FFmpeg file playback path
+- Windows: beta branch only
+- Linux: Preparing
 
 ## Developer
 
@@ -45,24 +46,24 @@ The current practical target is macOS because the audio capture path depends on 
 - Primary streaming format: Ogg Opus over Icecast
 - Standard channel templates: Mono, Stereo, Stereo + C, 5.1, 7.1
 - Default encoding: 48 kHz, 128 kbps stereo-equivalent bitrate
-- Main source order: App Audio, Input Device, File
-- App Audio capture: Core Audio process tap with preserve-surround output stream selection
-- Input Device capture: Core Audio helper PCM capture piped into FFmpeg
+- Main source order: Audio Input, File
+- Audio Input capture: macOS uses the Core Audio helper PCM path; the Windows beta uses native ASIO and MMDevice/WASAPI capture with DirectShow fallback.
 - File source: file playback and preview monitor support
 - Monitor Output: Stereo Pair, Stereo Downmix, KU100 Near-field HRTF
 
 ## Important Notes
 
-- App Audio capture depends on Apple's Core Audio Process Tap API. If the app is launched on macOS older than 14.2, App Audio and App Audio monitor preview are not expected to work.
-- Input Device source currently disables Monitor Output controls. This keeps the streaming path stable while input-device monitoring remains separate from the production path.
+- App Audio capture has been removed from the current beta line. Use Audio Input capture with a physical, virtual, or loopback device when application audio needs to be routed into SurroundStreamer.
+- Audio Input Monitor Output uses the shared WebAudio direct monitor path when browser audio-device access is available. The Windows beta also has an ASIO-specific backend/WASAPI monitor path, but it is not part of the stable macOS release line.
 - Opus output is constrained to supported sample rates. 44.1 kHz and 96 kHz sources are converted to 48 kHz for stream output.
 - 7.1.2 and 7.1.4 are not part of the standard build. The current production target is up to 7.1 because that maps cleanly to common Opus channel mapping support.
 - KU100 near-field HRIR data is included under CC BY 4.0. Attribution is listed below.
-- Windows and Linux build notes are kept for future platform work, but the current capture implementation is macOS-specific.
+- Public release capture is macOS-first. The Windows beta has been validated locally for ASIO Audio Input, MMDevice/WASAPI Audio Input, File source, monitor output routing, and Icecast Opus streaming, but public Windows downloads remain beta/pre-release until signing, compatibility, and long-run checks are complete. For Windows surround input, ASIO is the primary validation target; WASAPI/MMDevice remains useful for generic mono/stereo inputs.
+- Linux build notes are kept for future platform work; Linux Audio Input capture is not implemented yet.
 
 ## User Manual
 
-SurroundStreamer sends audio from macOS app audio, input devices, or audio files to Icecast as Ogg Opus streams.
+SurroundStreamer sends audio from audio inputs or audio files as Ogg Opus, stereo MP3, or both.
 
 ### Basic Screen
 
@@ -73,13 +74,13 @@ The main screen is organized into these areas:
 - `Input Source`: Selects the streaming source.
 - `Monitor Output`: Configures monitor playback before or during streaming.
 - `Encoding Settings`: Configures bitrate, sample rate, and channel templates.
-- `Icecast Settings`: Configures the Icecast connection.
+- `Stream Server Settings`: Configures Opus Icecast and Stereo MP3 destinations.
 - `START STREAM` / `STOP STREAM`: Starts or stops the stream.
 - `Window > Show Logs`: Opens connection status and error messages in a separate window.
 
 ### First-Run Settings
 
-The first-run Icecast defaults are:
+The first-run Opus Icecast defaults are:
 
 - Host: empty
 - Port: `8000`
@@ -88,18 +89,10 @@ The first-run Icecast defaults are:
 
 Icecast settings are saved after editing and restored on the next launch. If settings are already saved, the saved values are used instead of the first-run defaults.
 
+Stereo MP3 settings are saved with the same settings set. MP3 defaults are Icecast mode, port
+`8000`, mount point `/stream.mp3`, and `128k` bitrate.
+
 ### Input Sources
-
-#### App Audio
-
-Use App Audio when streaming audio from another application.
-
-1. Select `App Audio` in `Input Source`.
-2. Select the target application in `App`.
-3. Select the output device or stream used by that app in `App Output Capture Source`.
-4. Use `Refresh` if the app or output capture source list needs to be updated.
-
-For multichannel sources such as 5.1 audio, select the output stream where the target app is actually sending multichannel audio.
 
 #### File
 
@@ -114,30 +107,40 @@ Use File when streaming audio from a selected audio file.
 
 For File source, Monitor Output is useful only after a playable file has been selected.
 
-#### Input Device
+#### Audio Input
 
-Use Input Device when streaming from an audio interface, virtual input, or microphone input.
+Use Audio Input when streaming from an audio interface, virtual input, or microphone input.
 
 ![Input device source](docs/manual-assets/device-source.png)
 
-1. Select `Input Device` in `Input Source`.
-2. Select the input device in `Input Device`.
+1. Select `Audio Input` in `Input Source`.
+2. Select the audio input in `Audio Input`.
 3. Use `Refresh` if the device list needs to be updated.
 
-Monitor Output is currently disabled for Input Device source. Input-device monitoring still needs to be stabilized separately from the streaming path.
+Monitor Output is available for Audio Input source through the shared WebAudio direct monitor path when browser audio-device access is available. The Windows beta also supports ASIO Audio Input monitoring through the backend-owned FFmpeg/WASAPI renderer path; this remains beta/pre-release and is not part of the stable macOS release line.
 
-On macOS, input-device streaming requires microphone permission. If streaming does not capture input audio, confirm that macOS Privacy settings allow microphone access for SurroundStreamer.
+On macOS, audio-input streaming requires microphone permission. If streaming does not capture input audio, confirm that macOS Privacy settings allow microphone access for SurroundStreamer.
 
 ### Encoding Settings
 
 `Encoding Settings` controls the stream format.
 
-- `Bitrate (Stereo Equivalent)`: Bitrate expressed as a stereo-equivalent value. The actual bitrate increases with the selected channel count.
+- `Encoding Format`: Selects `Ogg Opus / Icecast (surround)`, `Ogg Opus + stereo MP3`, or `Stereo MP3 only`.
+- `Opus Bitrate (Stereo Equivalent)`: Opus bitrate expressed as a stereo-equivalent value. The actual bitrate increases with the selected channel count. This is hidden when `Stereo MP3 only` is selected.
 - `Sample Rate`: Opus stream sample rate. The default is 48 kHz.
 - `Stream Channel Template`: Selects the stream channel layout.
 - `Stream Channels`: Selects the channels included in the stream.
+- `MP3 Audio Source`: Selects whether the MP3 output uses the L/R stereo pair, a stereo downmix, or KU100 near-field HRTF processing.
 
 Standard templates are `Mono`, `Stereo`, `Stereo + C`, `5.1`, and `7.1`. For multichannel sources, `5.1` is the default practical starting point.
+
+MP3 stereo processing uses the same spatial gain policy as Monitor Output:
+
+- `Stereo Pair (L/R)`: sends the selected stream's first two channels directly to MP3 left/right. Mono is duplicated to left/right.
+- `Stereo Downmix`: applies L/R at `1.0`, center at `0.707` to both sides, LFE muted, side/rear channels at `0.707` to their matching side, then applies a `0.707` master gain.
+- `KU100 Near-field HRTF`: applies L/R at `1.0`, center and side/rear channels at `0.707`, LFE muted, then applies KU100 HRIR convolution with a `0.35` master gain.
+
+The current Stereo Downmix coefficients are shared between Monitor Output and MP3 output for consistency. A more conservative live-music/DJ downmix profile, such as lowering side/rear contribution, may be considered later, but it is not part of the current beta.
 
 ### Monitor Output
 
@@ -146,7 +149,6 @@ Monitor Output is used to check audio before or during streaming.
 - `Enable monitor output`: Enables monitor playback.
 - `Output Device`: Selects the monitor output device.
 - `Monitor Mode`: Selects the monitor processing mode.
-- `Monitor Buffer`: Selects the monitor output buffer.
 - `Monitor Source`: Selects the channel pair used in Stereo Pair mode.
 - `Monitor Volume`: Controls only the monitor output level.
 
@@ -158,14 +160,15 @@ Monitor modes:
 
 Monitor Volume is applied after the selected monitor mode processing. It does not affect the streamed audio.
 
-### Icecast Settings
+### Stream Server Settings
 
-`Icecast Settings` configures the streaming destination.
+`Stream Server Settings` configures the active streaming destination fields for the selected encoding format. `Ogg Opus + stereo MP3` shows separate `Opus Icecast` and `Stereo MP3` groups.
 
 - `Host`: Icecast server host name or IP address
 - `Port`: Icecast port
 - `Mount Point`: Stream mount point, for example `/stream`
 - `Password`: Source password
+- `MP3 Shoutcast 1`: Uses the legacy Shoutcast source handshake directly, so no mount point is configured for that output.
 
 Mount Point should start with `/`, such as `/stream`. If the leading `/` is missing, the app normalizes it when saving.
 
@@ -179,7 +182,7 @@ While streaming, the following controls are locked to prevent accidental changes
 
 - `Input Source`
 - `Encoding Settings`
-- `Icecast Settings`
+- `Stream Server Settings`
 
 Click `STOP STREAM` to stop streaming. Closing the window with the macOS close button also quits the app and stops any streaming processes running in the background.
 
@@ -203,18 +206,18 @@ If the player remains buffering:
 
 - Confirm that the Icecast server created the expected mount point.
 - Check `Logs` to see whether FFmpeg exits immediately after startup.
-- For Input Device source, confirm that macOS microphone permission is enabled.
+- For Audio Input source, confirm that macOS microphone permission is enabled.
 
-If Input Device source has no audio:
+If Audio Input source has no audio:
 
-- Confirm that the selected input device is receiving signal.
+- Confirm that the selected audio input is receiving signal.
 - If using a loopback or virtual device, confirm that the routing is not unintentionally mixing system output into the input.
 - Confirm macOS microphone permission.
 
 If Monitor Output is unavailable:
 
-- Monitor Output is disabled for Input Device source.
-- Use App Audio or File source for monitor output.
+- Confirm the selected input source is supported by the current audio backend.
+- Confirm the selected Monitor Output device is available, then toggle `Enable monitor output` off and on.
 - If the output device list changes, use `Refresh Monitor Devices`.
 
 ## Development
@@ -224,9 +227,10 @@ Build instructions are split by operating system:
 - [Build on macOS](docs/build-macos.md)
 - [Build on Windows](docs/build-windows.md)
 - [Build on Linux](docs/build-linux.md)
+- [Windows Backend Development Guide](docs/windows-backend-development.md)
 - [Windows / Linux Portability Assessment](docs/windows-linux-portability-assessment.md)
 
-macOS is the primary supported build target. Windows and Linux packaging notes are included for future platform work, but the current audio capture path depends on macOS Core Audio.
+macOS is the primary stable build target. The beta branch also includes a locally validated Windows backend for ASIO Audio Input, MMDevice/WASAPI Audio Input, File source, backend-owned ASIO monitor routing, and Icecast streaming. Linux packaging notes remain preparatory because Linux Audio Input capture is not implemented yet.
 
 ## Test Stream Config
 
@@ -278,9 +282,10 @@ the current monitor-output speaker labels.
 Before treating a build as usable:
 
 - App launches successfully
-- App Audio stream starts and stops cleanly
+- File source stream starts and stops cleanly
+- Audio Input stream starts and stops cleanly
 - Icecast connection succeeds with the intended mount point
 - Peak meters respond quickly
-- Monitor Output works for App Audio and File sources
+- Monitor Output works for File and Audio Input sources
 - Quitting the app stops FFmpeg and helper processes
 - `codesign --verify --deep --strict` passes for the app bundle

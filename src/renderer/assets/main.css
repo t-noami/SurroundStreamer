@@ -235,6 +235,10 @@ select {
   max-width: 100%;
 }
 
+input[readonly] {
+  color: var(--text-muted);
+}
+
 input[type='range'] {
   width: 100%;
   accent-color: var(--accent-secondary);
@@ -305,6 +309,20 @@ input[type='range'] {
   color: var(--text-muted);
   font-weight: 400;
   text-transform: none;
+}
+
+.server-settings-group {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(175, 162, 220, 0.18);
+}
+
+.server-settings-group h3 {
+  margin: 0 0 11px;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
 .control-panel {
@@ -731,6 +749,10 @@ input[type='range'] {
   display: flex;
   justify-content: space-between;
   gap: 12px;
+}
+
+.simulcast-enable-row {
+  margin: 14px 0 10px;
 }
 
 @media (max-width: 900px) {

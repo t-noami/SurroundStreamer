@@ -52,6 +52,8 @@ export class WebAudioMonitor {
     this.channelLabels = DEFAULT_CHANNEL_LABELS.slice(0, 2)
     this.pairStart = 0
     this.latencyMs = 80
+    this.lowLatency = false
+    this.directOutput = false
     this.volume = 1
     this.outputGain = null
     this.mediaStream = null
@@ -75,11 +77,14 @@ export class WebAudioMonitor {
     this.channelLabels = normalizeChannelLabels(format.channelLabels, this.channels)
     this.deviceId = format.deviceId || ''
     this.pairStart = clampInt(format.pairStart, 0, Math.max(0, this.channels - 1))
-    this.latencyMs = clampInt(format.latencyMs, 20, 500, 80)
+    this.lowLatency = !!format.lowLatency
+    this.latencyMs = clampInt(format.latencyMs, 5, 500, 80)
     this.volume = clampNumber(format.volume, 0, 1, 1)
 
+    this.directOutput = !!format.directOutput
+
     const sampleRate = Number(format.sampleRate || 48000)
-    const context = new AudioContext({ sampleRate, latencyHint: 'interactive' })
+    const context = createMonitorAudioContext(sampleRate)
     this.context = context
     await context.audioWorklet.addModule('./monitor-worklet.js')
 
@@ -87,18 +92,21 @@ export class WebAudioMonitor {
       numberOfInputs: 0,
       numberOfOutputs: this.channels,
       outputChannelCount: Array.from({ length: this.channels }, () => 1),
-      processorOptions: { channels: this.channels, latencyMs: this.latencyMs }
+      processorOptions: {
+        channels: this.channels,
+        latencyMs: this.latencyMs,
+        lowLatency: this.lowLatency
+      }
     })
     this.source.port.postMessage({
       type: 'format',
       channels: this.channels,
-      latencyMs: this.latencyMs
+      latencyMs: this.latencyMs,
+      lowLatency: this.lowLatency
     })
 
-    this.destination = context.createMediaStreamDestination()
     this.outputGain = context.createGain()
     this.outputGain.gain.value = this.volume
-    this.outputGain.connect(this.destination)
 
     if (this.mode === 'binaural') {
       this.connectBinauralGraph()
@@ -108,12 +116,11 @@ export class WebAudioMonitor {
       this.connectStereoPairGraph()
     }
 
-    this.outputElement = new Audio()
-    this.outputElement.autoplay = true
-    this.outputElement.srcObject = this.destination.stream
-    await this.setDevice(this.deviceId)
+    await this.connectOutputPath()
     await context.resume()
-    await this.outputElement.play()
+    if (this.outputElement) {
+      await this.outputElement.play()
+    }
   }
 
   async startMediaStream(format, mediaStream) {
@@ -128,44 +135,53 @@ export class WebAudioMonitor {
     this.channelLabels = normalizeChannelLabels(format.channelLabels, this.channels)
     this.deviceId = format.deviceId || ''
     this.pairStart = clampInt(format.pairStart, 0, Math.max(0, this.channels - 1))
-    this.latencyMs = clampInt(format.latencyMs, 20, 500, 80)
+    this.lowLatency = !!format.lowLatency
+    this.latencyMs = clampInt(format.latencyMs, 5, 500, 80)
     this.volume = clampNumber(format.volume, 0, 1, 1)
     this.mediaStream = mediaStream
 
+    this.directOutput = !!format.directOutput
+
     const sampleRate = Number(format.sampleRate || 48000)
-    const context = new AudioContext({ sampleRate, latencyHint: 'interactive' })
+    const context = createMonitorAudioContext(sampleRate)
     this.context = context
     this.mediaSource = context.createMediaStreamSource(mediaStream)
-    this.source = context.createChannelSplitter(this.channels)
-    this.mediaSource.connect(this.source)
 
-    this.destination = context.createMediaStreamDestination()
     this.outputGain = context.createGain()
     this.outputGain.gain.value = this.volume
-    this.outputGain.connect(this.destination)
 
-    if (this.mode === 'binaural') {
-      this.connectBinauralGraph()
-    } else if (this.mode === 'downmix') {
-      this.connectDownmixGraph()
+    if (this.shouldUseDirectMediaGraph()) {
+      this.mediaSource.connect(this.outputGain)
     } else {
-      this.connectStereoPairGraph()
+      this.source = context.createChannelSplitter(this.channels)
+      this.mediaSource.connect(this.source)
+      if (this.mode === 'binaural') {
+        this.connectBinauralGraph()
+      } else if (this.mode === 'downmix') {
+        this.connectDownmixGraph()
+      } else {
+        this.connectStereoPairGraph()
+      }
     }
 
     if (typeof format.onPeaks === 'function') {
       this.connectMediaProbe(format.onPeaks)
     }
 
-    this.outputElement = new Audio()
-    this.outputElement.autoplay = true
-    this.outputElement.srcObject = this.destination.stream
-    await this.setDevice(this.deviceId)
+    await this.connectOutputPath()
     await context.resume()
-    await this.outputElement.play()
+    if (this.outputElement) {
+      await this.outputElement.play()
+    }
   }
 
   async setDevice(deviceId) {
     this.deviceId = deviceId || ''
+    if (this.context && !this.outputElement && typeof this.context.setSinkId === 'function') {
+      await this.context.setSinkId(this.deviceId)
+      return
+    }
+
     if (!this.outputElement || typeof this.outputElement.setSinkId !== 'function') {
       if (this.deviceId) {
         this.log('Monitor output device selection is not supported in this runtime.', 'error')
@@ -174,6 +190,32 @@ export class WebAudioMonitor {
     }
 
     await this.outputElement.setSinkId(this.deviceId)
+  }
+
+  async connectOutputPath() {
+    if (!this.context || !this.outputGain) return
+
+    if (this.directOutput) {
+      if (!this.deviceId || typeof this.context.setSinkId === 'function') {
+        await this.setDevice(this.deviceId)
+        this.outputGain.connect(this.context.destination)
+        this.destination = this.context.destination
+        return
+      }
+    }
+
+    this.destination = this.context.createMediaStreamDestination()
+    this.outputGain.connect(this.destination)
+    this.outputElement = new Audio()
+    this.outputElement.autoplay = true
+    this.outputElement.srcObject = this.destination.stream
+    await this.setDevice(this.deviceId)
+  }
+
+  shouldUseDirectMediaGraph() {
+    return (
+      this.directOutput && this.mode === 'stereo-pair' && this.pairStart === 0 && this.channels <= 2
+    )
   }
 
   setVolume(volume) {
@@ -346,6 +388,10 @@ export class WebAudioMonitor {
 function normalizeMonitorMode(mode) {
   if (mode === 'stereo') return 'stereo-pair'
   return mode || 'stereo-pair'
+}
+
+function createMonitorAudioContext(sampleRate) {
+  return new AudioContext({ sampleRate })
 }
 
 function normalizeChannelLabels(labels, channels) {
