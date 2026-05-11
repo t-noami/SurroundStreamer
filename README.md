@@ -259,91 +259,13 @@ See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for runtime dependency and 
 
 ## Third-Party Notices
 
-### FFmpeg
+Third-party license notices are kept outside this README so the distributed resources stay paired
+with their own notices:
 
-This application uses a packaged FFmpeg binary for file input, audio filtering,
-Opus/MP3 encoding, monitor processing, and stream output.
-
-Release builds must use a vetted FFmpeg binary placed under:
-
-- `resources/ffmpeg/darwin-arm64/ffmpeg`
-- `resources/ffmpeg/win32-x64/ffmpeg.exe`
-- `resources/ffmpeg/linux-x64/ffmpeg`
-
-Run `npm run check:ffmpeg-license` before packaging. The check rejects
-`--enable-nonfree` FFmpeg builds and rejects `--enable-gpl` unless
-`SURROUNDSTREAMER_ALLOW_GPL_FFMPEG=1` is set for an intentional GPL
-distribution. FFmpeg and its enabled external libraries remain under their own
-license terms; review the exact packaged binary, license files, source
-availability, and build configuration before redistribution.
-
-After packaging, run `npm run check:package-licenses -- <packaged-app-or-dist-dir>` to confirm the
-artifact does not contain `ffmpeg-static` and that packaged FFmpeg binaries still pass the
-distribution check.
-
-Current macOS Apple Silicon FFmpeg details and license texts are kept in:
-
-- `resources/ffmpeg/THIRD_PARTY_NOTICES.md`
-- `resources/ffmpeg/licenses/`
-
-Source:
-https://ffmpeg.org/
-
-### Opus / libopus
-
-Ogg Opus streaming uses FFmpeg's `libopus` encoder when available in the
-packaged FFmpeg binary.
-
-libopus is the reference Opus codec implementation from Xiph.Org and
-contributors. The reference implementation is licensed under a 3-clause BSD
-license.
-
-Source:
-https://opus-codec.org/
-
-License information:
-https://opus-codec.org/license/
-
-### LAME / libmp3lame
-
-Stereo MP3 streaming uses FFmpeg's `libmp3lame` encoder when available in the
-packaged FFmpeg binary.
-
-LAME is an MP3 encoder project licensed under the GNU Lesser General Public
-License (LGPL).
-
-Source:
-https://lame.sourceforge.io/
-
-### Neumann KU100 Near-Field HRIR
-
-This application includes a reduced JavaScript extraction from:
-
-Spherical Near-Field (NF) HRIR Compilation of the Neumann KU100
-
-Authors:
-
-- Johannes M. Arend
-- Annika Neidhardt
-- Christoph Pörschmann
-
-Source:
-https://zenodo.org/records/4297951
-
-DOI:
-10.5281/zenodo.4297951
-
-License:
-Creative Commons Attribution 4.0 International (CC BY 4.0)
-
-License URL:
-https://creativecommons.org/licenses/by/4.0/
-
-The bundled extraction uses the 1.0 m circular 360-degree SOFA set
-(`HRIR_CIRC360_NF100.sofa`) and contains only the HRIR directions needed for
-the current monitor-output speaker labels.
-
-The extracted resource-level notice is included at `resources/ku100-hrir/NOTICE.md`.
+- [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md): application-wide third-party dependency and bundled resource summary
+- [resources/ffmpeg/THIRD_PARTY_NOTICES.md](resources/ffmpeg/THIRD_PARTY_NOTICES.md): packaged FFmpeg binary details, enabled external libraries, source reference, and build configuration
+- [resources/ffmpeg/licenses/](resources/ffmpeg/licenses/): FFmpeg, libopus, and LAME license texts
+- [resources/ku100-hrir/NOTICE.md](resources/ku100-hrir/NOTICE.md): KU100 near-field HRIR attribution, license, source, DOI, and change statement
 
 ## Verification Checklist
 
