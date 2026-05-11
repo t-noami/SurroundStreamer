@@ -11,16 +11,14 @@ The public stable target is macOS. The beta branch also contains a validated Win
 <h2 align="center">DOWNLOAD</h2>
 
 <p align="center">
-  <a href="https://github.com/t-noami/SurroundStreamer/releases/download/v0.1.1/SurroundStreamer-0.1.1.dmg">
-    <strong>Download SurroundStreamer 0.1.1 for macOS</strong>
-  </a>
+  <strong>Public downloads are temporarily paused while packaged FFmpeg notices and source references are finalized.</strong>
 </p>
 
-| Platform            | Download                                                                                                                      |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| macOS Apple Silicon | [SurroundStreamer-0.1.1.dmg](https://github.com/t-noami/SurroundStreamer/releases/download/v0.1.1/SurroundStreamer-0.1.1.dmg) |
-| Windows             | Beta preparing for publication on the `0.1.1` line                                                                             |
-| Linux               | Preparing on the `0.1.1` line; no public artifact yet                                                                         |
+| Platform            | Download                                               |
+| ------------------- | ------------------------------------------------------ |
+| macOS Apple Silicon | Temporarily paused pending a vetted FFmpeg replacement |
+| Windows             | Beta preparing for publication on the `0.1.1` line     |
+| Linux               | Preparing on the `0.1.1` line; no public artifact yet  |
 
 ## System Requirements
 
@@ -249,7 +247,9 @@ SurroundStreamer is released under the MIT License. See [LICENSE](LICENSE).
 
 The MIT License is a permissive open-source license that allows commercial use, private use, modification, distribution, and sublicensing, while requiring preservation of copyright and license notices.
 
-Third-party materials remain under their own licenses. In particular, the bundled KU100 near-field HRIR extraction is CC BY 4.0 and requires attribution.
+Third-party materials remain under their own licenses. This includes the packaged FFmpeg binary and its enabled external libraries, including libopus and libmp3lame, plus the bundled KU100 near-field HRIR extraction.
+
+See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for runtime dependency and bundled resource notices.
 
 ## Repository Documents
 
@@ -258,6 +258,62 @@ Third-party materials remain under their own licenses. In particular, the bundle
 - `docs/task.md`: current task status and release checklist
 
 ## Third-Party Notices
+
+### FFmpeg
+
+This application uses a packaged FFmpeg binary for file input, audio filtering,
+Opus/MP3 encoding, monitor processing, and stream output.
+
+Release builds must use a vetted FFmpeg binary placed under:
+
+- `resources/ffmpeg/darwin-arm64/ffmpeg`
+- `resources/ffmpeg/win32-x64/ffmpeg.exe`
+- `resources/ffmpeg/linux-x64/ffmpeg`
+
+Run `npm run check:ffmpeg-license` before packaging. The check rejects
+`--enable-nonfree` FFmpeg builds and rejects `--enable-gpl` unless
+`SURROUNDSTREAMER_ALLOW_GPL_FFMPEG=1` is set for an intentional GPL
+distribution. FFmpeg and its enabled external libraries remain under their own
+license terms; review the exact packaged binary, license files, source
+availability, and build configuration before redistribution.
+
+After packaging, run `npm run check:package-licenses -- <packaged-app-or-dist-dir>` to confirm the
+artifact does not contain `ffmpeg-static` and that packaged FFmpeg binaries still pass the
+distribution check.
+
+Current macOS Apple Silicon FFmpeg details and license texts are kept in:
+
+- `resources/ffmpeg/THIRD_PARTY_NOTICES.md`
+- `resources/ffmpeg/licenses/`
+
+Source:
+https://ffmpeg.org/
+
+### Opus / libopus
+
+Ogg Opus streaming uses FFmpeg's `libopus` encoder when available in the
+packaged FFmpeg binary.
+
+libopus is the reference Opus codec implementation from Xiph.Org and
+contributors. The reference implementation is licensed under a 3-clause BSD
+license.
+
+Source:
+https://opus-codec.org/
+
+License information:
+https://opus-codec.org/license/
+
+### LAME / libmp3lame
+
+Stereo MP3 streaming uses FFmpeg's `libmp3lame` encoder when available in the
+packaged FFmpeg binary.
+
+LAME is an MP3 encoder project licensed under the GNU Lesser General Public
+License (LGPL).
+
+Source:
+https://lame.sourceforge.io/
 
 ### Neumann KU100 Near-Field HRIR
 
@@ -269,7 +325,7 @@ Authors:
 
 - Johannes M. Arend
 - Annika Neidhardt
-- Christoph Poerschmann
+- Christoph Pörschmann
 
 Source:
 https://zenodo.org/records/4297951
@@ -280,9 +336,14 @@ DOI:
 License:
 Creative Commons Attribution 4.0 International (CC BY 4.0)
 
+License URL:
+https://creativecommons.org/licenses/by/4.0/
+
 The bundled extraction uses the 1.0 m circular 360-degree SOFA set
 (`HRIR_CIRC360_NF100.sofa`) and contains only the HRIR directions needed for
 the current monitor-output speaker labels.
+
+The extracted resource-level notice is included at `resources/ku100-hrir/NOTICE.md`.
 
 ## Verification Checklist
 

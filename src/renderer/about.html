@@ -47,21 +47,50 @@
         <p class="about-license-title">MIT License</p>
         <p id="about-copyright" class="about-copy">Copyright (c) 2026 Non-REM Studio</p>
         <p class="about-copy">
-          Commercial use, private use, modification, distribution, and sublicensing are
-          permitted when copyright and license notices are preserved.
+          Commercial use, private use, modification, distribution, and sublicensing are permitted
+          when copyright and license notices are preserved.
         </p>
       </section>
 
       <section class="about-card">
         <h2>Third-Party Notice</h2>
+        <p class="about-license-title">FFmpeg</p>
+        <p class="about-copy">
+          Used for file input, filtering, Opus/MP3 encoding, monitor processing, and stream output.
+          The packaged FFmpeg binary is distributed under its applicable FFmpeg license, normally
+          LGPL v2.1 or later for vetted release builds.
+        </p>
+        <p class="about-copy">
+          Release builds must use a vetted FFmpeg binary without --enable-nonfree. GPL builds are
+          rejected by default unless the distribution intentionally opts into GPL terms. Review the
+          packaged binary license files, source availability, and build configuration in
+          resources/ffmpeg before redistribution.
+        </p>
+
+        <p class="about-license-title">Opus / libopus</p>
+        <p class="about-copy">
+          Opus stream encoding uses FFmpeg's libopus encoder when available. libopus is the
+          reference Opus codec implementation from Xiph.Org and contributors, licensed under a
+          3-clause BSD license.
+        </p>
+
+        <p class="about-license-title">LAME / libmp3lame</p>
+        <p class="about-copy">
+          Stereo MP3 stream encoding uses FFmpeg's libmp3lame encoder when available. LAME is an MP3
+          encoder project licensed under the GNU Lesser General Public License (LGPL).
+        </p>
+
         <p class="about-license-title">Neumann KU100 Near-Field HRIR</p>
         <p class="about-copy">
           Based on Spherical Near-Field (NF) HRIR Compilation of the Neumann KU100.
         </p>
         <p class="about-copy">
-          Author: Fabian Brinkmann et al.<br />
+          Authors: Johannes M. Arend, Annika Neidhardt, Christoph Pörschmann<br />
           License: Creative Commons Attribution 4.0 International (CC BY 4.0)<br />
-          Source: https://zenodo.org/records/4297951
+          License URL: https://creativecommons.org/licenses/by/4.0/<br />
+          DOI: 10.5281/zenodo.4297951<br />
+          Source: https://zenodo.org/records/4297951<br />
+          Changes: extracted, reduced, and converted to WAV assets for SurroundStreamer.
         </p>
       </section>
     </main>

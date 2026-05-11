@@ -133,6 +133,35 @@ Recommended implementation order:
 
 Electron Builder configuration may still be useful for local experiments, but packaging alone is not enough for a public Linux release. The blocker is the missing Linux audio capture backend and Linux release validation.
 
+Release packaging no longer uses the `ffmpeg-static` npm package. Before running Linux packaging,
+place a vetted Linux x64 FFmpeg binary at:
+
+```text
+resources/ffmpeg/linux-x64/ffmpeg
+```
+
+Then validate all FFmpeg binaries staged under `resources/ffmpeg`:
+
+```bash
+npm run check:ffmpeg-license -- resources/ffmpeg
+```
+
+The check rejects `--enable-nonfree` builds and rejects `--enable-gpl` unless
+`SURROUNDSTREAMER_ALLOW_GPL_FFMPEG=1` is set for an intentional GPL distribution. The Linux binary
+must provide libopus, libmp3lame, Ogg/MP3/f32le muxing, file/pipe/icecast protocols, and the audio
+filters used by File source and monitor processing.
+
+After packaging, run a packaged-artifact license check against the unpacked app or output
+directory:
+
+```bash
+npm run check:package-licenses -- dist
+```
+
+This fails if `ffmpeg-static` is present or if any packaged `ffmpeg` binary fails the FFmpeg
+distribution check. Update `resources/ffmpeg/THIRD_PARTY_NOTICES.md` and `resources/ffmpeg/licenses/`
+for the exact Linux FFmpeg binary before publishing any Linux artifact.
+
 The beta packaging target is reserved for development experiments. If a Linux beta package is generated from `beta/cross-platform-backend`, it should use the `0.1.1` release line with beta metadata, currently `0.1.1-beta.10`. Do not generate new Linux artifacts with the old `0.1.0` release number.
 
 For beta experiments, use:

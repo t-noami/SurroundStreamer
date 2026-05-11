@@ -14,6 +14,7 @@ files:
   - '!legacy/**'
   - '!SurroundWebPlayer/**'
   - '!node_modules/.cache/**'
+  - '!node_modules/ffmpeg-static/**'
   - '!docs/manual-assets/capture.html'
   - '!electron.vite.config.{js,ts,mjs,cjs}'
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md}'

@@ -70,6 +70,35 @@ The main Windows package currently uses:
 The packaged helper must not contain local developer paths. The helper Release build disables debug
 information/PDB generation for that reason.
 
+Release packaging no longer uses the `ffmpeg-static` npm package. Before running Windows packaging,
+place a vetted Windows x64 FFmpeg binary at:
+
+```text
+resources/ffmpeg/win32-x64/ffmpeg.exe
+```
+
+Then validate all FFmpeg binaries staged under `resources/ffmpeg`:
+
+```powershell
+npm run check:ffmpeg-license -- resources/ffmpeg
+```
+
+The check rejects `--enable-nonfree` builds and rejects `--enable-gpl` unless
+`SURROUNDSTREAMER_ALLOW_GPL_FFMPEG=1` is set for an intentional GPL distribution. The Windows binary
+must provide libopus, libmp3lame, Ogg/MP3/f32le muxing, file/pipe/icecast protocols, the
+`headphone` filter, and `dshow` for the DirectShow fallback path.
+
+After packaging, run a packaged-artifact license check against the unpacked app or output
+directory:
+
+```powershell
+npm run check:package-licenses -- dist\beta\win-unpacked
+```
+
+This fails if `ffmpeg-static` is present or if any packaged `ffmpeg.exe` fails the FFmpeg
+distribution check. Update `resources/ffmpeg/THIRD_PARTY_NOTICES.md` and `resources/ffmpeg/licenses/`
+for the exact Windows FFmpeg binary before publishing a Windows artifact.
+
 ## Packaged App UI Behavior
 
 The Windows packaged Electron app uses the native application menu as the main secondary-action
