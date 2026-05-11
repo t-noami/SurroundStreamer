@@ -48,8 +48,14 @@ function checkFfmpeg(ffmpegPath) {
   )
   requireEntries(
     'demuxer',
-    ['f32le', 'flac', 'ogg', 'wav'],
+    ['aiff', 'caf', 'f32le', 'flac', 'ogg', 'wav'],
     runFfmpeg(ffmpegPath, ['-hide_banner', '-demuxers']),
+    ffmpegPath
+  )
+  requireEntries(
+    'decoder',
+    ['aac', 'alac', 'flac', 'mp3', 'opus', 'vorbis'],
+    runFfmpeg(ffmpegPath, ['-hide_banner', '-decoders']),
     ffmpegPath
   )
   requireEntries(

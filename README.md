@@ -11,14 +11,14 @@ The public stable target is macOS. The beta branch also contains a validated Win
 <h2 align="center">DOWNLOAD</h2>
 
 <p align="center">
-  <strong>Public downloads are temporarily paused while packaged FFmpeg notices and source references are finalized.</strong>
+  <strong>Public downloads are temporarily paused while final release checks and Windows publication requirements are completed.</strong>
 </p>
 
-| Platform            | Download                                               |
-| ------------------- | ------------------------------------------------------ |
-| macOS Apple Silicon | Temporarily paused pending a vetted FFmpeg replacement |
-| Windows             | Beta preparing for publication on the `0.1.1` line     |
-| Linux               | Preparing on the `0.1.1` line; no public artifact yet  |
+| Platform            | Download                                              |
+| ------------------- | ----------------------------------------------------- |
+| macOS Apple Silicon | Temporarily paused pending final release checks       |
+| Windows             | Beta preparing for publication on the `0.1.1` line    |
+| Linux               | Preparing on the `0.1.1` line; no public artifact yet |
 
 ## System Requirements
 
@@ -263,7 +263,7 @@ Third-party license notices are kept outside this README so the distributed reso
 with their own notices:
 
 - [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md): application-wide third-party dependency and bundled resource summary
-- [resources/ffmpeg/THIRD_PARTY_NOTICES.md](resources/ffmpeg/THIRD_PARTY_NOTICES.md): packaged FFmpeg binary details, enabled external libraries, source reference, and build configuration
+- [resources/ffmpeg/THIRD_PARTY_NOTICES.md](resources/ffmpeg/THIRD_PARTY_NOTICES.md): packaged FFmpeg binary details, enabled external libraries, source references, and build configurations
 - [resources/ffmpeg/licenses/](resources/ffmpeg/licenses/): FFmpeg, libopus, and LAME license texts
 - [resources/ku100-hrir/NOTICE.md](resources/ku100-hrir/NOTICE.md): KU100 near-field HRIR attribution, license, source, DOI, and change statement
 

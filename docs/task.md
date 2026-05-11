@@ -115,6 +115,10 @@ Branch: `beta/cross-platform-backend`
 - [x] Smoke-test Windows Audio Input Monitor Output.
 - [x] Verify FFmpeg Opus Icecast streaming succeeds when inherited proxy variables are cleared.
 - [x] Verify Windows Opus output uses an Opus-compatible 5.1 layout while the UI/monitor path can retain `5.1(side)`.
+- [x] Bundle Windows x64 FFmpeg through `win.extraResources`.
+- [x] Verify `npm run check:ffmpeg-license:win`.
+- [x] Verify `npm run check:package-licenses -- dist\win-unpacked`.
+- [x] Rebuild the main Windows installer at `dist/surround-streamer-0.1.1-setup.exe`.
 - [ ] Smoke-test File source streaming on the new Windows beta app.
 - [ ] Validate DirectShow fallback capabilities in the Windows beta app when the native helper is absent.
 - [ ] Run longer Windows capture/stream stability tests.

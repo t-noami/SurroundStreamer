@@ -420,6 +420,12 @@ win:
   extraResources:
     - from: native/audio-backends/windows/.build/SurroundAudioBackend.exe
       to: audio-backend.exe
+    - from: resources/ffmpeg/win32-x64/ffmpeg.exe
+      to: ffmpeg/win32-x64/ffmpeg.exe
+    - from: resources/ffmpeg/THIRD_PARTY_NOTICES.md
+      to: ffmpeg/THIRD_PARTY_NOTICES.md
+    - from: resources/ffmpeg/licenses
+      to: ffmpeg/licenses
 
 afterPack: scripts/after-pack-win-icon.cjs
 ```
@@ -447,8 +453,10 @@ On Windows after Windows changes:
 ```powershell
 npm install
 npm run build:audio-helper:win
+npm run check:ffmpeg-license:win
 npm run build
 npm run build:win
+npm run check:package-licenses -- dist\win-unpacked
 ```
 
 Manual Windows checks:

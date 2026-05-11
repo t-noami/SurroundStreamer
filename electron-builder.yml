@@ -11,9 +11,11 @@ files:
   - '!docs/**'
   - '!native/**'
   - '!dist/**'
+  - '!.tmp/**'
   - '!legacy/**'
   - '!SurroundWebPlayer/**'
   - '!icecast/**'
+  - '!resources/ffmpeg/**'
   - '!node_modules/.cache/**'
   - '!node_modules/ffmpeg-static/**'
   - '!docs/manual-assets/capture.html'
@@ -30,6 +32,12 @@ win:
   extraResources:
     - from: native/audio-backends/windows/.build/SurroundAudioBackend.exe
       to: audio-backend.exe
+    - from: resources/ffmpeg/win32-x64/ffmpeg.exe
+      to: ffmpeg/win32-x64/ffmpeg.exe
+    - from: resources/ffmpeg/THIRD_PARTY_NOTICES.md
+      to: ffmpeg/THIRD_PARTY_NOTICES.md
+    - from: resources/ffmpeg/licenses
+      to: ffmpeg/licenses
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   installerIcon: icon.ico
@@ -48,6 +56,12 @@ mac:
   extraResources:
     - from: native/audio-backends/macos/.build/SurroundAudioBackend
       to: audio-backend
+    - from: resources/ffmpeg/darwin-arm64/ffmpeg
+      to: ffmpeg/darwin-arm64/ffmpeg
+    - from: resources/ffmpeg/THIRD_PARTY_NOTICES.md
+      to: ffmpeg/THIRD_PARTY_NOTICES.md
+    - from: resources/ffmpeg/licenses
+      to: ffmpeg/licenses
   extendInfo:
     NSMicrophoneUsageDescription: SurroundStreamer needs microphone access for audio device input.
     NSDocumentsFolderUsageDescription: SurroundStreamer needs access to selected audio files.
@@ -62,6 +76,13 @@ linux:
     - deb
   maintainer: Non-REM Studio <info@non-rem.com>
   category: Utility
+  extraResources:
+    - from: resources/ffmpeg/linux-x64/ffmpeg
+      to: ffmpeg/linux-x64/ffmpeg
+    - from: resources/ffmpeg/THIRD_PARTY_NOTICES.md
+      to: ffmpeg/THIRD_PARTY_NOTICES.md
+    - from: resources/ffmpeg/licenses
+      to: ffmpeg/licenses
 appImage:
   artifactName: ${name}-${version}.${ext}
 npmRebuild: false

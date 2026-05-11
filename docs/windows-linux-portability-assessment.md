@@ -647,19 +647,39 @@ mac:
   extraResources:
     - from: native/audio-backends/macos/.build/SurroundAudioBackend
       to: audio-backend
+    - from: resources/ffmpeg/darwin-arm64/ffmpeg
+      to: ffmpeg/darwin-arm64/ffmpeg
+    - from: resources/ffmpeg/THIRD_PARTY_NOTICES.md
+      to: ffmpeg/THIRD_PARTY_NOTICES.md
+    - from: resources/ffmpeg/licenses
+      to: ffmpeg/licenses
 
 win:
   extraResources:
     - from: native/audio-backends/windows/.build/SurroundAudioBackend.exe
       to: audio-backend.exe
+    - from: resources/ffmpeg/win32-x64/ffmpeg.exe
+      to: ffmpeg/win32-x64/ffmpeg.exe
+    - from: resources/ffmpeg/THIRD_PARTY_NOTICES.md
+      to: ffmpeg/THIRD_PARTY_NOTICES.md
+    - from: resources/ffmpeg/licenses
+      to: ffmpeg/licenses
 
 linux:
   extraResources:
     - from: native/audio-backends/linux/.build/surround-audio-backend
       to: audio-backend
+    - from: resources/ffmpeg/linux-x64/ffmpeg
+      to: ffmpeg/linux-x64/ffmpeg
+    - from: resources/ffmpeg/THIRD_PARTY_NOTICES.md
+      to: ffmpeg/THIRD_PARTY_NOTICES.md
+    - from: resources/ffmpeg/licenses
+      to: ffmpeg/licenses
 ```
 
-This keeps packaging similar while accepting that the native helper differs by platform.
+This keeps packaging similar while accepting that the native helper and vetted FFmpeg binary differ
+by platform. Shared FFmpeg notices/licenses and HRIR assets must stay paired with packaged
+artifacts.
 
 ### Final answer on common standard
 

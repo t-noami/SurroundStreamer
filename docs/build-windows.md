@@ -77,27 +77,34 @@ place a vetted Windows x64 FFmpeg binary at:
 resources/ffmpeg/win32-x64/ffmpeg.exe
 ```
 
-Then validate all FFmpeg binaries staged under `resources/ffmpeg`:
+The current Windows binary is a custom LGPL-compatible FFmpeg 8.1 build with only the
+SurroundStreamer-required program/features enabled. It includes DirectShow input, Icecast streaming,
+libopus/libmp3lame encoding, f32le/Ogg/MP3 muxing, and file-source demuxing for WAV, FLAC, Ogg, MP3,
+MOV/M4A, Matroska/WebM, AIFF/AIF, and CAF. AIFF/AIF and CAF support comes from FFmpeg's built-in
+LGPL demuxers and does not add a separate external-library license.
+
+Then validate the Windows FFmpeg binary:
 
 ```powershell
-npm run check:ffmpeg-license -- resources/ffmpeg
+npm run check:ffmpeg-license:win
 ```
 
 The check rejects `--enable-nonfree` builds and rejects `--enable-gpl` unless
 `SURROUNDSTREAMER_ALLOW_GPL_FFMPEG=1` is set for an intentional GPL distribution. The Windows binary
-must provide libopus, libmp3lame, Ogg/MP3/f32le muxing, file/pipe/icecast protocols, the
-`headphone` filter, and `dshow` for the DirectShow fallback path.
+must provide libopus, libmp3lame, AAC/ALAC/FLAC/MP3/Opus/Vorbis decoding, AIFF/CAF/WAV/FLAC/Ogg/f32le
+demuxing, Ogg/MP3/f32le muxing, file/pipe/icecast protocols, the `headphone` filter, and `dshow` for
+the DirectShow fallback path.
 
-After packaging, run a packaged-artifact license check against the unpacked app or output
-directory:
+After packaging, run a packaged-artifact license check against the unpacked app:
 
 ```powershell
-npm run check:package-licenses -- dist\beta\win-unpacked
+npm run check:package-licenses -- dist\win-unpacked
 ```
 
-This fails if `ffmpeg-static` is present or if any packaged `ffmpeg.exe` fails the FFmpeg
-distribution check. Update `resources/ffmpeg/THIRD_PARTY_NOTICES.md` and `resources/ffmpeg/licenses/`
-for the exact Windows FFmpeg binary before publishing a Windows artifact.
+This fails if `ffmpeg-static` is present or if the packaged `ffmpeg.exe` fails the FFmpeg
+distribution check. The Windows package should include only `resources/ffmpeg/win32-x64/ffmpeg.exe`
+plus the shared FFmpeg notices/licenses. Update `resources/ffmpeg/THIRD_PARTY_NOTICES.md` and
+`resources/ffmpeg/licenses/` for the exact Windows FFmpeg binary before publishing a Windows artifact.
 
 ## Packaged App UI Behavior
 

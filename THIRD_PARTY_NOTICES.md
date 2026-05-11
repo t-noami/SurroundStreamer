@@ -26,8 +26,12 @@ See:
 - `resources/ffmpeg/THIRD_PARTY_NOTICES.md`
 - `resources/ffmpeg/licenses/`
 
-The current macOS Apple Silicon binary is an FFmpeg 8.0 LGPL-compatible build with libopus and
-libmp3lame enabled. `--enable-nonfree` builds must not be distributed with SurroundStreamer.
+Current packaged FFmpeg binaries include:
+
+- macOS Apple Silicon: FFmpeg 8.0 LGPL-compatible build with libopus and libmp3lame enabled.
+- Windows x64: FFmpeg 8.1 LGPL-compatible custom build with libopus and libmp3lame enabled.
+
+`--enable-nonfree` builds must not be distributed with SurroundStreamer.
 
 ## Neumann KU100 Near-Field HRIR
 

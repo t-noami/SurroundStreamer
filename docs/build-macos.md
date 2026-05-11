@@ -112,7 +112,7 @@ Record the exact source version, configure line, and external library versions i
 Validate the binary before packaging:
 
 ```bash
-npm run check:ffmpeg-license -- resources/ffmpeg
+npm run check:ffmpeg-license:mac
 ```
 
 The check rejects `--enable-nonfree` builds. It also rejects `--enable-gpl` by default; set
@@ -207,8 +207,8 @@ codesign --verify --deep --strict --verbose=2 dist/beta/mac-arm64/SurroundStream
 ## Notes
 
 - The macOS build includes the Core Audio helper used for Audio Input capture.
-- Packaged builds include only vetted FFmpeg binaries from `resources/ffmpeg/**`; do not rely on
-  Homebrew FFmpeg or `ffmpeg-static` for release artifacts.
+- Packaged builds include the vetted target-platform FFmpeg binary from `resources/ffmpeg/**`; do
+  not rely on Homebrew FFmpeg or `ffmpeg-static` for release artifacts.
 - For surround Audio Input streaming on macOS, use a Core Audio audio interface or virtual audio device with 6 or more channels for 5.1 or larger layouts.
 - `test_streamconfig.txt` is intentionally excluded from packaged apps.
 - The release DMG name is generated from Electron Builder's `productName`, so it should remain `SurroundStreamer-<version>.dmg`.

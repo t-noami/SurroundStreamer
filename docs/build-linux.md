@@ -140,10 +140,10 @@ place a vetted Linux x64 FFmpeg binary at:
 resources/ffmpeg/linux-x64/ffmpeg
 ```
 
-Then validate all FFmpeg binaries staged under `resources/ffmpeg`:
+Then validate the Linux FFmpeg binary:
 
 ```bash
-npm run check:ffmpeg-license -- resources/ffmpeg
+npm run check:ffmpeg-license:linux
 ```
 
 The check rejects `--enable-nonfree` builds and rejects `--enable-gpl` unless
@@ -158,9 +158,10 @@ directory:
 npm run check:package-licenses -- dist
 ```
 
-This fails if `ffmpeg-static` is present or if any packaged `ffmpeg` binary fails the FFmpeg
-distribution check. Update `resources/ffmpeg/THIRD_PARTY_NOTICES.md` and `resources/ffmpeg/licenses/`
-for the exact Linux FFmpeg binary before publishing any Linux artifact.
+This fails if `ffmpeg-static` is present or if the packaged `ffmpeg` binary fails the FFmpeg
+distribution check. The Linux package should include only `resources/ffmpeg/linux-x64/ffmpeg` plus
+the shared FFmpeg notices/licenses. Update `resources/ffmpeg/THIRD_PARTY_NOTICES.md` and
+`resources/ffmpeg/licenses/` for the exact Linux FFmpeg binary before publishing any Linux artifact.
 
 The beta packaging target is reserved for development experiments. If a Linux beta package is generated from `beta/cross-platform-backend`, it should use the `0.1.1` release line with beta metadata, currently `0.1.1-beta.10`. Do not generate new Linux artifacts with the old `0.1.0` release number.
 
