@@ -125,7 +125,10 @@ export function setupIpcHandlers() {
     const { canceled, filePaths } = await dialog.showOpenDialog({
       properties: ['openFile'],
       filters: [
-        { name: 'Audio Files', extensions: ['wav', 'flac', 'opus', 'ogg'] },
+        {
+          name: 'Audio Files',
+          extensions: ['wav', 'flac', 'opus', 'ogg', 'm4a', 'aac', 'mp3', 'aiff', 'aif', 'caf']
+        },
         { name: 'All Files', extensions: ['*'] }
       ]
     })

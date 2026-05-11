@@ -142,7 +142,7 @@ Linux validation still required:
 
 - Confirm the Linux packaged FFmpeg binary has `libmp3lame` encoding and the `headphone` audio filter available.
 - Confirm `resources/ku100-hrir/**` is unpacked and reachable from the packaged Linux app.
-- Confirm the File picker admits the intended test formats. The current audio-file filter does not list `mp3`, although `All Files` can still select one.
+- Confirm the File picker admits the intended test formats.
 - Implement and validate a PipeWire/PulseAudio backend before claiming Audio Input parity.
 - Confirm channel ordering and multichannel device exposure under PipeWire/PulseAudio.
 
