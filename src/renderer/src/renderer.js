@@ -1514,7 +1514,7 @@ function updateBitrateActualLabel() {
 }
 
 function monitorModeLabel(mode = monitorMode.value) {
-  if (mode === 'binaural') return 'KU100 near-field HRTF'
+  if (mode === 'binaural') return 'KU100 near-field HRIR'
   if (mode === 'downmix') return 'Stereo downmix'
   return `${monitorPairLabel(Number(monitorSourcePair.value || 0))} stereo pair`
 }

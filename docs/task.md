@@ -77,7 +77,7 @@ Last updated: 2026-05-11
 - [x] Retire App Audio as a supported input source in the current beta line.
 - [ ] Investigate a Linux audio backend, likely PipeWire or PulseAudio monitor sources.
 - [x] Add optional stereo MP3 simulcast for Icecast and Shoutcast 1 compatibility.
-- [x] Add Stereo MP3 only mode and MP3 Audio Source selection for Stereo Pair, Stereo Downmix, and KU100 Near-field HRTF.
+- [x] Add Stereo MP3 only mode and MP3 Audio Source selection for Stereo Pair, Stereo Downmix, and KU100 Near-field HRIR.
 - [ ] Investigate optional Ogg Vorbis multichannel streaming up to 7.1.
 - [ ] Revisit 7.1.4 only as a research-mode feature after player compatibility is proven.
 - [ ] Consider KU100 far-field HRIR mode if speaker-layout monitoring needs deeper tuning.

@@ -40,11 +40,11 @@ Portable parts:
 - Icecast configuration.
 - FFmpeg/Ogg Opus output pipeline.
 - Stereo MP3 output pipeline, including MP3 Icecast and MP3 Shoutcast 1.
-- MP3 Audio Source modes: Stereo Pair, Stereo Downmix, and KU100 Near-field HRTF.
+- MP3 Audio Source modes: Stereo Pair, Stereo Downmix, and KU100 Near-field HRIR.
 - File source streaming path.
 - Stream channel template UI up to 7.1.
 - Logs/About windows.
-- KU100 near-field HRTF monitor rendering data and channel mapping logic.
+- KU100 near-field HRIR monitor rendering data and channel mapping logic.
 
 macOS backend parts:
 
@@ -188,7 +188,7 @@ The current monitor path is portable but not the lowest possible latency:
 backend PCM -> Electron main process -> renderer IPC -> WebAudio Worklet -> selected output device
 ```
 
-This path should remain the default cross-platform monitor implementation because it works with the existing renderer-side Stereo Pair, Binaural HRTF, volume, meter, and output-device UI.
+This path should remain the default cross-platform monitor implementation because it works with the existing renderer-side Stereo Pair, Binaural HRIR, volume, meter, and output-device UI.
 
 If lower latency becomes necessary, add it as an optional backend capability rather than a shared renderer requirement.
 
@@ -222,7 +222,7 @@ Rules:
 - Windows native monitor, if implemented, must be a separate WASAPI render path, not Core Audio.
 - Linux native monitor, if implemented, must be a separate PipeWire/PulseAudio playback path.
 - Keep streaming output and monitor output independent. Monitor changes must not alter Icecast/FFmpeg stream pacing or channel mapping.
-- Keep Binaural HRTF in the WebAudio path until there is a clear reason to port that DSP into native helpers.
+- Keep Binaural HRIR in the WebAudio path until there is a clear reason to port that DSP into native helpers.
 
 ## Phased Development Plan
 
@@ -352,7 +352,7 @@ Implementation order:
 - Add the `nativeMonitorPlayback` capability flag.
 - Add backend methods for native monitor start/stop/volume/output-device selection.
 - Implement native monitor only after the supported Audio Input and File paths are stable.
-- Keep Binaural HRTF and complex downmix modes on WebAudio unless native DSP is explicitly planned.
+- Keep Binaural HRIR and complex downmix modes on WebAudio unless native DSP is explicitly planned.
 - Do not require Windows/Linux to implement native monitor before their capture backends work.
 
 Windows expectation:

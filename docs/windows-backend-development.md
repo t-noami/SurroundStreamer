@@ -206,7 +206,7 @@ Recommended monitor priority for Windows:
 4. Research per-process capture.
 5. Add native low-latency monitor only if WebAudio latency is unacceptable on Windows.
 
-Keep Binaural HRTF on the WebAudio path unless there is a separate plan to port DSP into a native Windows helper. The first native monitor target, if any, should be simple Stereo Pair playback.
+Keep Binaural HRIR on the WebAudio path unless there is a separate plan to port DSP into a native Windows helper. The first native monitor target, if any, should be simple Stereo Pair playback.
 
 ## Backend PCM Contract
 

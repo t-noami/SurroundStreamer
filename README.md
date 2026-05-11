@@ -49,7 +49,7 @@ The public stable target is macOS. The beta branch also contains a validated Win
 - Main source order: Audio Input, File
 - Audio Input capture: macOS uses the Core Audio helper PCM path; the Windows beta uses native ASIO and MMDevice/WASAPI capture with DirectShow fallback.
 - File source: file playback and preview monitor support
-- Monitor Output: Stereo Pair, Stereo Downmix, KU100 Near-field HRTF
+- Monitor Output: Stereo Pair, Stereo Downmix, KU100 Near-field HRIR
 
 ## Important Notes
 
@@ -132,7 +132,7 @@ On macOS, audio-input streaming requires microphone permission. If streaming doe
 - `Sample Rate`: Opus stream sample rate. The default is 48 kHz.
 - `Stream Channel Template`: Selects the stream channel layout.
 - `Stream Channels`: Selects the channels included in the stream.
-- `MP3 Audio Source`: Selects whether the MP3 output uses the L/R stereo pair, a stereo downmix, or KU100 Near-field HRTF processing.
+- `MP3 Audio Source`: Selects whether the MP3 output uses the L/R stereo pair, a stereo downmix, or KU100 Near-field HRIR processing.
 
 Standard templates are `Mono`, `Stereo`, `Stereo + C`, `5.1`, and `7.1`. For multichannel sources, `5.1` is the default practical starting point.
 
@@ -140,7 +140,7 @@ MP3 stereo processing uses the same spatial gain policy as Monitor Output:
 
 - `Stereo Pair (L/R)`: sends the selected stream's first two channels directly to MP3 left/right. Mono is duplicated to left/right.
 - `Stereo Downmix`: applies L/R at `1.0`, center at `0.707` to both sides, LFE muted, side/rear channels at `0.707` to their matching side, then applies a `0.707` master gain.
-- `KU100 Near-field HRTF`: applies L/R at `1.0`, center and side/rear channels at `0.707`, LFE muted, then applies KU100 HRIR convolution with a `0.35` master gain.
+- `KU100 Near-field HRIR`: applies L/R at `1.0`, center and side/rear channels at `0.707`, LFE muted, then applies KU100 HRIR convolution with a `0.35` master gain.
 
 The current Stereo Downmix coefficients are shared between Monitor Output and MP3 output for consistency. A more conservative live-music/DJ downmix profile, such as lowering side/rear contribution, may be considered later, but it is not part of the current release.
 
@@ -158,7 +158,7 @@ Monitor modes:
 
 - `Stereo Pair`: Monitors the selected two-channel pair directly.
 - `Stereo Downmix`: Downmixes multichannel audio to stereo.
-- `KU100 Near-field HRTF`: Renders a binaural monitor signal using KU100 near-field HRIR data.
+- `KU100 Near-field HRIR`: Renders a binaural monitor signal using KU100 near-field HRIR data.
 
 Monitor Volume is applied after the selected monitor mode processing. It does not affect the streamed audio.
 

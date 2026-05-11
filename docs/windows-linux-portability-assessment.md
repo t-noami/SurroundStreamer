@@ -24,7 +24,7 @@ Feature parity on Windows or Linux should be treated as difficult.
 - Stream channel templates up to 7.1.
 - File source streaming path, because it uses FFmpeg file input.
 - WebAudio-based monitor playback logic in `src/renderer/src/monitor-audio.js`, assuming the runtime supports the required WebAudio APIs.
-- KU100 near-field HRTF renderer data and channel mapping logic.
+- KU100 near-field HRIR renderer data and channel mapping logic.
 
 ## Future Backend Compatibility For MP3 Stereo Output
 
@@ -38,9 +38,9 @@ Platform backends should stop at capture and optional native monitor playback. `
 - Opus plus stereo MP3 simulcast.
 - Stereo MP3 only output.
 - MP3 server transport selection between Icecast and Shoutcast 1.
-- MP3 audio source selection: L/R stereo pair, stereo downmix, or KU100 near-field HRTF.
+- MP3 audio source selection: L/R stereo pair, stereo downmix, or KU100 near-field HRIR.
 
-This means Windows and Linux backends do not need to implement MP3, Opus, Icecast, Shoutcast, stereo downmix, or KU100 HRTF themselves. They only need to supply a compatible PCM capture contract:
+This means Windows and Linux backends do not need to implement MP3, Opus, Icecast, Shoutcast, stereo downmix, or KU100 HRIR processing themselves. They only need to supply a compatible PCM capture contract:
 
 ```text
 Float32 little-endian PCM
@@ -84,7 +84,7 @@ Required backend responsibilities:
 - Enumerate Windows capture devices through MMDevice/WASAPI, ASIO, or DirectShow fallback.
 - Capture Audio Input into the shared PCM contract.
 - Report actual sample rate and channel count before encoding begins.
-- Preserve or normalize channel ordering enough for Stereo Pair, Downmix, and KU100 HRTF to be meaningful.
+- Preserve or normalize channel ordering enough for Stereo Pair, Downmix, and KU100 HRIR processing to be meaningful.
 - Keep any native low-latency monitor implementation separate from stream encoding.
 - Treat ASIO as the primary validation path for Windows surround/multichannel input. WASAPI/MMDevice
   can remain supported for generic mono/stereo inputs, but should not be assumed to expose 5.1 or
@@ -164,7 +164,7 @@ shared main/renderer code:
   channel template selection
   Opus/MP3 encoding
   Icecast/Shoutcast output
-  Stereo Pair / Stereo Downmix / KU100 HRTF policy
+  Stereo Pair / Stereo Downmix / KU100 HRIR policy
   HRIR asset lookup
   stream meters and logging
 ```
@@ -219,7 +219,7 @@ This should be exposed through backend capabilities such as:
 }
 ```
 
-Native monitor support should be optional per OS. Windows/Linux work must not be blocked by a macOS-only native monitor. WebAudio remains the fallback and should continue to carry Binaural HRTF until native DSP is explicitly planned.
+Native monitor support should be optional per OS. Windows/Linux work must not be blocked by a macOS-only native monitor. WebAudio remains the fallback and should continue to carry Binaural HRIR until native DSP is explicitly planned.
 
 ## Hard macOS Coupling
 
