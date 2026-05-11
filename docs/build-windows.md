@@ -1,19 +1,18 @@
 # Build On Windows
 
-This document describes the current Windows release-preparation build path. Windows remains
-pre-release because signing, SmartScreen reputation, broader device compatibility, and long-run
-validation are still open, but the main config can now produce a local unsigned Windows installer.
-The Windows helper is built first and packaged as a resource next to the Electron app.
+This document describes the Windows release build path for SurroundStreamer v0.1.1. The main Windows
+configuration builds the native audio helper first, then packages the Electron app as a Windows x64
+NSIS installer.
 
 ## Current Status
 
-- Official Windows release: not available.
-- Windows release numbering: use the `0.1.1` line for release-preparation artifacts.
+- Official Windows release: v0.1.1 for Windows x64.
+- Windows release numbering: use the `0.1.1` line for release artifacts.
 - Windows local package: available from `npm run build:win` on Windows after Visual Studio C++ build tools are installed.
-- Windows beta branch backend: `windows-wasapi` when the native helper is built. The helper supports MMDevice/WASAPI and ASIO Audio Input capture; ASIO is the primary validation target for surround/multichannel input, while MMDevice/WASAPI is useful for generic mono/stereo inputs. DirectShow is retained as a fallback.
+- Windows backend: `windows-wasapi` when the native helper is built. The helper supports MMDevice/WASAPI and ASIO Audio Input capture. DirectShow is retained as a fallback.
 - App Audio capture: removed from the supported input-source UI. WASAPI Process Loopback source remains research/reference code only.
 - Audio Input capture: native ASIO and MMDevice/WASAPI paths are available. For 5.1 or higher channel counts, validate ASIO first. The older FFmpeg DirectShow path remains as fallback when the native helper is missing.
-- Surround Audio Input requirement: for 5.1 or larger Windows streaming, use an ASIO-capable audio interface or ASIO virtual audio device with 6 or more input/output channels. Do not rely on WASAPI/MMDevice endpoints for surround capture unless that specific device exposes a verified multichannel input format.
+- Surround Audio Input requirement: for 5.1 or larger Windows streaming, use an ASIO-capable audio interface or ASIO virtual audio device with 6 or more input/output channels.
 - Monitor Output: Windows ASIO Audio Input and Windows File-source monitoring use the backend-owned FFmpeg/WASAPI monitor renderer with backend WASAPI output-device selection. Other generic paths still use the shared WebAudio monitor where appropriate.
 - Output loopback capture: the earlier DirectShow loopback/virtual-device bridge is kept as a development reference.
 - File source support: available in the Windows app. Packaged Windows File monitor output should be tested through the WASAPI backend monitor path.
@@ -131,13 +130,8 @@ Stream-start UX:
 - If the stream backend returns a connection failure, the app shows a separate `Connection failed` overlay with the error message and an `OK` button.
 
 Packaged test artifacts may be generated into fresh `dist/current-win-*` directories during manual
-validation when `dist/win-unpacked` is locked by a running app instance, but the default local
-release-preparation artifact is `dist/surround-streamer-0.1.1-setup.exe`.
-
-The blocker for a public stable Windows release is no longer "missing backend code." The current
-remaining release blockers are signing/SmartScreen, broader ASIO device compatibility, channel-order
-documentation, long-run capture stability, and installer/update policy. WASAPI/MMDevice and
-DirectShow fallback remain secondary validation paths for non-surround input.
+validation when `dist/win-unpacked` is locked by a running app instance, but the default local release
+artifact is `dist/surround-streamer-0.1.1-setup.exe`.
 
 The main config currently disables Windows executable signing/resource editing with
 `win.signAndEditExecutable: false` so local unsigned packaging does not require the `winCodeSign`
@@ -145,9 +139,12 @@ symlink extraction path. Do not re-enable it until signing is ready and the winC
 expanded reliably on the build machine. Icon embedding is handled separately by
 `scripts/after-pack-win-icon.cjs`.
 
-The beta packaging target is reserved for development experiments. If a Windows beta executable is generated from `beta/cross-platform-backend`, it should use the `0.1.1` release line with beta metadata, currently `0.1.1-beta.10`. Do not generate new Windows artifacts with the old `0.1.0` release number.
+The separate beta packaging target is reserved for development experiments. If a Windows beta
+executable is generated from `beta/cross-platform-backend`, it should use the `0.1.1` release line
+with beta metadata, currently `0.1.1-beta.10`. Do not generate new Windows artifacts with the old
+`0.1.0` release number.
 
-Before changing shared backend files for Windows work, read [Windows Backend Development Guide](windows-backend-development.md). The current macOS beta backend must continue to build after Windows changes.
+Before changing shared backend files for Windows work, read [Windows Backend Development Guide](windows-backend-development.md). The macOS backend must continue to build after Windows changes.
 
 ## Latest Local Artifact
 
