@@ -76,7 +76,8 @@ The main screen is organized into these areas:
 - `Encoding Settings`: Configures bitrate, sample rate, and channel templates.
 - `Stream Server Settings`: Configures Opus Icecast and Stereo MP3 destinations.
 - `START STREAM` / `STOP STREAM`: Starts or stops the stream.
-- `Window > Show Logs`: Opens connection status and error messages in a separate window.
+- Logs: open from the Window menu on macOS, or `Window > Show Logs` on Windows/Linux.
+- GitHub Repository: open from the Help menu on macOS, or `Help > GitHub Repository` on Windows/Linux.
 
 ### First-Run Settings
 
@@ -89,8 +90,7 @@ The first-run Opus Icecast defaults are:
 
 Icecast settings are saved after editing and restored on the next launch. If settings are already saved, the saved values are used instead of the first-run defaults.
 
-Stereo MP3 settings are saved with the same settings set. MP3 defaults are Icecast mode, port
-`8000`, mount point `/stream.mp3`, and `128k` bitrate.
+Stereo MP3 settings are saved with the same settings set. MP3 defaults are Icecast mode, port `8000`, mount point `/stream.mp3`, and `128k` bitrate.
 
 ### Input Sources
 
@@ -130,7 +130,7 @@ On macOS, audio-input streaming requires microphone permission. If streaming doe
 - `Sample Rate`: Opus stream sample rate. The default is 48 kHz.
 - `Stream Channel Template`: Selects the stream channel layout.
 - `Stream Channels`: Selects the channels included in the stream.
-- `MP3 Audio Source`: Selects whether the MP3 output uses the L/R stereo pair, a stereo downmix, or KU100 near-field HRTF processing.
+- `MP3 Audio Source`: Selects whether the MP3 output uses the L/R stereo pair, a stereo downmix, or KU100 Near-field HRTF processing.
 
 Standard templates are `Mono`, `Stereo`, `Stereo + C`, `5.1`, and `7.1`. For multichannel sources, `5.1` is the default practical starting point.
 
@@ -178,13 +178,17 @@ Mount Point should start with `/`, such as `/stream`. If the leading `/` is miss
 
 Click `START STREAM` to start streaming.
 
+If required settings are blank, the app highlights the invalid fields and does not show the loading overlay. Highlighted fields include input source, stream channel selection, Opus Host/Port/Password, and MP3 Host/Port/Password.
+
+During stream startup, a `Starting stream...` / `Connecting to the streaming server` overlay is shown and the START button is temporarily disabled. If the backend reports a connection failure, a `Connection failed` dialog appears with the error message.
+
 While streaming, the following controls are locked to prevent accidental changes:
 
 - `Input Source`
 - `Encoding Settings`
 - `Stream Server Settings`
 
-Click `STOP STREAM` to stop streaming. Closing the window with the macOS close button also quits the app and stops any streaming processes running in the background.
+Click `STOP STREAM` to stop streaming. Closing the window with the macOS close button also quits the app and stops any FFmpeg or helper processes running in the background.
 
 ### Stream Playback Check
 
@@ -201,6 +205,7 @@ If Icecast connection fails:
 - Confirm Host, Port, Mount Point, and Password.
 - If `403 Forbidden` appears, check the password, source user, mount point, and Icecast server permissions.
 - Passwords containing `@` are URL-encoded by the app.
+- If startup fails after connecting, check the `Connection failed` dialog and the log messages.
 
 If the player remains buffering:
 

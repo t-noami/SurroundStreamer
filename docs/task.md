@@ -39,8 +39,8 @@ Last updated: 2026-05-11
 - [x] `codesign --verify --deep --strict --verbose=2 dist/beta/mac-arm64/SurroundStreamer-beta-0.1.1.app`
 - [x] `npm run build:mac`
 - [x] `codesign --verify --deep --strict --verbose=2 dist/mac-arm64/SurroundStreamer.app`
-- [ ] Verify `dist/SurroundStreamer-0.1.1.dmg` exists.
-- [ ] `hdiutil verify dist/SurroundStreamer-0.1.1.dmg`
+- [x] Verify `dist/SurroundStreamer-0.1.1.dmg` exists.
+- [x] `hdiutil verify dist/SurroundStreamer-0.1.1.dmg`
 - [x] Draft beta Release created on GitHub as prerelease.
 - [x] Release notes stored in `docs/releases/v0.1.0-beta.1.md`.
 - [x] Release notes stored in `docs/releases/v0.1.0.md`.

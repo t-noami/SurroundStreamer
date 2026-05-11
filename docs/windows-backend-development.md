@@ -22,8 +22,9 @@ Current Windows status:
 - Official Windows release: not available.
 - Windows beta packaging script exists: `npm run build:beta:win`
 - `process.platform === 'win32'` now selects `src/main/audio-backends/windows-wasapi.js`.
-- File source is the first Windows validation target.
+- File source is implemented but still needs final packaged-app smoke testing.
 - Audio Input capture supports native MMDevice/WASAPI and ASIO through the Windows helper, with the earlier DirectShow/FFmpeg backend retained as fallback.
+- Native ASIO and MMDevice/WASAPI Audio Input, ASIO monitor routing, and Icecast Opus streaming have local beta validation.
 - ASIO is the primary validation path for Windows surround/multichannel input. MMDevice/WASAPI remains useful for generic mono/stereo input, but should not be assumed to expose 5.1 or 7.1 capture endpoints.
 - ASIO driver probing and ASIO input capture have an initial native helper path for multichannel virtual devices such as Voicemeeter.
 - WASAPI Process Loopback and the earlier DirectShow loopback-device bridge remain research/reference paths, not supported App Audio sources.
@@ -159,11 +160,14 @@ acceptable for development, but release validation should use the native helper 
 
 ## Monitor Output Rules
 
-The current monitor output path is renderer/WebAudio based. It is the shared fallback path for macOS, Windows, and Linux.
+The shared renderer/WebAudio monitor path remains the fallback path for macOS, Windows, and Linux.
+Windows ASIO Audio Input also has a beta backend-owned monitor route through FFmpeg/WASAPI output
+playback with backend output-device enumeration. Treat that ASIO route as validated beta behavior,
+while other native per-backend monitor paths remain capability-gated.
 
 Do not copy macOS Core Audio monitor implementation details into Windows code. Windows does not have Apple Core Audio, Core Audio process taps, private aggregate devices, Core Audio device UIDs, or Core Audio stream indexes.
 
-If a future native low-latency monitor is added, treat it as an optional backend feature.
+If another native low-latency monitor path is added later, treat it as an optional backend feature.
 
 Shared capability flags:
 

@@ -98,6 +98,10 @@ function setupApplicationMenu() {
         { role: 'minimize', label: 'しまう' },
         { role: 'close', label: '閉じる' }
       ]
+    },
+    {
+      label: 'ヘルプ',
+      submenu: [{ label: 'GitHub Repository', click: () => openRepository() }]
     }
   ]
 
