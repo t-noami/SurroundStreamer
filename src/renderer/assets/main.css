@@ -244,6 +244,13 @@ input[type='range'] {
   accent-color: var(--accent-secondary);
 }
 
+input.field-error,
+select.field-error {
+  border-color: rgba(255, 71, 87, 0.95);
+  background: rgba(255, 71, 87, 0.13);
+  box-shadow: 0 0 0 3px rgba(255, 71, 87, 0.22);
+}
+
 .btn {
   background: rgba(255, 255, 255, 0.16);
   border: none;
@@ -365,6 +372,99 @@ input[type='range'] {
   font-family: monospace;
   font-size: 1.2rem;
   color: var(--accent-secondary);
+}
+
+.stream-start-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(5, 4, 18, 0.58);
+  backdrop-filter: blur(7px);
+}
+
+.stream-start-dialog {
+  display: flex;
+  align-items: center;
+  width: min(360px, 100%);
+  min-height: 92px;
+  gap: 16px;
+  padding: 18px 20px;
+  border: 1px solid rgba(0, 224, 192, 0.28);
+  border-radius: var(--border-radius);
+  background: rgba(12, 11, 31, 0.94);
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.42);
+}
+
+.stream-start-spinner {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  border: 3px solid rgba(255, 255, 255, 0.16);
+  border-top-color: var(--accent-secondary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.stream-start-title {
+  margin-bottom: 4px;
+  color: #fff;
+  font-size: 0.94rem;
+  font-weight: 700;
+}
+
+.stream-start-message {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.stream-start-error-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1001;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(5, 4, 18, 0.66);
+  backdrop-filter: blur(7px);
+}
+
+.stream-start-error-dialog {
+  width: min(430px, 100%);
+  padding: 20px;
+  border: 1px solid rgba(255, 71, 87, 0.62);
+  border-radius: var(--border-radius);
+  background: rgba(18, 12, 31, 0.96);
+  box-shadow: 0 24px 78px rgba(0, 0, 0, 0.46);
+}
+
+.stream-start-error-title {
+  margin-bottom: 8px;
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.stream-start-error-message {
+  margin-bottom: 18px;
+  color: #ffd8dd;
+  font-size: 0.86rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.stream-start-error-button {
+  min-width: 88px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .log-panel {
@@ -604,6 +704,14 @@ input[type='range'] {
   grid-template-columns: repeat(6, minmax(0, 1fr));
   min-width: 0;
   gap: 8px;
+}
+
+.channel-selector.field-error {
+  padding: 6px;
+  border: 1px solid rgba(255, 71, 87, 0.95);
+  border-radius: 4px;
+  background: rgba(255, 71, 87, 0.11);
+  box-shadow: 0 0 0 3px rgba(255, 71, 87, 0.18);
 }
 
 .channel-toggle {

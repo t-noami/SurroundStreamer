@@ -12,9 +12,51 @@ let aboutWindow = null
 let shutdownInProgress = false
 let shutdownComplete = false
 
+const GITHUB_REPOSITORY_URL = 'https://github.com/t-noami/SurroundStreamer'
+
 function setupApplicationMenu() {
   if (process.platform !== 'darwin') {
-    Menu.setApplicationMenu(null)
+    const template = [
+      {
+        label: 'File',
+        submenu: [{ role: 'quit', label: 'Exit' }]
+      },
+      {
+        label: 'Edit',
+        submenu: [
+          { role: 'undo' },
+          { role: 'redo' },
+          { type: 'separator' },
+          { role: 'cut' },
+          { role: 'copy' },
+          { role: 'paste' },
+          { role: 'selectAll' }
+        ]
+      },
+      {
+        label: 'Window',
+        submenu: [
+          {
+            label: 'Show Logs',
+            accelerator: 'CommandOrControl+L',
+            click: () => createLogWindow()
+          },
+          { type: 'separator' },
+          { role: 'minimize' },
+          { role: 'close' }
+        ]
+      },
+      {
+        label: 'Help',
+        submenu: [
+          { label: 'GitHub Repository', click: () => openRepository() },
+          { type: 'separator' },
+          { label: `About ${app.getName()}`, click: () => createAboutWindow() }
+        ]
+      }
+    ]
+
+    Menu.setApplicationMenu(Menu.buildFromTemplate(template))
     return
   }
 
@@ -118,9 +160,30 @@ function setupMediaPermissions() {
     version: app.getVersion(),
     studio: 'Non-REM Studio',
     contact: 'info@non-rem.com',
-    github: 'https://github.com/t-noami/SurroundStreamer',
+    github: GITHUB_REPOSITORY_URL,
     copyright: 'Copyright (c) 2026 Non-REM Studio'
   }))
+}
+
+function setupWindowIpcHandlers() {
+  ipcMain.handle('window:open-logs', () => {
+    createLogWindow()
+    return { success: true }
+  })
+
+  ipcMain.handle('window:open-about', () => {
+    createAboutWindow()
+    return { success: true }
+  })
+
+  ipcMain.handle('window:open-repository', async () => {
+    await openRepository()
+    return { success: true }
+  })
+}
+
+function openRepository() {
+  return shell.openExternal(GITHUB_REPOSITORY_URL)
 }
 
 function createWindow() {
@@ -129,7 +192,7 @@ function createWindow() {
     width: 900,
     height: 670,
     show: false,
-    autoHideMenuBar: true,
+    autoHideMenuBar: process.platform === 'darwin',
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -274,6 +337,7 @@ app.whenReady().then(() => {
 
   setupMediaPermissions()
   setupIpcHandlers()
+  setupWindowIpcHandlers()
   setupLogBroadcast()
   setupApplicationMenu()
 

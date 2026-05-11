@@ -50,6 +50,33 @@ For the current platform assessment, see:
 `npm run build:beta:win` builds the native helper first through `build:audio-helper:win`, then
 builds the app and packages with `electron-builder.beta.yml`.
 
+## Packaged App UI Behavior
+
+The Windows packaged Electron app uses the native application menu as the main secondary-action
+surface. Do not duplicate menu actions as header buttons unless there is a clear workflow reason.
+
+Current Windows/Linux menu actions:
+
+- `Window > Show Logs` opens the runtime log window.
+- `Help > GitHub Repository` opens `https://github.com/t-noami/SurroundStreamer` in the default browser.
+- `Help > About SurroundStreamer` opens the About window.
+
+The main renderer header should only show the product mark and status badge. The earlier in-header
+`Logs`, `Help`, and `About` buttons were removed after the Windows menu became visible.
+
+Stream-start UX:
+
+- Pressing `START STREAM` shows a semi-transparent blocking overlay while monitor startup and stream connection are in progress.
+- The loading overlay is cleared on success, connection failure, monitor startup failure, or thrown exceptions.
+- The start button is disabled while the start operation is pending to avoid duplicate starts.
+- If required settings are blank, the start operation does not show the loading overlay. Instead, the invalid fields are highlighted.
+- Highlighted validation fields include input source, stream channel selection, Opus host/port/password, and MP3 host/port/password.
+- When the user edits or reselects a highlighted field, the highlight is cleared.
+- If the stream backend returns a connection failure, the app shows a separate `Connection failed` overlay with the error message and an `OK` button.
+
+Packaged test artifacts are intentionally generated into fresh `dist/current-win-*` directories during
+manual validation when `dist/win-unpacked` is locked by a running app instance.
+
 The blocker for a public stable Windows release is no longer "missing backend code." The current
 remaining release blockers are signing/SmartScreen, broader ASIO device compatibility, channel-order
 documentation, long-run capture stability, and installer/update policy. WASAPI/MMDevice and

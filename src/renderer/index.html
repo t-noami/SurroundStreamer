@@ -249,6 +249,35 @@
       </main>
     </div>
 
+    <div id="stream-start-overlay" class="stream-start-overlay hidden" role="status" aria-live="polite">
+      <div class="stream-start-dialog">
+        <div class="stream-start-spinner" aria-hidden="true"></div>
+        <div>
+          <p class="stream-start-title">Starting stream...</p>
+          <p class="stream-start-message">Connecting to the streaming server</p>
+        </div>
+      </div>
+    </div>
+
+    <div
+      id="stream-start-error-overlay"
+      class="stream-start-error-overlay hidden"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="stream-start-error-title"
+      aria-describedby="stream-start-error-message"
+    >
+      <div class="stream-start-error-dialog">
+        <p id="stream-start-error-title" class="stream-start-error-title">Connection failed</p>
+        <p id="stream-start-error-message" class="stream-start-error-message">
+          Could not connect to the streaming server.
+        </p>
+        <button id="btn-dismiss-stream-start-error" class="btn stream-start-error-button" type="button">
+          OK
+        </button>
+      </div>
+    </div>
+
     <script type="module" src="./src/renderer.js"></script>
   </body>
 </html>

@@ -4,6 +4,10 @@ const btnStart = document.getElementById('btn-start')
 const btnStop = document.getElementById('btn-stop')
 const logOutput = document.getElementById('log-output')
 const streamTimer = document.getElementById('stream-timer')
+const streamStartOverlay = document.getElementById('stream-start-overlay')
+const streamStartErrorOverlay = document.getElementById('stream-start-error-overlay')
+const streamStartErrorMessage = document.getElementById('stream-start-error-message')
+const btnDismissStreamStartError = document.getElementById('btn-dismiss-stream-start-error')
 
 const tabFile = document.getElementById('tab-file')
 const tabDevice = document.getElementById('tab-device')
@@ -144,6 +148,7 @@ let activeMonitorMeterChannels = 2
 let inputDevices = []
 let fileInputInfo = null
 let isStreaming = false
+let isStreamStartPending = false
 let currentMonitorFormat = null
 let monitorSettingsPromise = Promise.resolve()
 let previewMonitorKey = ''
@@ -190,6 +195,9 @@ function updateTimer() {
 
 function setStreamingState(nextIsStreaming) {
   isStreaming = nextIsStreaming
+  if (nextIsStreaming) {
+    setStreamStartPending(false)
+  }
   statusBadge.textContent = nextIsStreaming ? 'LIVE' : 'IDLE'
   statusBadge.classList.toggle('live', nextIsStreaming)
   statusBadge.classList.toggle('idle', !nextIsStreaming)
@@ -212,6 +220,93 @@ function setStreamingState(nextIsStreaming) {
     streamTimer.textContent = '00:00:00'
     resetPeakMeters()
   }
+}
+
+function setStreamStartPending(isPending) {
+  isStreamStartPending = isPending
+  streamStartOverlay?.classList.toggle('hidden', !isPending)
+  btnStart.disabled = isPending
+  btnStart.setAttribute('aria-busy', isPending ? 'true' : 'false')
+}
+
+function showStreamStartError(message) {
+  setStreamStartPending(false)
+  if (streamStartErrorMessage) {
+    streamStartErrorMessage.textContent =
+      message || 'Could not connect to the streaming server.'
+  }
+  streamStartErrorOverlay?.classList.remove('hidden')
+  btnDismissStreamStartError?.focus()
+}
+
+function hideStreamStartError() {
+  streamStartErrorOverlay?.classList.add('hidden')
+}
+
+function clearStartValidationHighlights() {
+  ;[
+    filePathInput,
+    deviceList,
+    channelSelector,
+    icecastHostInput,
+    icecastPortInput,
+    sourcePasswordInput,
+    mp3HostInput,
+    mp3PortInput,
+    mp3PasswordInput
+  ].forEach((field) => field?.classList.remove('field-error'))
+}
+
+function markStartValidationErrors(errors) {
+  errors.forEach(({ field }) => field?.classList.add('field-error'))
+  const firstField = errors.find(({ field }) => field)?.field
+  firstField?.focus?.({ preventScroll: false })
+  firstField?.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
+}
+
+function startValidationErrors(config, selectedChannels) {
+  const errors = []
+
+  if (selectedChannels.length === 0) {
+    errors.push({
+      field: channelSelector,
+      message: 'At least one stream channel must be enabled.'
+    })
+  }
+
+  if (currentInputType === 'file' && !config.inputPath) {
+    errors.push({ field: filePathInput, message: 'No input source selected.' })
+  }
+
+  if (currentInputType === 'device' && !config.inputPath) {
+    errors.push({ field: deviceList, message: 'No input source selected.' })
+  }
+
+  if (isOpusStreamEnabled()) {
+    if (!config.icecastHost) {
+      errors.push({ field: icecastHostInput, message: 'Opus Icecast host is required.' })
+    }
+    if (!config.icecastPort) {
+      errors.push({ field: icecastPortInput, message: 'Opus Icecast port is required.' })
+    }
+    if (!config.sourcePassword) {
+      errors.push({ field: sourcePasswordInput, message: 'Opus Icecast password is required.' })
+    }
+  }
+
+  if (config.mp3Simulcast.enabled) {
+    if (!config.mp3Simulcast.host) {
+      errors.push({ field: mp3HostInput, message: 'MP3 simulcast host is required.' })
+    }
+    if (!config.mp3Simulcast.port) {
+      errors.push({ field: mp3PortInput, message: 'MP3 simulcast port is required.' })
+    }
+    if (!config.mp3Simulcast.password) {
+      errors.push({ field: mp3PasswordInput, message: 'MP3 simulcast password is required.' })
+    }
+  }
+
+  return errors
 }
 
 function setInputSourceLocked(isLocked) {
@@ -1826,6 +1921,8 @@ tabDevice.addEventListener('click', () => {
   refreshDevices()
 })
 
+btnDismissStreamStartError?.addEventListener('click', hideStreamStartError)
+
 btnRefreshDevices.addEventListener('click', refreshDevices)
 deviceList.addEventListener('change', () => {
   syncInputSettings(true)
@@ -1851,6 +1948,23 @@ icecastSettingsFields.forEach((field) => {
   field.addEventListener('change', saveIcecastSettings)
   field.addEventListener('input', saveIcecastSettings)
 })
+
+;[
+  filePathInput,
+  deviceList,
+  channelSelector,
+  icecastHostInput,
+  icecastPortInput,
+  sourcePasswordInput,
+  mp3HostInput,
+  mp3PortInput,
+  mp3PasswordInput
+].forEach((field) => {
+  field?.addEventListener('input', () => field.classList.remove('field-error'))
+  field?.addEventListener('change', () => field.classList.remove('field-error'))
+  field?.addEventListener('click', () => field.classList.remove('field-error'))
+})
+
 encodingFormatSelect.addEventListener('change', () => {
   updateMp3SimulcastControls()
   saveIcecastSettings()
@@ -1885,6 +1999,12 @@ btnBrowse.addEventListener('click', async () => {
 })
 
 btnStart.addEventListener('click', async () => {
+  if (isStreamStartPending) {
+    return
+  }
+
+  clearStartValidationHighlights()
+
   if (!isSourceSupported(currentInputType)) {
     addLog(
       'Error: The selected input source is not supported by the current audio backend.',
@@ -1951,53 +2071,11 @@ btnStart.addEventListener('click', async () => {
     config.directInputMonitor = false
   }
 
-  if (selectedChannels.length === 0) {
-    addLog('Error: At least one stream channel must be enabled.', 'error')
+  const validationErrors = startValidationErrors(config, selectedChannels)
+  if (validationErrors.length) {
+    markStartValidationErrors(validationErrors)
+    addLog(`Error: ${validationErrors[0].message}`, 'error')
     return
-  }
-
-  if (currentInputType === 'file' && !config.inputPath) {
-    addLog('Error: No input source selected.', 'error')
-    return
-  }
-
-  if (currentInputType === 'device' && !config.inputPath) {
-    addLog('Error: No input source selected.', 'error')
-    return
-  }
-
-  if (isOpusStreamEnabled()) {
-    if (!config.icecastHost) {
-      addLog('Error: Opus Icecast host is required.', 'error')
-      return
-    }
-    if (!config.icecastPort) {
-      addLog('Error: Opus Icecast port is required.', 'error')
-      return
-    }
-    if (!config.sourcePassword) {
-      addLog('Error: Opus Icecast password is required.', 'error')
-      return
-    }
-  }
-
-  if (config.mp3Simulcast.enabled) {
-    if (!config.mp3Simulcast.host) {
-      addLog('Error: MP3 simulcast host is required.', 'error')
-      return
-    }
-    if (!config.mp3Simulcast.port) {
-      addLog('Error: MP3 simulcast port is required.', 'error')
-      return
-    }
-    if (!config.mp3Simulcast.password) {
-      addLog('Error: MP3 simulcast password is required.', 'error')
-      return
-    }
-    if (config.mp3Simulcast.serverType === 'icecast' && !config.mp3Simulcast.mountPoint) {
-      addLog('Error: MP3 Icecast mount point is required.', 'error')
-      return
-    }
   }
 
   if (currentInputType === 'device' && !(await ensureMicrophoneAccess('streaming'))) {
@@ -2008,31 +2086,45 @@ btnStart.addEventListener('click', async () => {
     warnIfLoopbackInputDevice(inputDevice)
   }
 
-  renderPeakMeters(selectedChannels.length)
-
+  setStreamStartPending(true)
   try {
-    await stopPreviewMonitor()
-    await startInitialMonitor(config, selectedChannels.length)
-  } catch (err) {
-    addLog(`Error starting monitor output: ${err.message}`, 'error')
-    await webAudioMonitor.stop()
-    return
-  }
+    renderPeakMeters(selectedChannels.length)
 
-  addLog('Starting stream...', 'system')
-  const result = await window.api.startStream(config)
-
-  if (result.success) {
-    addLog('Stream started successfully!', 'system')
-    setStreamingState(true)
-    if (monitorEnabled.checked && currentMonitorFormat) {
-      applyMonitorSettings('format')
+    try {
+      await stopPreviewMonitor()
+      await startInitialMonitor(config, selectedChannels.length)
+    } catch (err) {
+      addLog(`Error starting monitor output: ${err.message}`, 'error')
+      await webAudioMonitor.stop()
+      return
     }
-  } else {
-    addLog(`Failed to start stream: ${result.error}`, 'error')
+
+    addLog('Starting stream...', 'system')
+    const result = await window.api.startStream(config)
+
+    if (result?.success) {
+      addLog('Stream started successfully!', 'system')
+      setStreamingState(true)
+      if (monitorEnabled.checked && currentMonitorFormat) {
+        applyMonitorSettings('format')
+      }
+    } else {
+      const errorMessage = result?.error || 'Could not connect to the streaming server.'
+      addLog(`Failed to start stream: ${errorMessage}`, 'error')
+      await window.api.setMonitorActive(false).catch(() => {})
+      await forceStopPreviewMonitor()
+      setStreamingState(false)
+      showStreamStartError(errorMessage)
+    }
+  } catch (error) {
+    const errorMessage = error?.message || 'Could not connect to the streaming server.'
+    addLog(`Failed to start stream: ${errorMessage}`, 'error')
     await window.api.setMonitorActive(false).catch(() => {})
     await forceStopPreviewMonitor()
     setStreamingState(false)
+    showStreamStartError(errorMessage)
+  } finally {
+    setStreamStartPending(false)
   }
 })
 
