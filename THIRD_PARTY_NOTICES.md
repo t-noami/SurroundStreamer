@@ -64,3 +64,6 @@ See `resources/ku100-hrir/NOTICE.md` for the resource-level notice and change st
 SurroundStreamer logos, icons, and banner images in `resources/` and
 `src/renderer/public/brand/` are Copyright (c) 2026 Non-REM Studio unless otherwise stated. They are
 distributed as part of the SurroundStreamer application and documentation.
+
+These brand assets are not licensed under the MIT License. See `TRADEMARKS.md` for project name,
+logo, and brand asset guidelines.

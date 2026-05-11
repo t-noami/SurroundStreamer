@@ -244,6 +244,8 @@ SurroundStreamer is released under the MIT License. See [LICENSE](LICENSE).
 
 The MIT License is a permissive open-source license that allows commercial use, private use, modification, distribution, and sublicensing, while requiring preservation of copyright and license notices.
 
+The MIT License applies to the software code. It does not grant rights to use the SurroundStreamer name, Non-REM Studio name, logos, icons, application artwork, or other brand assets as official branding for modified or redistributed builds. See [TRADEMARKS.md](TRADEMARKS.md).
+
 Third-party materials remain under their own licenses. This includes the packaged FFmpeg binary and its enabled external libraries, including libopus and libmp3lame, plus the bundled KU100 near-field HRIR extraction.
 
 See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for runtime dependency and bundled resource notices.
@@ -260,6 +262,7 @@ Third-party license notices are kept outside this README so the distributed reso
 with their own notices:
 
 - [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md): application-wide third-party dependency and bundled resource summary
+- [TRADEMARKS.md](TRADEMARKS.md): project name, logo, and brand asset guidelines
 - [resources/ffmpeg/THIRD_PARTY_NOTICES.md](resources/ffmpeg/THIRD_PARTY_NOTICES.md): packaged FFmpeg binary details, enabled external libraries, source references, and build configurations
 - [resources/ffmpeg/licenses/](resources/ffmpeg/licenses/): FFmpeg, libopus, and LAME license texts
 - [resources/ku100-hrir/NOTICE.md](resources/ku100-hrir/NOTICE.md): KU100 near-field HRIR attribution, license, source, DOI, and change statement
