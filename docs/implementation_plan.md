@@ -415,7 +415,7 @@ Exit criteria:
 ## Current Known Limitations
 
 - The stable `0.1.1` release target is macOS-first.
-- Windows stable release is not ready, but the Windows beta backend is locally validated for ASIO Audio Input, MMDevice/WASAPI Audio Input, File source, ASIO monitor output routing, and Icecast Opus streaming.
+- Windows stable release is not ready, but the Windows beta backend is locally validated for ASIO Audio Input, MMDevice/WASAPI Audio Input, ASIO monitor output routing, and Icecast Opus streaming. File source is implemented in the Windows beta app, with final packaged-app smoke testing still open.
 - Linux builds are not release-ready.
 - Windows currently has native MMDevice/WASAPI input capture, ASIO probing/capture, and the older DirectShow audio-input bridge as fallback.
 - Windows surround-input validation currently assumes ASIO, because tested WASAPI/MMDevice endpoints exposed only mono/stereo formats.

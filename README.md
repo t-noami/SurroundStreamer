@@ -26,7 +26,7 @@ The public stable target is macOS. The beta branch also contains a validated Win
 
 > [!IMPORTANT]
 > SurroundStreamer now focuses on Audio Input and File sources.
-> App Audio capture has been removed from the current beta line.
+> App Audio capture has been removed from the current release line.
 
 - Supported release target: macOS 14.2 or later on Apple Silicon
 - Audio Input capture: Core Audio helper path on macOS
@@ -53,12 +53,12 @@ The public stable target is macOS. The beta branch also contains a validated Win
 
 ## Important Notes
 
-- App Audio capture has been removed from the current beta line. Use Audio Input capture with a physical, virtual, or loopback device when application audio needs to be routed into SurroundStreamer.
+- App Audio capture has been removed from the current release line. Use Audio Input capture with a physical, virtual, or loopback device when application audio needs to be routed into SurroundStreamer.
 - Audio Input Monitor Output uses the shared WebAudio direct monitor path when browser audio-device access is available. The Windows beta also has an ASIO-specific backend/WASAPI monitor path, but it is not part of the stable macOS release line.
 - Opus output is constrained to supported sample rates. 44.1 kHz and 96 kHz sources are converted to 48 kHz for stream output.
 - 7.1.2 and 7.1.4 are not part of the standard build. The current production target is up to 7.1 because that maps cleanly to common Opus channel mapping support.
 - KU100 near-field HRIR data is included under CC BY 4.0. Attribution is listed below.
-- Public release capture is macOS-first. The Windows beta has been validated locally for ASIO Audio Input, MMDevice/WASAPI Audio Input, File source, monitor output routing, and Icecast Opus streaming, but public Windows downloads remain beta/pre-release until signing, compatibility, and long-run checks are complete. For Windows surround input, ASIO is the primary validation target; WASAPI/MMDevice remains useful for generic mono/stereo inputs.
+- Public release capture is macOS-first. The Windows beta has been validated locally for ASIO Audio Input, MMDevice/WASAPI Audio Input, monitor output routing, and Icecast Opus streaming; File source is implemented but still needs final Windows packaged-app smoke testing. Public Windows downloads remain beta/pre-release until signing, compatibility, and long-run checks are complete. For Windows surround input, ASIO is the primary validation target; WASAPI/MMDevice remains useful for generic mono/stereo inputs.
 - Linux build notes are kept for future platform work; Linux Audio Input capture is not implemented yet.
 
 ## User Manual
@@ -140,7 +140,7 @@ MP3 stereo processing uses the same spatial gain policy as Monitor Output:
 - `Stereo Downmix`: applies L/R at `1.0`, center at `0.707` to both sides, LFE muted, side/rear channels at `0.707` to their matching side, then applies a `0.707` master gain.
 - `KU100 Near-field HRTF`: applies L/R at `1.0`, center and side/rear channels at `0.707`, LFE muted, then applies KU100 HRIR convolution with a `0.35` master gain.
 
-The current Stereo Downmix coefficients are shared between Monitor Output and MP3 output for consistency. A more conservative live-music/DJ downmix profile, such as lowering side/rear contribution, may be considered later, but it is not part of the current beta.
+The current Stereo Downmix coefficients are shared between Monitor Output and MP3 output for consistency. A more conservative live-music/DJ downmix profile, such as lowering side/rear contribution, may be considered later, but it is not part of the current release.
 
 ### Monitor Output
 
@@ -230,7 +230,7 @@ Build instructions are split by operating system:
 - [Windows Backend Development Guide](docs/windows-backend-development.md)
 - [Windows / Linux Portability Assessment](docs/windows-linux-portability-assessment.md)
 
-macOS is the primary stable build target. The beta branch also includes a locally validated Windows backend for ASIO Audio Input, MMDevice/WASAPI Audio Input, File source, backend-owned ASIO monitor routing, and Icecast streaming. Linux packaging notes remain preparatory because Linux Audio Input capture is not implemented yet.
+macOS is the primary stable build target. The beta branch also includes a locally validated Windows backend for ASIO Audio Input, MMDevice/WASAPI Audio Input, backend-owned ASIO monitor routing, and Icecast streaming. Windows File source support is implemented but still needs final packaged-app smoke testing. Linux packaging notes remain preparatory because Linux Audio Input capture is not implemented yet.
 
 ## Test Stream Config
 

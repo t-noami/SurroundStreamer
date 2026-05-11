@@ -1,8 +1,9 @@
 # Build On Windows
 
 This document describes the Windows beta build path. Windows is still beta-only, but the
-`0.1.1-beta.10` line now has a validated local Windows package for ASIO Audio Input, MMDevice/WASAPI
-Audio Input, File source, monitor output routing, and Icecast Opus streaming.
+`0.1.1-beta.10` line now has a local Windows package validated for ASIO Audio Input,
+MMDevice/WASAPI Audio Input, monitor output routing, and Icecast Opus streaming. File source is
+implemented in the Windows beta app but still needs final packaged-app smoke testing.
 
 Do not treat `npm run build:win` as the supported Windows path. Use the beta config and build the
 native helper first.
@@ -46,8 +47,8 @@ For the current platform assessment, see:
 
 ## Packaging Note
 
-`npm run build:beta:win` does not build the native helper by itself. It packages whatever
-`native/audio-backends/windows/.build/SurroundAudioBackend.exe` is already present, if any.
+`npm run build:beta:win` builds the native helper first through `build:audio-helper:win`, then
+builds the app and packages with `electron-builder.beta.yml`.
 
 The blocker for a public stable Windows release is no longer "missing backend code." The current
 remaining release blockers are signing/SmartScreen, broader ASIO device compatibility, channel-order

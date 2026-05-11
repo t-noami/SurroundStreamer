@@ -315,16 +315,18 @@ The current package scripts expose:
 Stable Windows/Linux packaging still should not be treated as release support. Packaging can produce
 an Electron app shell before the platform backend is release-ready.
 
-The beta Windows path is more advanced than the stable packaging path:
+The Windows beta path is more advanced than the Linux path:
 
 - `electron-builder.beta.yml` unpacks `native/audio-backends/windows/.build/**`.
 - `src/main/audio-backends/windows-wasapi.js` can load `SurroundAudioBackend.exe` from the
   unpacked app path.
-- `npm run build:beta:win` does not build that helper; it packages whatever helper is already
-  present.
+- `npm run build:beta:win` builds the Windows helper first through `build:audio-helper:win`, then
+  packages the app.
 
-The stable `electron-builder.yml` still packages only the macOS helper under `mac.extraResources`.
-Linux has no native backend resource yet.
+The regular `electron-builder.yml` also has the Windows helper path in `asarUnpack`, and
+`npm run build:win` builds the Windows helper first. Stable Windows release support is still blocked
+by signing/SmartScreen, broader device compatibility, channel-order documentation, and long-run
+capture stability, not only by packaging. Linux has no native backend resource yet.
 
 ## Likely Windows Path
 
