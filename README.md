@@ -53,12 +53,14 @@ Non-REM Studio and Tia Rungray usage notes and case-study materials are in prepa
 For surround Audio Input streaming, use an input device or virtual audio device that exposes enough
 real input channels for the selected stream layout.
 
-## Developer
+## Project Links
 
 - Studio: Non-REM Studio
-- Contact: info@non-rem.com
+- Business inquiries: https://non-rem.com/
 - GitHub: [t-noami](https://github.com/t-noami)
 - Repository: https://github.com/t-noami/SurroundStreamer
+- Bugs and feature requests: use GitHub Issues
+- Setup questions and workflow discussions: use GitHub Discussions
 
 ## Current Scope
 
