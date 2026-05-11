@@ -9,6 +9,17 @@ It sends audio from an audio interface or audio file to an Icecast/Shoutcast-com
 Monitor output, channel templates up to 7.1, and KU100 near-field HRIR preview help you check the stream before and during playback.
 The current release supports macOS Apple Silicon and Windows x64. Linux support is in preparation.
 
+## Who It Is For
+
+SurroundStreamer is built for people who need more than a standard stereo streaming workflow:
+
+- Musicians and live performers who want to deliver surround audio online.
+- Sound engineers testing multichannel routing before a live stream.
+- Spatial-audio creators preparing 5.1 or 7.1 material for network playback.
+- Virtual venue and online event producers using Icecast/Shoutcast-compatible infrastructure.
+
+Non-REM Studio and Tia Rungray usage notes and case-study materials are in preparation.
+
 <h2 align="center">DOWNLOAD</h2>
 
 | Platform            | Download                                                                                             |
@@ -28,6 +39,19 @@ The current release supports macOS Apple Silicon and Windows x64. Linux support 
 - Audio Input capture: Core Audio on macOS; ASIO, MMDevice/WASAPI, and DirectShow fallback on Windows
 - File source: FFmpeg file playback path
 - Linux: not available yet
+
+## Quick Start
+
+1. Download the package for macOS Apple Silicon or Windows x64 from the release page.
+2. Open SurroundStreamer.
+3. Choose `Audio Input` for a live audio interface or `File` for an audio file.
+4. Select a stream channel template such as `Stereo`, `5.1`, or `7.1`.
+5. Enter the Icecast/Shoutcast server host, port, mount point, and password.
+6. Enable Monitor Output if you want to check the signal before streaming.
+7. Click `START STREAM`.
+
+For surround Audio Input streaming, use an input device or virtual audio device that exposes enough
+real input channels for the selected stream layout.
 
 ## Developer
 
