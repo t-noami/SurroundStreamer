@@ -4,21 +4,17 @@
 
 # SurroundStreamer
 
-SurroundStreamer is a macOS-first Electron app for sending Ogg Opus audio streams to an Icecast server.
+SurroundStreamer is an Electron app for sending Ogg Opus audio streams to an Icecast server.
 It supports audio-input capture, file playback, stream channel templates up to 7.1, and monitor output for previewing supported sources.
-The public stable target is macOS. The beta branch also contains a validated Windows ASIO/MMDevice Audio Input backend.
+The current release supports macOS Apple Silicon and Windows x64. Linux support is in preparation.
 
 <h2 align="center">DOWNLOAD</h2>
 
-<p align="center">
-  <strong>Public downloads are temporarily paused while final release checks and Windows publication requirements are completed.</strong>
-</p>
-
-| Platform            | Download                                              |
-| ------------------- | ----------------------------------------------------- |
-| macOS Apple Silicon | Temporarily paused pending final release checks       |
-| Windows             | Beta preparing for publication on the `0.1.1` line    |
-| Linux               | Preparing on the `0.1.1` line; no public artifact yet |
+| Platform            | Download                                                                                             |
+| ------------------- | ---------------------------------------------------------------------------------------------------- |
+| macOS Apple Silicon | [SurroundStreamer-0.1.1.dmg](https://github.com/t-noami/SurroundStreamer/releases/tag/v0.1.1)        |
+| Windows x64         | [surround-streamer-0.1.1-setup.exe](https://github.com/t-noami/SurroundStreamer/releases/tag/v0.1.1) |
+| Linux               | Not available yet                                                                                    |
 
 ## System Requirements
 
@@ -26,11 +22,11 @@ The public stable target is macOS. The beta branch also contains a validated Win
 > SurroundStreamer now focuses on Audio Input and File sources.
 > App Audio capture has been removed from the current release line.
 
-- Supported release target: macOS 14.2 or later on Apple Silicon
-- Audio Input capture: Core Audio helper path on macOS
+- macOS: macOS 14.2 or later on Apple Silicon
+- Windows: Windows x64
+- Audio Input capture: Core Audio on macOS; ASIO, MMDevice/WASAPI, and DirectShow fallback on Windows
 - File source: FFmpeg file playback path
-- Windows: `0.1.1` beta/pre-release line only
-- Linux: `0.1.1` build line preparing; Audio Input is not implemented yet
+- Linux: not available yet
 
 ## Developer
 
@@ -45,19 +41,19 @@ The public stable target is macOS. The beta branch also contains a validated Win
 - Standard channel templates: Mono, Stereo, Stereo + C, 5.1, 7.1
 - Default encoding: 48 kHz, 128 kbps stereo-equivalent bitrate
 - Main source order: Audio Input, File
-- Audio Input capture: macOS uses the Core Audio helper PCM path; the Windows beta uses native ASIO and MMDevice/WASAPI capture with DirectShow fallback.
+- Audio Input capture: macOS uses the Core Audio helper PCM path; Windows uses native ASIO and MMDevice/WASAPI capture with DirectShow fallback.
 - File source: file playback and preview monitor support
 - Monitor Output: Stereo Pair, Stereo Downmix, KU100 Near-field HRIR
 
 ## Important Notes
 
 - App Audio capture has been removed from the current release line. Use Audio Input capture with a physical, virtual, or loopback device when application audio needs to be routed into SurroundStreamer.
-- Audio Input Monitor Output uses the shared WebAudio direct monitor path when browser audio-device access is available. The Windows beta also has a backend-owned FFmpeg/WASAPI monitor path for ASIO Audio Input and File-source monitoring, but it is not part of the stable macOS release line.
+- Audio Input Monitor Output uses the shared WebAudio direct monitor path when browser audio-device access is available. Windows also has a backend-owned FFmpeg/WASAPI monitor path for ASIO Audio Input and File-source monitoring.
 - Opus output is constrained to supported sample rates. 44.1 kHz and 96 kHz sources are converted to 48 kHz for stream output.
 - 7.1.2 and 7.1.4 are not part of the standard build. The current production target is up to 7.1 because that maps cleanly to common Opus channel mapping support.
 - KU100 near-field HRIR data is included under CC BY 4.0. Attribution is listed below.
-- Public release capture is macOS-first. The Windows beta has been validated locally for ASIO Audio Input, MMDevice/WASAPI Audio Input, monitor output routing, File source, and Icecast Opus streaming. Public Windows downloads remain beta/pre-release until signing, compatibility, and long-run checks are complete. For Windows surround input, ASIO is the primary validation target; WASAPI/MMDevice remains useful for generic mono/stereo inputs.
-- Linux build notes are kept for future platform work; Linux Audio Input capture is not implemented yet.
+- For Windows surround input, use an ASIO-capable audio interface or ASIO virtual audio device with 6 or more input/output channels.
+- Linux support is in preparation.
 
 ## User Manual
 
@@ -115,9 +111,9 @@ Use Audio Input when streaming from an audio interface, virtual input, or microp
 2. Select the audio input in `Audio Input`.
 3. Use `Refresh` if the device list needs to be updated.
 
-Monitor Output is available for Audio Input source through the shared WebAudio direct monitor path when browser audio-device access is available. The Windows beta also supports ASIO Audio Input monitoring through the backend-owned FFmpeg/WASAPI renderer path; File-source monitoring on Windows uses the same backend renderer to avoid browser-device routing issues. This remains beta/pre-release and is not part of the stable macOS release line.
+Monitor Output is available for Audio Input source through the shared WebAudio direct monitor path when browser audio-device access is available. Windows also supports ASIO Audio Input monitoring through the backend-owned FFmpeg/WASAPI renderer path; File-source monitoring on Windows uses the same backend renderer to avoid browser-device routing issues.
 
-For surround Audio Input streaming, the input device must expose enough real input channels for the selected stream layout. On macOS, use a Core Audio audio interface or virtual audio device with 6 or more channels for 5.1 or larger layouts. On Windows, use an ASIO-capable audio interface or ASIO virtual audio device with 6 or more input/output channels; WASAPI/MMDevice endpoints are useful for mono/stereo inputs, but should not be assumed to expose surround capture.
+For surround Audio Input streaming, the input device must expose enough real input channels for the selected stream layout. On macOS, use a Core Audio audio interface or virtual audio device with 6 or more channels for 5.1 or larger layouts. On Windows, use an ASIO-capable audio interface or ASIO virtual audio device with 6 or more input/output channels.
 
 On macOS, audio-input streaming requires microphone permission. If streaming does not capture input audio, confirm that macOS Privacy settings allow microphone access for SurroundStreamer.
 
@@ -235,7 +231,7 @@ Build instructions are split by operating system:
 - [Windows Backend Development Guide](docs/windows-backend-development.md)
 - [Windows / Linux Portability Assessment](docs/windows-linux-portability-assessment.md)
 
-macOS is the primary stable build target. The beta branch also includes a locally validated Windows backend for ASIO Audio Input, MMDevice/WASAPI Audio Input, backend-owned ASIO/File monitor routing, File source, and Icecast streaming. Linux packaging notes remain preparatory because Linux Audio Input capture is not implemented yet.
+macOS and Windows are the current release targets. Linux packaging notes remain preparatory.
 
 ## Test Stream Config
 
