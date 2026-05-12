@@ -10,6 +10,9 @@
   },
   "homepage": "https://github.com/t-noami/SurroundStreamer",
   "license": "MIT",
+  "engines": {
+    "node": ">=20.19.0"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/t-noami/SurroundStreamer.git"
