@@ -262,6 +262,12 @@ class LinuxPipeWireBackend {
         continue
       }
 
+      const channelMapMatch = line.match(/^\s*Channel Map:\s*(.+)$/)
+      if (channelMapMatch) {
+        current.channel_map = channelMapMatch[1].trim()
+        continue
+      }
+
       const monitorMatch = line.match(/^\s*Monitor of Sink:\s*(.+)$/)
       if (monitorMatch) {
         current.monitor_of_sink = monitorMatch[1].trim()
@@ -279,14 +285,16 @@ class LinuxPipeWireBackend {
     const name = source.name || source.properties?.['device.name']
     if (!name) return null
 
-    const format = this.parseSampleSpec(source.sample_spec)
+    const format = this.parseSampleSpec(source.sample_specification ?? source.sample_spec)
     const description =
       source.description ||
       source.properties?.['device.description'] ||
       source.properties?.['node.description'] ||
       name
+    const channelMapCount = this.parseChannelMapCount(source.channel_map)
+    const propertyChannels = Number(source.properties?.['audio.channels']) || null
     const sampleRate = this.normalizedSampleRate(format.sampleRate)
-    const channels = this.normalizedChannels(format.channels)
+    const channels = this.normalizedChannels(channelMapCount || propertyChannels || format.channels)
     return {
       index: String(index),
       name: description,
@@ -395,6 +403,7 @@ class LinuxPipeWireBackend {
     const text = [
       source.name,
       source.description,
+      source.monitor_source,
       source.monitor_of_sink,
       source.monitor_of_sink_name,
       source.properties?.['device.class'],
@@ -403,6 +412,15 @@ class LinuxPipeWireBackend {
       .filter(Boolean)
       .join(' ')
     return /\bmonitor\b/i.test(text)
+  }
+
+  parseChannelMapCount(channelMap) {
+    if (!channelMap) return null
+    const positions = String(channelMap)
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean)
+    return positions.length > 0 ? positions.length : null
   }
 
   encodeDeviceUID(device) {
@@ -484,7 +502,11 @@ class LinuxPipeWireBackend {
 
   runCommand(command, args) {
     return new Promise((resolve) => {
-      const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+      // Force C locale so pactl/arecord output is parseable English regardless of LANG.
+      const child = spawn(command, args, {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, LC_ALL: 'C', LANG: 'C' }
+      })
       let stdout = ''
       let stderr = ''
 
