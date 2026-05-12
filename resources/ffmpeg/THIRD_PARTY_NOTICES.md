@@ -48,6 +48,7 @@ This build must not include `--enable-gpl` or `--enable-nonfree`.
 - FFmpeg version: 8.1
 - FFmpeg source: https://ffmpeg.org/releases/ffmpeg-8.1.tar.xz
 - FFmpeg source SHA-256: `B072AED6871998CCE9B36E7774033105CA29E33632BE5B6347F3206898E0756A`
+- Binary SHA-256: `6C6354741613366DAE965A88882523B7C950E7C6EDC8B0C8414BA460D4097877`
 - FFmpeg project: https://ffmpeg.org/
 - Build environment: Ubuntu 24.04 x64 through `.github/workflows/build-linux-ffmpeg.yml`
 - Effective FFmpeg license for this build: LGPL version 2.1 or later
