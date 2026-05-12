@@ -1,8 +1,11 @@
 import { spawn } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 // Inline a minimal getFfmpegPath stub by rewriting the import to a data: URL.
-const SRC = '/home/ishikawa/SurroundStreamer/src/main/audio-backends/linux-pipewire.js'
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
+const SRC = resolve(repoRoot, 'src/main/audio-backends/linux-pipewire.js')
 const original = readFileSync(SRC, 'utf8')
 const stubURL = 'data:text/javascript,export function getFfmpegPath(){return "/usr/bin/ffmpeg"}'
 const rewritten = original.replace(

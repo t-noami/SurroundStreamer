@@ -7,7 +7,7 @@
 SurroundStreamer is a desktop streaming tool for musicians, engineers, and spatial-audio creators who want to deliver live music and multichannel audio in surround.
 It sends audio from an audio interface or audio file to an Icecast/Shoutcast-compatible streaming server as Ogg Opus surround audio, stereo MP3, or both.
 Monitor output, channel templates up to 7.1, and KU100 near-field HRIR preview help you check the stream before and during playback.
-The current release supports macOS Apple Silicon and Windows x64. Linux support is in preparation.
+The current release supports macOS Apple Silicon, Windows x64, and a Linux x64 AppImage.
 
 ## Who It Is For
 
@@ -26,7 +26,7 @@ Non-REM Studio and Tia Rungray usage notes and case-study materials are in prepa
 | ------------------- | ---------------------------------------------------------------------------------------------------- |
 | macOS Apple Silicon | [SurroundStreamer-0.1.1.dmg](https://github.com/t-noami/SurroundStreamer/releases/tag/v0.1.1)        |
 | Windows x64         | [surround-streamer-0.1.1-setup.exe](https://github.com/t-noami/SurroundStreamer/releases/tag/v0.1.1) |
-| Linux               | Not available yet                                                                                    |
+| Linux x64 AppImage  | [surround-streamer-0.1.1.AppImage](https://github.com/t-noami/SurroundStreamer/releases/tag/v0.1.1)  |
 
 ## System Requirements
 
@@ -36,9 +36,9 @@ Non-REM Studio and Tia Rungray usage notes and case-study materials are in prepa
 
 - macOS: macOS 14.2 or later on Apple Silicon
 - Windows: Windows x64
-- Audio Input capture: Core Audio on macOS; ASIO, MMDevice/WASAPI, and DirectShow fallback on Windows
+- Linux: x64 desktop with PipeWire/PulseAudio compatibility or ALSA fallback; AppImage is the current Linux package
+- Audio Input capture: Core Audio on macOS; ASIO, MMDevice/WASAPI, and DirectShow fallback on Windows; PipeWire/PulseAudio or ALSA through FFmpeg on Linux
 - File source: FFmpeg file playback path
-- Linux: not available yet
 
 ## Quick Start
 
@@ -68,7 +68,7 @@ real input channels for the selected stream layout.
 - Standard channel templates: Mono, Stereo, Stereo + C, 5.1, 7.1
 - Default encoding: 48 kHz, 128 kbps stereo-equivalent bitrate
 - Main source order: Audio Input, File
-- Audio Input capture: macOS uses the Core Audio helper PCM path; Windows uses native ASIO and MMDevice/WASAPI capture with DirectShow fallback.
+- Audio Input capture: macOS uses the Core Audio helper PCM path; Windows uses native ASIO and MMDevice/WASAPI capture with DirectShow fallback; Linux uses the experimental PipeWire/PulseAudio or ALSA FFmpeg bridge.
 - File source: file playback and preview monitor support
 - Monitor Output: Stereo Pair, Stereo Downmix, KU100 Near-field HRIR
 
@@ -80,7 +80,7 @@ real input channels for the selected stream layout.
 - 7.1.2 and 7.1.4 are not part of the standard build. The current production target is up to 7.1 because that maps cleanly to common Opus channel mapping support.
 - KU100 near-field HRIR data is included under CC BY 4.0. Attribution is listed below.
 - For Windows surround input, use an ASIO-capable audio interface or ASIO virtual audio device with 6 or more input/output channels.
-- Linux support is in preparation.
+- Linux x64 AppImage is available in v0.1.1. The current Linux path has been smoke-tested on Ubuntu 24.04 with PipeWire/PulseAudio, but broader distribution and device validation is still in progress.
 
 ## User Manual
 
@@ -258,7 +258,7 @@ Build instructions are split by operating system:
 - [Windows Backend Development Guide](docs/windows-backend-development.md)
 - [Windows / Linux Portability Assessment](docs/windows-linux-portability-assessment.md)
 
-macOS and Windows are the current release targets. Linux packaging notes remain preparatory.
+macOS, Windows, and Linux x64 AppImage are the current release artifacts. Linux AppImage/PipeWire validation notes remain in [Build on Linux](docs/build-linux.md).
 
 ## Test Stream Config
 
