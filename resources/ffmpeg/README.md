@@ -25,7 +25,7 @@ The packaged binary must provide the audio features used by SurroundStreamer:
 - `headphone`, `pan`, `volume`, `aresample`, `asetnsamples`, `astats`,
   `ametadata`, `asplit`, `anull`, and `anullsink` filters
 - file, pipe, and icecast protocols
-- avfoundation on macOS and dshow on Windows if those backend paths are built
+- avfoundation on macOS, dshow on Windows, and pulse/alsa on Linux if those backend paths are built
 
 Each distributed binary must have matching notice and license information in this directory.
 AIFF/AIF and CAF support is provided by FFmpeg's own LGPL demuxers and does not add an external

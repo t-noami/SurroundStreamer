@@ -1,0 +1,64 @@
+name: Build Linux FFmpeg
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/linux-audio-backend
+    paths:
+      - '.github/workflows/build-linux-ffmpeg.yml'
+      - 'scripts/build-linux-ffmpeg.sh'
+      - 'scripts/check-ffmpeg-license.mjs'
+      - 'resources/ffmpeg/**'
+
+permissions:
+  contents: read
+
+jobs:
+  build-linux-ffmpeg:
+    name: Linux x64 FFmpeg
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            ca-certificates \
+            curl \
+            libasound2-dev \
+            libmp3lame-dev \
+            libopus-dev \
+            libpulse-dev \
+            nasm \
+            pkg-config \
+            xz-utils \
+            yasm
+
+      - name: Build Linux FFmpeg
+        run: bash scripts/build-linux-ffmpeg.sh "$RUNNER_TEMP/ffmpeg-linux-x64"
+
+      - name: Inspect Linux FFmpeg binary
+        run: |
+          "$RUNNER_TEMP/ffmpeg-linux-x64/ffmpeg" -hide_banner -version
+          "$RUNNER_TEMP/ffmpeg-linux-x64/ffmpeg" -hide_banner -devices
+          ldd "$RUNNER_TEMP/ffmpeg-linux-x64/ffmpeg" | tee "$RUNNER_TEMP/ffmpeg-linux-x64/ldd.txt"
+
+      - name: Upload Linux FFmpeg artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: surroundstreamer-ffmpeg-linux-x64
+          path: |
+            ${{ runner.temp }}/ffmpeg-linux-x64/ffmpeg
+            ${{ runner.temp }}/ffmpeg-linux-x64/SHA256SUMS
+            ${{ runner.temp }}/ffmpeg-linux-x64/ldd.txt
+          if-no-files-found: error

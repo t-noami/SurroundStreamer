@@ -10,6 +10,9 @@
   },
   "homepage": "https://github.com/t-noami/SurroundStreamer",
   "license": "MIT",
+  "engines": {
+    "node": ">=20.19.0"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/t-noami/SurroundStreamer.git"
@@ -26,6 +29,7 @@
     "check:ffmpeg-license:win": "node scripts/check-ffmpeg-license.mjs resources/ffmpeg/win32-x64/ffmpeg.exe",
     "check:ffmpeg-license:linux": "node scripts/check-ffmpeg-license.mjs resources/ffmpeg/linux-x64/ffmpeg",
     "check:package-licenses": "node scripts/check-package-licenses.mjs",
+    "build:ffmpeg:linux": "bash scripts/build-linux-ffmpeg.sh",
     "postinstall": "electron-builder install-app-deps",
     "build:unpack": "npm run build:audio-helper && npm run check:ffmpeg-license && npm run build && electron-builder --dir",
     "build:win": "npm run build:audio-helper:win && npm run check:ffmpeg-license:win && npm run build && electron-builder --win",

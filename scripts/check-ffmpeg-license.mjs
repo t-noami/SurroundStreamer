@@ -88,16 +88,18 @@ function checkFfmpeg(ffmpegPath) {
     ffmpegPath
   )
 
-  const requiredDevice =
+  const requiredDevices =
     platformFor(ffmpegPath) === 'darwin'
-      ? 'avfoundation'
+      ? ['avfoundation']
       : platformFor(ffmpegPath) === 'win32'
-        ? 'dshow'
-        : null
-  if (requiredDevice) {
+        ? ['dshow']
+        : platformFor(ffmpegPath) === 'linux'
+          ? ['alsa', 'pulse']
+          : []
+  if (requiredDevices.length > 0) {
     requireEntries(
       'device',
-      [requiredDevice],
+      requiredDevices,
       runFfmpeg(ffmpegPath, ['-hide_banner', '-devices']),
       ffmpegPath
     )
