@@ -42,12 +42,36 @@ handled by FFmpeg's built-in LGPL demuxers and do not add an external library li
 
 This build must not include `--enable-gpl` or `--enable-nonfree`.
 
+## Linux x64 Binary Build Recipe
+
+- Binary: `resources/ffmpeg/linux-x64/ffmpeg`
+- FFmpeg version: 8.1
+- FFmpeg source: https://ffmpeg.org/releases/ffmpeg-8.1.tar.xz
+- FFmpeg source SHA-256: `B072AED6871998CCE9B36E7774033105CA29E33632BE5B6347F3206898E0756A`
+- FFmpeg project: https://ffmpeg.org/
+- Build environment: Ubuntu 24.04 x64 through `.github/workflows/build-linux-ffmpeg.yml`
+- Effective FFmpeg license for this build: LGPL version 2.1 or later
+
+Configure line:
+
+```text
+--prefix=<build-root>/dist --arch=x86_64 --target-os=linux --enable-static --disable-shared --disable-doc --disable-debug --disable-ffplay --disable-ffprobe --disable-autodetect --disable-everything --enable-ffmpeg --enable-network --enable-protocol=file,pipe,icecast,tcp,http --enable-indev=alsa,pulse --enable-demuxer=pcm_f32le,wav,aiff,caf,flac,ogg,mp3,mov,matroska,aac --enable-muxer=pcm_f32le,ogg,mp3 --enable-parser=aac,flac,mpegaudio,opus,vorbis --enable-decoder=pcm_f32le,pcm_f32be,pcm_s16le,pcm_s16be,pcm_s24le,pcm_s24be,pcm_s32le,pcm_s32be,flac,vorbis,opus,mp3,aac,alac --enable-encoder=pcm_f32le,libopus,libmp3lame --enable-filter=ametadata,anull,anullsink,aresample,asetnsamples,asplit,astats,headphone,pan,volume,aformat --enable-libopus --enable-libmp3lame --enable-libpulse --enable-alsa
+```
+
+This Linux build intentionally includes only the FFmpeg program and the audio demuxers, decoders,
+encoders, protocols, filters, and PulseAudio/ALSA input devices needed by SurroundStreamer. On
+modern PipeWire desktops, the PulseAudio compatibility server provides the `pulse` input path used by
+the Linux backend.
+
+This build must not include `--enable-gpl` or `--enable-nonfree`.
+
 ## Included External Libraries
 
 ### libopus
 
 - Version used for the current macOS build: 1.5.2
 - Version used for the current Windows build: 1.6.1
+- Linux build recipe uses the Ubuntu 24.04 `libopus-dev` package.
 - Project: https://opus-codec.org/
 - License: 3-clause BSD license
 - License text: `licenses/libopus-COPYING`
@@ -56,6 +80,7 @@ This build must not include `--enable-gpl` or `--enable-nonfree`.
 
 - Version used for the current macOS build: 3.100
 - Version used for the current Windows build: 3.100
+- Linux build recipe uses the Ubuntu 24.04 `libmp3lame-dev` package.
 - Project: https://lame.sourceforge.io/
 - License: GNU Lesser General Public License
 - License text: `licenses/LAME-COPYING`
@@ -72,7 +97,7 @@ Before publishing a package:
 1. Build FFmpeg from source or another auditable source package.
 2. Confirm `ffmpeg -hide_banner -version` does not contain `--enable-nonfree`.
 3. Prefer LGPL-compatible builds without `--enable-gpl`.
-4. Run the target-platform FFmpeg check, for example `npm run check:ffmpeg-license:mac` or
-   `npm run check:ffmpeg-license:win`.
+4. Run the target-platform FFmpeg check, for example `npm run check:ffmpeg-license:mac`,
+   `npm run check:ffmpeg-license:win`, or `npm run check:ffmpeg-license:linux`.
 5. Run `npm run check:package-licenses -- <packaged-app-or-dist-dir>` after packaging.
 6. Keep this notice and the license files with the distribution.

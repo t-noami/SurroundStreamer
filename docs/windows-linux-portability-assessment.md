@@ -10,7 +10,7 @@ Implementing Windows or Linux support is now a substantial platform-backend proj
 
 Current beta decision: App Audio has been removed as a supported input source. This assessment still documents why the old App Audio path was hard to port, but active cross-platform work should prioritize File source and Audio Input capture.
 
-The current stable application is structurally macOS-first. The Electron UI and FFmpeg encoding pipeline are mostly reusable. The beta branch now has a Windows backend for native MMDevice/WASAPI and ASIO Audio Input capture with DirectShow fallback. Linux still needs a platform backend before Audio Input can be supported there.
+The current stable application is structurally macOS-first. The Electron UI and FFmpeg encoding pipeline are mostly reusable. The beta branch now has a Windows backend for native MMDevice/WASAPI and ASIO Audio Input capture with DirectShow fallback. Linux now has an initial experimental PipeWire/PulseAudio/ALSA backend, but it still needs real Linux desktop validation before Audio Input can be treated as supported.
 
 Feature parity on Windows or Linux should be treated as difficult.
 
