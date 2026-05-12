@@ -2,6 +2,14 @@ name: Build Linux FFmpeg
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - feature/linux-audio-backend
+    paths:
+      - '.github/workflows/build-linux-ffmpeg.yml'
+      - 'scripts/build-linux-ffmpeg.sh'
+      - 'scripts/check-ffmpeg-license.mjs'
+      - 'resources/ffmpeg/**'
 
 permissions:
   contents: read
