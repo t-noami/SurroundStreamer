@@ -293,6 +293,14 @@
   - packaged `app.asar` updated at 2026-05-28 22:32:41.
   - packaged `audio-backend` and `Contents/MacOS/SurroundStreamer` updated at 2026-05-28 22:32:51.
   - `node scripts/dev/verify-monitor-output.mjs` passed again after packaging using both public and built worklets.
+- User reported that during streaming the monitor meters moved but audio did not reach the selected monitor output device.
+- Found the streaming-device routing bug:
+  - backend PCM monitor start paths passed `deviceId: config.monitorDeviceId`;
+  - stream-start config had `monitorDeviceId`, but later streaming monitor updates use `selectedInputDeviceMonitorConfig()`, which carries `monitorOutputDeviceId`;
+  - when `monitorDeviceId` was absent, WebAudio monitor output could fall back to the default output instead of the selected device.
+- Fixed streaming WebAudio monitor output device selection:
+  - added `monitorWebAudioOutputDeviceId(config)`;
+  - backend PCM streaming monitor paths now use `monitorDeviceId || monitorOutputDeviceId || selectedBrowserMonitorOutputDeviceId()`.
 - Web research checked:
   - MDN/Web Audio docs describe underrun as the output side needing frames that are not available, producing dropouts/glitches;
   - FFmpeg pipe output can be bursty and should not be assumed to arrive at perfectly even playback cadence;

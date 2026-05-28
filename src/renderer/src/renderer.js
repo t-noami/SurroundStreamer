@@ -1801,7 +1801,7 @@ async function startInitialMonitor(config, channels) {
   )
   await webAudioMonitor.start({
     mode: format.mode,
-    deviceId: config.monitorDeviceId,
+    deviceId: monitorWebAudioOutputDeviceId(config),
     pairStart: format.pairStart,
     latencyMs: format.latencyMs,
     lowLatency: format.lowLatency,
@@ -1826,7 +1826,7 @@ async function startBackendPcmInputMonitor(config, channels) {
   )
   await webAudioMonitor.start({
     mode: format.mode,
-    deviceId: config.monitorDeviceId,
+    deviceId: monitorWebAudioOutputDeviceId(config),
     pairStart: format.pairStart,
     latencyMs: format.latencyMs,
     lowLatency: format.lowLatency,
@@ -1839,6 +1839,12 @@ async function startBackendPcmInputMonitor(config, channels) {
   monitorMeterState.textContent = 'LIVE'
   renderMonitorPeakMeters(2)
   addLog('Falling back to backend PCM monitor output for Audio Input.', 'system')
+}
+
+function monitorWebAudioOutputDeviceId(config = {}) {
+  return (
+    config.monitorDeviceId || config.monitorOutputDeviceId || selectedBrowserMonitorOutputDeviceId()
+  )
 }
 
 async function startPreviewMonitor(reason = 'settings') {
