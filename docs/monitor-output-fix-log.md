@@ -1,0 +1,359 @@
+# Monitor Output Fix Log
+
+## 2026-05-28
+
+- User reported Mac monitor output issue in Stereo downmix and Binaural modes.
+- Initial focus on C/ch3 was incomplete. User clarified ch4-ch8 are also affected.
+- Compared SurroundWebPlayer:
+  - it uses `ChannelSplitterNode` and per-channel `PannerNode`;
+  - all configured channels route to output;
+  - LFE is filtered, not muted.
+- Current monitor implementation differed by muting LFE-labelled channels and relying on browser/device paths that can expose fewer channels.
+- Fix scope updated to verify every source channel 1-8, not just C/ch3.
+- Implemented renderer monitor routing changes:
+  - Stereo downmix now includes LFE/ch4 and all standard 7.1 channels.
+  - Binaural no longer assigns zero gain to LFE/ch4.
+  - Browser direct monitor falls back to backend PCM when downmix/binaural cannot open all requested input channels.
+- Implemented native helper PCM normalization:
+  - CoreAudio input buffers are converted through `AudioConverter` to packed Float32 interleaved PCM before stdout.
+  - The helper logs the input buffer shape once for diagnosis.
+- Added `scripts/dev/verify-monitor-output.mjs`:
+  - validates renderer downmix gains for ch1-ch8;
+  - validates LFE/ch4 is audible in binaural routing;
+  - validates FFmpeg downmix output for each individual ch1-ch8 source using fragmented stdin writes.
+- Verification run:
+  - `node scripts/dev/verify-monitor-output.mjs` passed.
+  - `npm run build:audio-helper` passed.
+  - `npm run build` passed.
+- Packaged app:
+  - `npm run build:mac:dir` passed.
+  - `node scripts/dev/verify-monitor-output.mjs` passed again after packaging.
+  - `dist/mac-arm64/SurroundStreamer.app/Contents/Resources/app.asar` updated at 2026-05-28 20:11:09.
+  - `dist/mac-arm64/SurroundStreamer.app/Contents/Resources/audio-backend` updated at 2026-05-28 20:11:19.
+- User rejected the packaged app: Stereo Pair can audition individual channel pairs, but Stereo downmix and Binaural still become noise and only pick up LR/ch1/ch2.
+- Reopened investigation instead of applying another patch.
+- Primary-source research changed the working diagnosis:
+  - `ChannelSplitterNode` cannot expose channels that the upstream browser `MediaStream` did not actually provide;
+  - `MediaStreamTrack.getSettings().channelCount` is a settings report, not an audio-content proof;
+  - the app's backend PCM source topology differs from SurroundWebPlayer because it uses one AudioWorklet output per source channel instead of one multichannel source split by `ChannelSplitterNode`.
+- The old verification was declared insufficient because it did not render the actual renderer WebAudio graph for Stereo downmix or Binaural.
+- Rewrote `docs/monitor-output-fix-plan.md` with a new gated plan:
+  - add real WebAudio graph rendering tests for ch1-ch8;
+  - refuse browser direct downmix/binaural unless actual discrete channels are proven;
+  - change backend PCM source topology to a single multichannel worklet output plus splitter;
+  - align Binaural monitor behavior with SurroundWebPlayer's `PannerNode` path before reintroducing custom KU100 convolver behavior.
+- Implemented the revised renderer graph fix:
+  - backend PCM `AudioWorkletNode` now exposes one multichannel output with `outputChannelCount: [channels]`;
+  - backend PCM output is split through `ChannelSplitterNode(channels)`, matching the SurroundWebPlayer source topology;
+  - `pushChunk()` now targets the PCM worklet node directly instead of treating the splitter as a message source;
+  - Binaural monitor routing now uses per-channel `PannerNode` for all channels and keeps LFE audible through a 120 Hz low-pass filter.
+- Disabled browser direct monitor for Stereo downmix and Binaural unless discrete channels are proven. Those modes now fall back to backend PCM instead of accepting an unproven 2ch browser stream.
+- Added real renderer WebAudio verification:
+  - `scripts/dev/verify-monitor-web-audio.cjs` runs Electron/Chromium with a hidden BrowserWindow;
+  - it feeds ch1-ch8 one at a time through the app's actual `WebAudioMonitor`, `AudioWorklet`, splitter, downmix, and binaural graphs;
+  - it fails on silence, NaN/Infinity, clipping/noise peaks, and missing ch3-ch8 output.
+- Verification run after implementation:
+  - `node scripts/dev/verify-monitor-output.mjs` passed with Electron WebAudio graph verification.
+  - `npm run build:audio-helper` passed.
+  - `npm run build` passed.
+  - `npm run build:mac:dir` passed.
+  - `node scripts/dev/verify-monitor-output.mjs` passed again after packaging.
+- Packaged app after this fix:
+  - `dist/mac-arm64/SurroundStreamer.app/Contents/Resources/app.asar` updated at 2026-05-28 20:29:19.
+  - `dist/mac-arm64/SurroundStreamer.app/Contents/Resources/audio-backend` updated at 2026-05-28 20:29:30.
+  - `dist/mac-arm64/SurroundStreamer.app/Contents/MacOS/SurroundStreamer` updated at 2026-05-28 20:29:30.
+- User reported the packaged app still failed:
+  - Stereo Pair could only hear L/R; ch3+ stopped working.
+  - Stereo downmix and Binaural still became noise and appeared to receive only L/R.
+- Reopened the fix as a regression in two areas:
+  - ch3+ Stereo Pair could be forced to backend PCM, exposing the native helper regression;
+  - native helper `AudioConverterConvertComplexBuffer` normalization was likely producing bad PCM on the real Mac input.
+- Removed the risky native helper AudioConverter path and restored the previous raw packed/interleaved copy behavior:
+  - one-buffer CoreAudio input is written directly to stdout;
+  - multi-buffer CoreAudio input is packed manually channel-by-channel as before.
+- Hardened browser direct monitor selection:
+  - Stereo downmix and Binaural still refuse unproven browser direct channels;
+  - Stereo Pair ch3+ now also refuses browser direct when `getSettings().channelCount` is missing, so it cannot silently pretend a 2ch browser stream is a multichannel stream.
+- Verification run after the rollback/fix:
+  - `npm run build:audio-helper` passed.
+  - `node scripts/dev/verify-monitor-output.mjs` passed.
+  - `npm run build` passed.
+  - `npm run build:mac:dir` passed.
+  - `node scripts/dev/verify-monitor-output.mjs` passed again after packaging.
+- Packaged app after the regression fix:
+  - `dist/mac-arm64/SurroundStreamer.app/Contents/Resources/app.asar` updated at 2026-05-28 20:35:11.
+  - `dist/mac-arm64/SurroundStreamer.app/Contents/Resources/audio-backend` updated at 2026-05-28 20:35:22.
+  - `dist/mac-arm64/SurroundStreamer.app/Contents/MacOS/SurroundStreamer` updated at 2026-05-28 20:35:22.
+- User reported symptoms were still unchanged.
+- Read the persisted app log at `~/Library/Application Support/surround-streamer/surround-streamer.log`:
+  - app was using backend PCM for ch3+ Stereo Pair, Stereo downmix, and Binaural;
+  - CoreAudio reported 16ch, 48 kHz input preview format.
+- Added `scripts/dev/analyze-coreaudio-input.mjs` to directly capture and analyze helper stdout from real CoreAudio inputs.
+- Direct helper capture of `Pro Tools Audio Bridge 16` proved the input stream is not 2ch-only:
+  - helper reported 16ch @ 48 kHz;
+  - ch1, ch2, ch3, ch5, and ch6 contained finite nonzero PCM during the test;
+  - no non-finite or huge samples were found.
+- Reverted the renderer PCM worklet topology back to the previous multi-output mono shape:
+  - one `AudioWorkletNode` output per source channel;
+  - `pushChunk()` again posts to the worklet node directly;
+  - this restores the topology that previously allowed Stereo Pair to audition ch3+.
+- Kept the browser direct safeguards:
+  - downmix and binaural do not use browser direct unless discrete channels are proven;
+  - ch3+ Stereo Pair does not accept browser direct when the browser channel count is missing or too low.
+- Added `scripts/dev/verify-live-coreaudio-monitor.cjs`:
+  - captures real `Pro Tools Audio Bridge 16` PCM through the helper;
+  - feeds the captured bytes into the real `WebAudioMonitor` graph inside Electron;
+  - verifies C/LFE Stereo Pair, SL/SR Stereo Pair, Stereo downmix, and Binaural are finite, non-silent, and non-clipping.
+- Verification after reverting the worklet topology:
+  - `node scripts/dev/verify-monitor-output.mjs` passed.
+  - `node_modules/.bin/electron scripts/dev/verify-live-coreaudio-monitor.cjs` passed with real `Pro Tools Audio Bridge 16` PCM.
+  - `npm run build:audio-helper` passed.
+  - `npm run build:mac:dir` passed.
+  - `node scripts/dev/verify-monitor-output.mjs` passed again after packaging.
+- Packaged app after the worklet-topology rollback:
+  - `dist/mac-arm64/SurroundStreamer.app/Contents/Resources/app.asar` updated at 2026-05-28 20:41:42.
+  - `dist/mac-arm64/SurroundStreamer.app/Contents/Resources/audio-backend` updated at 2026-05-28 20:41:55.
+  - `dist/mac-arm64/SurroundStreamer.app/Contents/MacOS/SurroundStreamer` updated at 2026-05-28 20:41:55.
+- User confirmed Stereo Pair is fixed, but Stereo downmix and Binaural still sound like sample-rate mismatch noise.
+- Found the likely remaining preview-path bug:
+  - backend PCM preview starts `WebAudioMonitor` before the CoreAudio helper has reported the actual input format;
+  - `monitor:format` updates `currentMonitorFormat`, but preview mode did not restart the existing `AudioContext`;
+  - if the first context was created at a different rate than the helper PCM, downmix/binaural would receive PCM at the wrong playback rate.
+- Added backend PCM format synchronization:
+  - when `monitor:format` arrives, backend-preview/backend-stream `WebAudioMonitor` is restarted if sample rate, channel count, mode, or pair start differs;
+  - after `startInputDeviceMonitor` succeeds, preview mode also checks and synchronizes against the latest backend format.
+- Verification after sample-rate synchronization:
+  - `node scripts/dev/verify-monitor-output.mjs` passed.
+  - `node_modules/.bin/electron scripts/dev/verify-live-coreaudio-monitor.cjs` passed with real `Pro Tools Audio Bridge 16` PCM.
+  - `npm run build:mac:dir` passed.
+  - `node scripts/dev/verify-monitor-output.mjs` passed again after packaging.
+  - `node_modules/.bin/electron scripts/dev/verify-live-coreaudio-monitor.cjs` passed again after packaging.
+- Packaged app after sample-rate synchronization:
+  - `dist/mac-arm64/SurroundStreamer.app/Contents/Resources/app.asar` updated at 2026-05-28 20:46:17.
+  - `dist/mac-arm64/SurroundStreamer.app/Contents/Resources/audio-backend` updated at 2026-05-28 20:46:27.
+  - `dist/mac-arm64/SurroundStreamer.app/Contents/MacOS/SurroundStreamer` updated at 2026-05-28 20:46:27.
+- User then reported:
+  - `Direct audio input monitor unavailable: Browser direct monitor is disabled for Stereo downmix/Binaural because discrete input channels are not proven.`
+  - Stereo Pair was OK.
+  - Stereo downmix and Binaural were still noisy.
+- Interpreted that log line as expected browser-direct refusal, not as the failure itself:
+  - Stereo downmix/Binaural must use backend PCM unless browser direct discrete channels are proven;
+  - the remaining failure had to be in the backend PCM monitor graph or its channel selection.
+- Found the remaining routing risk:
+  - backend PCM from a 16ch input keeps a 16ch frame stride;
+  - Stereo Pair auditions only the requested pair;
+  - Stereo downmix and Binaural were still allowed to mix every source channel by default;
+  - if the selected stream layout is 5.1/7.1 but the device input has 16 channels, unused channels can be pulled into the monitor output.
+- Fixed selected-channel routing for Stereo downmix and Binaural:
+  - the PCM frame stride remains the real device channel count, so frame alignment is not changed;
+  - `monitorChannelIndexes` is now carried through monitor format state;
+  - Stereo downmix and Binaural connect only those selected monitor channel indexes;
+  - meters use the same selected monitor channel list, so UI peak checks match the audible monitor path.
+- Verification after selected-channel routing:
+  - `node scripts/dev/verify-monitor-output.mjs` passed.
+  - `node_modules/.bin/electron scripts/dev/verify-live-coreaudio-monitor.cjs` passed against real `Pro Tools Audio Bridge 16` PCM before packaging.
+  - `npm run build:mac:dir` passed.
+  - `node scripts/dev/verify-monitor-output.mjs` passed again after packaging.
+  - `node_modules/.bin/electron scripts/dev/verify-live-coreaudio-monitor.cjs` passed again after packaging against real `Pro Tools Audio Bridge 16` PCM.
+- Final packaged app after selected-channel routing:
+  - `dist/mac-arm64/SurroundStreamer.app/Contents/Resources/app.asar` updated at 2026-05-28 21:22:32.
+  - `dist/mac-arm64/SurroundStreamer.app/Contents/Resources/audio-backend` updated at 2026-05-28 21:22:43.
+  - `dist/mac-arm64/SurroundStreamer.app/Contents/MacOS/SurroundStreamer` updated at 2026-05-28 21:22:43.
+- Final live CoreAudio monitor verification result:
+  - target: `Pro Tools Audio Bridge 16`, 16ch, 48 kHz.
+  - captured input included finite nonzero signal on ch1, ch2, ch3, ch5, and ch6 during the run.
+  - C/LFE Stereo Pair was finite and non-silent on C.
+  - SL/SR Stereo Pair was finite and non-silent.
+  - Stereo downmix output was finite and non-silent: left peak 0.309981, right peak 0.327827.
+  - Binaural output was finite and non-silent: left peak 0.221303, right peak 0.212363.
+- User reported the packaged app was still noisy.
+- Found the verification gap:
+  - `verify-live-coreaudio-monitor.cjs` was feeding chunks sized to `frameBytes * 256`;
+  - real stdout/IPC chunks are not guaranteed to end on a 16ch Float32 frame boundary;
+  - `WebAudioMonitor.pushChunk()` passed each chunk directly to the worklet;
+  - `monitor-worklet.js` used `Math.floor(samples.length / channels)` per chunk and dropped any trailing partial frame;
+  - dropping those trailing samples shifts the next chunk's channel alignment, so ch1/ch2/ch3... no longer remain in fixed columns;
+  - that channel-column drift matches the reported sample-rate-mismatch-like noise, especially when Stereo downmix/Binaural sum multiple channels.
+- Fixed PCM chunk framing:
+  - `WebAudioMonitor` now keeps `pcmByteRemainder`;
+  - only full `channels * 4` byte frames are posted to the worklet;
+  - leftover bytes are prepended to the next chunk;
+  - the buffer is reset on monitor start/stop.
+- Hardened verification:
+  - `verify-monitor-web-audio.cjs` now feeds deliberately fragmented chunks: 3, 17, 64, 509, 11, 2048, and 5 bytes.
+  - `verify-live-coreaudio-monitor.cjs` now feeds real CoreAudio PCM in chunks of `frameBytes * 256 + 17`, intentionally crossing frame boundaries.
+- Verification after PCM chunk framing:
+  - `node scripts/dev/verify-monitor-output.mjs` passed with fragmented chunks.
+  - `node_modules/.bin/electron scripts/dev/verify-live-coreaudio-monitor.cjs` passed against real `Pro Tools Audio Bridge 16` PCM with non-frame-aligned chunks.
+  - `npm run build:mac:dir` passed.
+  - `node scripts/dev/verify-monitor-output.mjs` passed again after packaging.
+  - `node_modules/.bin/electron scripts/dev/verify-live-coreaudio-monitor.cjs` passed again after packaging with real `Pro Tools Audio Bridge 16` PCM and non-frame-aligned chunks.
+- Final packaged app after PCM chunk framing:
+  - `dist/mac-arm64/SurroundStreamer.app/Contents/Resources/app.asar` updated at 2026-05-28 21:29:32.
+  - `dist/mac-arm64/SurroundStreamer.app/Contents/Resources/audio-backend` updated at 2026-05-28 21:29:42.
+  - `dist/mac-arm64/SurroundStreamer.app/Contents/MacOS/SurroundStreamer` updated at 2026-05-28 21:29:42.
+- Final fragmented live CoreAudio monitor verification result:
+  - target: `Pro Tools Audio Bridge 16`, 16ch, 48 kHz.
+  - captured input included finite nonzero signal on ch1, ch2, ch3, ch5, and ch6 during the run.
+  - C/LFE Stereo Pair was finite and non-silent on C.
+  - SL/SR Stereo Pair was finite and non-silent.
+  - Stereo downmix output was finite and non-silent: left peak 0.111893, right peak 0.151929.
+  - Binaural output was finite and non-silent: left peak 0.106890, right peak 0.154694.
+- User reported the packaged app remained noisy and asked whether the current noise source had actually been identified.
+- Rechecked the implementation and found the previous frame-boundary explanation was incomplete:
+  - main-process `flushMonitorAudio()` was already sending monitor IPC chunks on `monitorFormat.channels * 4` byte frame boundaries;
+  - renderer-side byte remainder handling is still defensive, but it does not fully explain the current packaged app noise.
+- Web research checked:
+  - W3C/MDN `ChannelSplitterNode`/`ChannelMergerNode` behavior: splitting/merging mono streams is valid, but outputs above active input channel count cannot recover missing browser channels.
+  - Electron IPC uses Structured Clone serialization, so binary audio payloads must be treated as copied `ArrayBuffer`/typed-array data and verified at process boundaries.
+  - Apple/CoreAudio documentation confirms audio buffers may be interleaved or non-interleaved depending on the stream format; helper output must therefore be validated as concrete Float32 PCM, not inferred from device names.
+- Changed the architecture for the failing modes:
+  - Stereo Pair remains the channel audition path.
+  - Stereo downmix and Binaural no longer send 16ch PCM to renderer WebAudio for multi-output processing.
+  - main now pre-renders Stereo downmix/Binaural through FFmpeg from the 16ch backend PCM to 2ch Float32 PCM.
+  - renderer receives that 2ch pre-rendered monitor output and plays it as a plain stereo pair.
+  - expected log for these modes is now `Starting filtered audio input preview monitor (16ch -> 2ch @ 48 kHz)`.
+- Added `scripts/dev/verify-live-filtered-monitor.cjs`:
+  - captures real `Pro Tools Audio Bridge 16` PCM;
+  - feeds deliberately fragmented chunks to FFmpeg;
+  - verifies FFmpeg Stereo downmix and FFmpeg Binaural 2ch output are finite, non-silent, and non-clipping.
+- Verification after FFmpeg pre-render monitor routing:
+  - `node scripts/dev/verify-monitor-output.mjs` passed.
+  - `node scripts/dev/verify-live-filtered-monitor.cjs` passed against real `Pro Tools Audio Bridge 16` PCM.
+  - `npm run build` passed.
+  - `npm run build:mac:dir` passed.
+  - `node scripts/dev/verify-live-filtered-monitor.cjs` passed again after packaging.
+  - `node scripts/dev/verify-monitor-output.mjs` passed again after packaging.
+- Final packaged app after FFmpeg pre-render monitor routing:
+  - `dist/mac-arm64/SurroundStreamer.app/Contents/Resources/app.asar` updated at 2026-05-28 21:46:37.
+  - `dist/mac-arm64/SurroundStreamer.app/Contents/Resources/audio-backend` updated at 2026-05-28 21:46:47.
+  - `dist/mac-arm64/SurroundStreamer.app/Contents/MacOS/SurroundStreamer` updated at 2026-05-28 21:46:47.
+- Final filtered live CoreAudio monitor verification result:
+  - target: `Pro Tools Audio Bridge 16`, 16ch, 48 kHz.
+  - captured input included finite nonzero signal on ch1, ch2, ch3, ch5, and ch6 during the run.
+  - FFmpeg Stereo downmix output was finite and non-silent: left peak 0.123334, right peak 0.123562.
+  - FFmpeg Binaural output was finite and non-silent: left peak 0.082333, right peak 0.082188.
+- User reported the output now sounded like stuttering.
+- Classified this as a different failure mode from the earlier channel-loss/noise reports:
+  - stuttering is consistent with playback underrun;
+  - LR-only/ch3+ channel loss is not explained by underrun and was treated as channel routing/browser-direct behavior;
+  - sample-rate-like noise can be caused by several issues, including frame alignment and underrun, so it should not be assigned to one cause without measurement.
+- User reported again that ch3+ were still dropped in Stereo downmix and Binaural.
+- Found the concrete channel-selection bug:
+  - `selectedMonitorFormat()` and `initialMonitorFormat()` derived `monitorChannelIndexes` from `selectedChannelIndexes()`;
+  - when the stream/channel selection was L/R `[0,1]`, Stereo Pair could still audition ch3+ through `monitorPairStart`, but Stereo downmix and Binaural mixed only `[0,1]`;
+  - this exactly matched the symptom: Stereo Pair works per pair, while Stereo downmix/Binaural contain only ch1/ch2.
+- Fixed device-input monitor index selection:
+  - for device input Stereo downmix and Binaural, `monitorChannelIndexes` is now all current source PCM channels `0..N-1`;
+  - file input still honors selected stream channels;
+  - the PCM frame stride remains the real device channel count.
+- Added a regression check to `scripts/dev/verify-monitor-output.mjs`:
+  - device input + downmix + selected channels `[0,1]` + 8ch source must return `[0,1,2,3,4,5,6,7]`;
+  - device input + binaural uses the same all-channel source indexes;
+  - file input + downmix + selected channels `[0,1]` remains `[0,1]`.
+- Verification after the device-input monitor index fix:
+  - `git diff --check` passed.
+  - `node scripts/dev/verify-monitor-output.mjs` passed.
+  - `npm run build:mac:dir` passed.
+  - packaged `app.asar` updated at 2026-05-28 22:19:23.
+  - packaged `audio-backend` and `Contents/MacOS/SurroundStreamer` updated at 2026-05-28 22:19:34.
+  - packaged `app.asar` contains `monitorChannelIndexesForMonitorMode`.
+  - `node scripts/dev/verify-monitor-output.mjs` passed again after packaging.
+  - `node_modules/.bin/electron scripts/dev/verify-live-coreaudio-monitor.cjs` passed after packaging against `Pro Tools Audio Bridge 16`, 16ch, 48 kHz.
+- Final live CoreAudio verification result after the latest fix:
+  - captured input had finite nonzero signal on ch1, ch2, ch3, ch5, and ch6;
+  - C/LFE Stereo Pair output was finite and non-silent on C;
+  - SL/SR Stereo Pair output was finite and non-silent;
+  - Stereo downmix output was finite and non-silent: left peak 0.266441, right peak 0.257986;
+  - Binaural output was finite and non-silent: left peak 0.137724, right peak 0.138106.
+- Updated `scripts/dev/verify-live-coreaudio-monitor.cjs` default capture length from 1400 ms to 3000 ms to avoid false silent captures, and made verification failures exit nonzero.
+- User reported that ch3+ were still not present in monitor output, and clarified that the problem was not "channels returned to 2ch" but "only LR reaches the output."
+- Found the actual missed build artifact:
+  - `src/renderer/src/monitor-worklet.js` had the new Downmix/Binaural direct-mix implementation;
+  - the packaged app does not load that source file directly;
+  - Electron loads `src/renderer/public/monitor-worklet.js` into `out/renderer/monitor-worklet.js`;
+  - that public worklet was stale and ignored `outputMode`, `channelLabels`, and `monitorChannelIndexes`;
+  - with `numberOfOutputs: 2` for Downmix/Binaural, the stale worklet output only source ch1 to output 0 and source ch2 to output 1.
+- Fixed the stale worklet artifact:
+  - synced `src/renderer/public/monitor-worklet.js` from `src/renderer/src/monitor-worklet.js`;
+  - added `scripts/sync-monitor-worklet.mjs`;
+  - added `npm run build:worklet`;
+  - made `dev`, `start`, and `build` run the worklet sync before launching/building.
+- Hardened verification:
+  - `scripts/dev/verify-monitor-output.mjs` now fails if public `monitor-worklet.js` differs from source;
+  - `scripts/dev/verify-monitor-web-audio.cjs` now uses the public worklet by default, which is the path the app loads;
+  - when `out/renderer/monitor-worklet.js` exists, verification also renders the WebAudio graph with the built worklet.
+- Verification after fixing the stale public worklet:
+  - `git diff --check` passed.
+  - `npm run build:worklet` passed.
+  - `node scripts/dev/verify-monitor-output.mjs` passed using the public worklet.
+  - `npm run build:mac:dir` passed.
+  - built `out/renderer/monitor-worklet.js` contains `outputMode`, `monitorChannelIndexes`, and `mixStereoFrame`.
+  - packaged `app.asar` contains `outputMode`, `monitorChannelIndexes`, and `mixStereoFrame`.
+  - packaged `app.asar` updated at 2026-05-28 22:32:41.
+  - packaged `audio-backend` and `Contents/MacOS/SurroundStreamer` updated at 2026-05-28 22:32:51.
+  - `node scripts/dev/verify-monitor-output.mjs` passed again after packaging using both public and built worklets.
+- Web research checked:
+  - MDN/Web Audio docs describe underrun as the output side needing frames that are not available, producing dropouts/glitches;
+  - FFmpeg pipe output can be bursty and should not be assumed to arrive at perfectly even playback cadence;
+  - Electron/WebAudio streaming needs an application-side jitter buffer when the producer is a child process pipe.
+- Added underrun protection in the monitor worklet:
+  - worklet now waits for `startBufferedFrames` before playback starts;
+  - after queue starvation, playback returns to silence and waits for the buffer to refill before restarting;
+  - this avoids repeated one-buffer/empty-buffer toggling that sounds like stuttering.
+- Increased filtered pre-render monitor latency:
+  - Stereo downmix/Binaural pre-render monitor now uses at least 200 ms latency.
+- Verification after underrun protection:
+  - `node scripts/dev/verify-monitor-output.mjs` passed.
+  - `node scripts/dev/verify-live-filtered-monitor.cjs` passed against real `Pro Tools Audio Bridge 16` PCM.
+  - `npm run build:mac:dir` passed.
+  - `node scripts/dev/verify-monitor-output.mjs` passed again after packaging.
+  - `node scripts/dev/verify-live-filtered-monitor.cjs` passed again after packaging.
+- Final packaged app after underrun protection:
+  - `dist/mac-arm64/SurroundStreamer.app/Contents/Resources/app.asar` updated at 2026-05-28 21:51:52.
+  - `dist/mac-arm64/SurroundStreamer.app/Contents/Resources/audio-backend` updated at 2026-05-28 21:52:02.
+  - `dist/mac-arm64/SurroundStreamer.app/Contents/MacOS/SurroundStreamer` updated at 2026-05-28 21:52:03.
+- Final filtered live CoreAudio monitor verification after underrun protection:
+  - target: `Pro Tools Audio Bridge 16`, 16ch, 48 kHz.
+  - captured input included finite nonzero signal on ch1, ch2, ch3, ch5, and ch6 during the run.
+  - FFmpeg Stereo downmix output was finite and non-silent: left peak 0.451279, right peak 0.407287.
+  - FFmpeg Binaural output was finite and non-silent: left peak 0.316344, right peak 0.298450.
+- User correctly rejected the 200 ms buffer as unusable for performance monitoring.
+- Reverted the FFmpeg pre-render monitor routing for Stereo downmix/Binaural:
+  - child-process pre-rendering can add unacceptable latency and pipe jitter;
+  - `shouldUsePreRenderedStereoMonitor()` now returns false.
+- Replaced renderer-side multi-node mixing with low-latency worklet mixing:
+  - backend PCM still arrives as the real interleaved source channel count;
+  - for Stereo downmix/Binaural, `AudioWorkletProcessor` now emits exactly two mono outputs;
+  - it reads each interleaved frame once and mixes selected channels directly inside the audio render callback;
+  - this avoids both the old WebAudio multi-node fanout graph and the high-latency FFmpeg pre-render path.
+- Device input monitor low-latency mode now applies to all monitor modes, not only Stereo Pair.
+- Verification after low-latency worklet mixing:
+  - `node scripts/dev/verify-monitor-output.mjs` passed.
+  - `node_modules/.bin/electron scripts/dev/verify-live-coreaudio-monitor.cjs` could not complete because current `Pro Tools Audio Bridge 16` capture was silent on ch1-ch16 during the run.
+  - `npm run build:mac:dir` passed.
+  - `node scripts/dev/verify-monitor-output.mjs` passed again after packaging.
+- Final packaged app after low-latency worklet mixing:
+  - `dist/mac-arm64/SurroundStreamer.app/Contents/Resources/app.asar` updated at 2026-05-28 21:57:48.
+  - `dist/mac-arm64/SurroundStreamer.app/Contents/Resources/audio-backend` updated at 2026-05-28 21:58:00.
+  - `dist/mac-arm64/SurroundStreamer.app/Contents/MacOS/SurroundStreamer` updated at 2026-05-28 21:58:00.
+- User objected that ch3+ must not be dropped and that the implementation must preserve channels.
+- Removed the previous FFmpeg pre-render code path entirely:
+  - removed `startFilteredInputDeviceMonitor()`;
+  - removed `shouldUsePreRenderedStereoMonitor()`;
+  - removed renderer `renderedMonitorOutput` handling;
+  - verified no `filtered audio input preview`, `16ch -> 2ch`, or `renderedMonitorOutput` symbols remain in source or built output.
+- Channel-preserving invariant after this cleanup:
+  - Mac backend input monitor starts with the real device channel count, for example 16ch;
+  - main process forwards interleaved Float32 PCM with that channel count;
+  - renderer `WebAudioMonitor` starts with the same source channel count;
+  - Stereo Pair reads source channels directly;
+  - Stereo downmix/Binaural mix selected source channel indexes inside the AudioWorklet but do not reduce the source PCM before the worklet.
+- Verification after removing the 2ch pre-render path:
+  - `node scripts/dev/verify-monitor-output.mjs` passed.
+  - `npm run build:mac:dir` passed.
+  - `node scripts/dev/verify-monitor-output.mjs` passed again after packaging.
+- Final packaged app after 2ch pre-render removal:
+  - `dist/mac-arm64/SurroundStreamer.app/Contents/Resources/app.asar` updated at 2026-05-28 22:04:10.
+  - `dist/mac-arm64/SurroundStreamer.app/Contents/Resources/audio-backend` updated at 2026-05-28 22:04:21.
+  - `dist/mac-arm64/SurroundStreamer.app/Contents/MacOS/SurroundStreamer` updated at 2026-05-28 22:04:21.

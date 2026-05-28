@@ -709,6 +709,35 @@ static void requestDeviceBufferFrameSize(AudioObjectID deviceID, UInt32 requeste
   fflush(stderr);
 }
 
+static BOOL prepareStreamContext(StreamContext *context, AudioStreamBasicDescription format, NSError **error) {
+  if (!context) {
+    return NO;
+  }
+
+  context->format = format;
+  context->scratchBufferSize = 1024 * 1024;
+  context->scratchBuffer = calloc(context->scratchBufferSize, 1);
+  if (!context->scratchBuffer) {
+    if (error) {
+      *error = [NSError errorWithDomain:@"AudioTapHelper"
+                                   code:-4
+                               userInfo:@{NSLocalizedDescriptionKey: @"Failed to allocate PCM scratch buffer"}];
+    }
+    return NO;
+  }
+
+  return YES;
+}
+
+static void disposeStreamContext(StreamContext *context) {
+  if (!context) {
+    return;
+  }
+  free(context->scratchBuffer);
+  context->scratchBuffer = NULL;
+  context->scratchBufferSize = 0;
+}
+
 static OSStatus captureIOProc(AudioObjectID inDevice,
                               const AudioTimeStamp *inNow,
                               const AudioBufferList *inInputData,
@@ -1032,15 +1061,7 @@ static BOOL streamPCM(pid_t pid, NSString *deviceUID, NSInteger streamIndex, UIn
 
     requestDeviceBufferFrameSize(aggregateDeviceID, requestedBufferFrames);
 
-    context.format = format;
-    context.scratchBufferSize = 1024 * 1024;
-    context.scratchBuffer = calloc(context.scratchBufferSize, 1);
-    if (!context.scratchBuffer) {
-      if (error) {
-        *error = [NSError errorWithDomain:@"AudioTapHelper"
-                                     code:-4
-                                 userInfo:@{NSLocalizedDescriptionKey: @"Failed to allocate PCM scratch buffer"}];
-      }
+    if (!prepareStreamContext(&context, format, error)) {
       goto cleanup;
     }
 
@@ -1081,7 +1102,7 @@ static BOOL streamPCM(pid_t pid, NSString *deviceUID, NSInteger streamIndex, UIn
     if (tapID != kAudioObjectUnknown) {
       AudioHardwareDestroyProcessTap(tapID);
     }
-    free(context.scratchBuffer);
+    disposeStreamContext(&context);
     return success;
   }
 
@@ -1119,15 +1140,7 @@ static BOOL streamInputDevicePCM(NSString *deviceUID, NSInteger streamIndex, NSE
     goto cleanup;
   }
 
-  context.format = format;
-  context.scratchBufferSize = 1024 * 1024;
-  context.scratchBuffer = calloc(context.scratchBufferSize, 1);
-  if (!context.scratchBuffer) {
-    if (error) {
-      *error = [NSError errorWithDomain:@"AudioTapHelper"
-                                   code:-4
-                               userInfo:@{NSLocalizedDescriptionKey: @"Failed to allocate PCM scratch buffer"}];
-    }
+  if (!prepareStreamContext(&context, format, error)) {
     goto cleanup;
   }
 
@@ -1161,7 +1174,7 @@ cleanup:
     AudioDeviceStop(deviceID, ioProcID);
     AudioDeviceDestroyIOProcID(deviceID, ioProcID);
   }
-  free(context.scratchBuffer);
+  disposeStreamContext(&context);
   return success;
 }
 
