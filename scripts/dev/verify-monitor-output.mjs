@@ -13,6 +13,7 @@ const sourceValue = 0.2
 verifyRendererRouting()
 verifyRendererMonitorIndexSelection()
 verifyBundledWorkletSource()
+verifyStreamingMonitorRouting()
 await verifyWebAudioGraph()
 await verifyFfmpegDownmix()
 console.log('monitor output verification passed: ch1-ch8 are finite and audible')
@@ -107,6 +108,22 @@ function verifyBundledWorkletSource() {
   for (const token of ['outputMode', 'monitorChannelIndexes', 'mixStereoFrame']) {
     if (!publicSource.includes(token)) {
       throw new Error(`renderer public monitor-worklet.js is missing ${token}`)
+    }
+  }
+}
+
+function verifyStreamingMonitorRouting() {
+  const managerPath = resolve('src/main/ffmpeg-manager.js')
+  const source = readFileSync(managerPath, 'utf8')
+  const requiredSnippets = [
+    'this.monitorPipeEnabled || this.shouldUseInputPcmMonitor(config)',
+    'forwardMonitor: this.shouldUseInputPcmMonitor(this.config)',
+    'if (this.shouldUseInputPcmMonitor(config)) return false',
+    'shouldUseInputPcmMonitor(config)'
+  ]
+  for (const snippet of requiredSnippets) {
+    if (!source.includes(snippet)) {
+      throw new Error(`streaming monitor routing is missing: ${snippet}`)
     }
   }
 }

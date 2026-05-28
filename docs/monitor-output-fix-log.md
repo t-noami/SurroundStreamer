@@ -301,6 +301,19 @@
 - Fixed streaming WebAudio monitor output device selection:
   - added `monitorWebAudioOutputDeviceId(config)`;
   - backend PCM streaming monitor paths now use `monitorDeviceId || monitorOutputDeviceId || selectedBrowserMonitorOutputDeviceId()`.
+- User reported the selected output device now receives monitor audio, but playback is intermittent during streaming.
+- Clarified streaming monitor architecture:
+  - the 2ch Downmix/Binaural render itself is not FFmpeg pre-rendered anymore;
+  - however streaming monitor transport still used FFmpeg `[mon] -> pipe:3`;
+  - that path can deliver bursty PCM and cause WebAudio monitor underruns.
+- Fixed streaming monitor transport for device input:
+  - device-input streaming monitor no longer enables the FFmpeg monitor pipe;
+  - backend input PCM is tee'd to the renderer monitor before it is written to FFmpeg stdin;
+  - this keeps streaming monitor audio on the same raw input PCM source as preview monitor while preserving the FFmpeg stream encode path.
+- Increased the low-latency worklet safety buffer:
+  - low-latency target buffer now has a 20 ms floor;
+  - low-latency flush chunks now target 10 ms instead of 5 ms;
+  - this avoids dropping buffered audio below the worklet restart threshold and reduces intermittent output.
 - Web research checked:
   - MDN/Web Audio docs describe underrun as the output side needing frames that are not available, producing dropouts/glitches;
   - FFmpeg pipe output can be bursty and should not be assumed to arrive at perfectly even playback cadence;

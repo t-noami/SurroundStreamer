@@ -70,11 +70,14 @@ class PcmMonitorSourceProcessor extends AudioWorkletProcessor {
   }
 
   updateBufferLimits() {
-    this.targetBufferedFrames = Math.max(128, Math.floor((sampleRate * this.latencyMs) / 1000))
+    const requestedFrames = Math.floor((sampleRate * this.latencyMs) / 1000)
+    this.targetBufferedFrames = this.lowLatency
+      ? Math.max(512, Math.floor(sampleRate * 0.02), requestedFrames)
+      : Math.max(128, requestedFrames)
     this.startBufferedFrames = this.lowLatency
-      ? Math.max(128, Math.floor(sampleRate * 0.01))
+      ? Math.max(256, Math.floor(sampleRate * 0.01))
       : this.targetBufferedFrames
-    const extraFrames = this.lowLatency ? Math.floor(sampleRate * 0.02) : this.targetBufferedFrames
+    const extraFrames = this.lowLatency ? Math.floor(sampleRate * 0.04) : this.targetBufferedFrames
     this.maxBufferedFrames = Math.max(256, this.targetBufferedFrames + extraFrames)
   }
 

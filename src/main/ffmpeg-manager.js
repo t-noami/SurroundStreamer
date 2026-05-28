@@ -84,7 +84,8 @@ class FFmpegManager extends EventEmitter {
     this.pendingPeaks = {}
     this.monitorFormat = this.getMonitorFormat(config)
     this.monitorPipeEnabled = this.shouldUseFfmpegMonitor(config)
-    this.monitorForwarding = !!config.monitorEnabled && this.monitorPipeEnabled
+    this.monitorForwarding =
+      !!config.monitorEnabled && (this.monitorPipeEnabled || this.shouldUseInputPcmMonitor(config))
     const shoutcast1RelayEnabled = this.shouldUseShoutcast1Relay(config)
     const shoutcast1RelayPipeIndex = shoutcast1RelayEnabled
       ? this.monitorPipeEnabled
@@ -716,7 +717,9 @@ class FFmpegManager extends EventEmitter {
       throw new Error('Input device capture process is not running')
     }
 
-    this.pipeBackendProcessToFfmpeg(this.inputDeviceProcess)
+    this.pipeBackendProcessToFfmpeg(this.inputDeviceProcess, {
+      forwardMonitor: this.shouldUseInputPcmMonitor(this.config)
+    })
     this.inputDeviceProcess.stdout.resume()
   }
 
@@ -1894,9 +1897,18 @@ class FFmpegManager extends EventEmitter {
   }
 
   shouldUseFfmpegMonitor(config) {
+    if (this.shouldUseInputPcmMonitor(config)) return false
     if (this.shouldUseBackendOutputMonitor(config)) return true
     if (config?.directInputMonitor) return false
     return true
+  }
+
+  shouldUseInputPcmMonitor(config) {
+    return (
+      config?.inputType === 'device' &&
+      !!config?.monitorEnabled &&
+      !this.shouldUseBackendOutputMonitor(config)
+    )
   }
 
   shouldUseBackendOutputMonitor(config) {
@@ -2210,8 +2222,8 @@ class FFmpegManager extends EventEmitter {
   monitorAudioTargetBytes() {
     const sampleRate = Math.max(1, Number(this.monitorFormat?.sampleRate || 48000))
     const frameBytes = this.monitorAudioFrameBytes()
-    const bufferSeconds = this.shouldFlushMonitorAudioLowLatency() ? 0.005 : 0.02
-    const minFrames = this.shouldFlushMonitorAudioLowLatency() ? 128 : Math.ceil(4096 / frameBytes)
+    const bufferSeconds = this.shouldFlushMonitorAudioLowLatency() ? 0.01 : 0.02
+    const minFrames = this.shouldFlushMonitorAudioLowLatency() ? 256 : Math.ceil(4096 / frameBytes)
     return Math.max(frameBytes * minFrames, Math.floor(sampleRate * frameBytes * bufferSeconds))
   }
 
