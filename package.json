@@ -1,6 +1,6 @@
 {
   "name": "surround-streamer",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "macOS Ogg Opus surround audio streamer for Icecast",
   "main": "./out/main/index.js",
   "author": {
