@@ -80,6 +80,14 @@
                 <option value="256">256 kbps</option>
               </select>
             </div>
+            <div class="form-group" id="opus-bitrate-mode-group">
+              <label for="opus-bitrate-mode">Opus Bitrate Mode</label>
+              <select id="opus-bitrate-mode">
+                <option value="cbr" selected>CBR</option>
+                <option value="cvbr">CVBR</option>
+                <option value="vbr">VBR</option>
+              </select>
+            </div>
             <div class="form-group">
               <label for="sample-rate-select">Sample Rate</label>
               <select id="sample-rate-select">
@@ -249,7 +257,12 @@
       </main>
     </div>
 
-    <div id="stream-start-overlay" class="stream-start-overlay hidden" role="status" aria-live="polite">
+    <div
+      id="stream-start-overlay"
+      class="stream-start-overlay hidden"
+      role="status"
+      aria-live="polite"
+    >
       <div class="stream-start-dialog">
         <div class="stream-start-spinner" aria-hidden="true"></div>
         <div>
@@ -272,7 +285,11 @@
         <p id="stream-start-error-message" class="stream-start-error-message">
           Could not connect to the streaming server.
         </p>
-        <button id="btn-dismiss-stream-start-error" class="btn stream-start-error-button" type="button">
+        <button
+          id="btn-dismiss-stream-start-error"
+          class="btn stream-start-error-button"
+          type="button"
+        >
           OK
         </button>
       </div>

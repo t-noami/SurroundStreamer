@@ -150,10 +150,13 @@ On macOS, audio-input streaming requires microphone permission. If streaming doe
 
 - `Encoding Format`: Selects `Ogg Opus / Icecast (surround)`, `Ogg Opus + stereo MP3`, or `Stereo MP3 only`.
 - `Opus Bitrate (Stereo Equivalent)`: Opus bitrate expressed as a stereo-equivalent value. The actual bitrate increases with the selected channel count. This is hidden when `Stereo MP3 only` is selected.
+- `Opus Bitrate Mode`: Selects the Opus rate-control mode. `CBR` is the default and maps to FFmpeg/libopus `-vbr off`. `CVBR` maps to `-vbr constrained`. `VBR` maps to `-vbr on`.
 - `Sample Rate`: Opus stream sample rate. The default is 48 kHz.
 - `Stream Channel Template`: Selects the stream channel layout.
 - `Stream Channels`: Selects the channels included in the stream.
 - `MP3 Audio Source`: Selects whether the MP3 output uses the L/R stereo pair, a stereo downmix, or KU100 Near-field HRIR processing.
+
+Use `CBR` when receiver compatibility is the priority. `CVBR` and `VBR` preserve more Opus rate-control flexibility, but silence or very simple audio can still drop to a much lower byte rate than the selected target bitrate. Some live HTTP/Ogg/Opus receivers may treat those low-byte-rate periods as an underrun or disconnect. The MP3 simulcast encoder remains CBR through `libmp3lame -b:a`.
 
 Standard templates are `Mono`, `Stereo`, `Stereo + C`, `5.1`, and `7.1`. For multichannel sources, `5.1` is the default practical starting point.
 

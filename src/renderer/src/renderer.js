@@ -24,6 +24,8 @@ const encodingFormatSelect = document.getElementById('encoding-format')
 const opusBitrateGroup = document.getElementById('opus-bitrate-group')
 const bitrateSelect = document.getElementById('bitrate-select')
 const bitrateActualValue = document.getElementById('bitrate-actual-value')
+const opusBitrateModeGroup = document.getElementById('opus-bitrate-mode-group')
+const opusBitrateModeSelect = document.getElementById('opus-bitrate-mode')
 const sampleRateSelect = document.getElementById('sample-rate-select')
 const channelTemplateSelect = document.getElementById('channel-template-select')
 const channelSelector = document.getElementById('channel-selector')
@@ -80,6 +82,7 @@ const mp3SimulcastDependentFields = [
 const encodingSettingsFields = [
   encodingFormatSelect,
   bitrateSelect,
+  opusBitrateModeSelect,
   sampleRateSelect,
   channelTemplateSelect,
   btnSelectDefaultChannels
@@ -94,6 +97,8 @@ const defaultIcecastSettings = {
   port: '8000',
   mountPoint: '/stream',
   sourcePassword: '',
+  opusBitrateMode: 'cbr',
+  opusBitrateModeVersion: 2,
   mp3ServerType: 'icecast',
   mp3Bitrate: '128k',
   mp3AudioMode: 'stereo',
@@ -395,6 +400,8 @@ function currentIcecastSettings() {
     port: String(icecastPortInput.value || '').trim(),
     mountPoint: normalizeMountPoint(mountPointInput.value),
     sourcePassword: sourcePasswordInput.value,
+    opusBitrateMode: opusBitrateMode(),
+    opusBitrateModeVersion: 2,
     mp3ServerType: mp3ServerTypeSelect.value,
     mp3Bitrate: mp3BitrateSelect.value,
     mp3AudioMode: mp3AudioModeSelect.value,
@@ -408,6 +415,20 @@ function currentIcecastSettings() {
 function encodingFormat() {
   const value = encodingFormatSelect.value
   return ['opus', 'opus-mp3', 'mp3'].includes(value) ? value : defaultIcecastSettings.encodingFormat
+}
+
+function opusBitrateMode() {
+  const value = opusBitrateModeSelect.value
+  return ['cbr', 'cvbr', 'vbr'].includes(value) ? value : defaultIcecastSettings.opusBitrateMode
+}
+
+function normalizedStoredOpusBitrateMode(settings) {
+  if (settings?.opusBitrateMode === 'vbr' && settings?.opusBitrateModeVersion !== 2) {
+    return 'cvbr'
+  }
+  return ['cbr', 'cvbr', 'vbr'].includes(settings?.opusBitrateMode)
+    ? settings.opusBitrateMode
+    : defaultIcecastSettings.opusBitrateMode
 }
 
 function isOpusStreamEnabled() {
@@ -433,6 +454,7 @@ function applyIcecastSettings(settings) {
     merged.sourcePassword === undefined
       ? defaultIcecastSettings.sourcePassword
       : merged.sourcePassword
+  opusBitrateModeSelect.value = normalizedStoredOpusBitrateMode(merged)
   mp3ServerTypeSelect.value = merged.mp3ServerType || defaultIcecastSettings.mp3ServerType
   mp3BitrateSelect.value = merged.mp3Bitrate || defaultIcecastSettings.mp3Bitrate
   mp3AudioModeSelect.value = merged.mp3AudioMode || defaultIcecastSettings.mp3AudioMode
@@ -451,7 +473,9 @@ function updateMp3SimulcastControls(isLocked = isStreaming) {
   const opusEnabled = isOpusStreamEnabled()
   const isShoutcast = mp3ServerTypeSelect.value === 'shoutcast1'
   opusBitrateGroup.classList.toggle('hidden', !opusEnabled)
+  opusBitrateModeGroup.classList.toggle('hidden', !opusEnabled)
   bitrateSelect.disabled = isLocked || !opusEnabled
+  opusBitrateModeSelect.disabled = isLocked || !opusEnabled
   opusIcecastSettings.classList.toggle('hidden', !opusEnabled)
   mp3OutputSettings.classList.toggle('hidden', !mp3Enabled)
   icecastHostInput.disabled = isLocked || !opusEnabled
@@ -1570,7 +1594,7 @@ function selectedBrowserMonitorOutputDeviceId() {
   return option?.dataset.backendOutput === 'true' ? '' : monitorDeviceList.value || ''
 }
 
-function shouldUseLowLatencyMonitor(inputType = currentInputType, mode = monitorMode.value) {
+function shouldUseLowLatencyMonitor(inputType = currentInputType) {
   return inputType === 'device'
 }
 
@@ -2147,6 +2171,7 @@ encodingFormatSelect.addEventListener('change', () => {
 })
 mp3ServerTypeSelect.addEventListener('change', () => updateMp3SimulcastControls())
 bitrateSelect.addEventListener('change', updateBitrateActualLabel)
+opusBitrateModeSelect.addEventListener('change', saveIcecastSettings)
 channelTemplateSelect.addEventListener('change', () => {
   updateChannelControls(true, channelTemplateSelect.value)
   applyMonitorSettings('template')
@@ -2212,6 +2237,7 @@ btnStart.addEventListener('click', async () => {
     streamChannelLabels: selectedStreamChannelLabels(),
     sampleRate: inputInfo.sampleRate || Number(sampleRateSelect.value),
     bitrate: actualBitrateValue(),
+    opusBitrateMode: opusBitrateMode(),
     monitorEnabled: isMonitorAvailable() && monitorEnabled.checked,
     directInputMonitor:
       currentInputType === 'device' && isMonitorAvailable() && monitorEnabled.checked,
