@@ -65,22 +65,11 @@ when the input-device helper closes, which causes FFmpeg to finalize/close the O
 The existing sender log on this machine ends at 2026-05-29, so there is no matching
 SurroundStreamer stderr/source log for the 2026-05-31 receiver failure.
 
-## Added Diagnostic Logging
+## Temporary Diagnostic Logging
 
-`src/main/ffmpeg-manager.js` now logs input PCM statistics during streaming:
-
-- `Input PCM stats (...): ... fps, peak=..., silent=yes/no, nonFinite=...`
-- `Input PCM stalled: no chunks for ... while streaming`
-- `Input PCM resumed after ... without chunks`
-
-Interpretation:
-
-- Normal silence: about 48000 fps, `silent=yes`, `peak=0.0000000`, no stalls.
-- PCM supply stopped: no regular stats and an `Input PCM stalled` log.
-- Corrupt PCM: nonzero `nonFinite`.
-- Helper exit: `Input device capture exited ...` followed by FFmpeg closing.
-
-This separates "valid silent PCM" from "no PCM input" on the sender side.
+Temporary input PCM diagnostics were used during the live investigation to distinguish valid silent
+PCM from stopped PCM input. Those per-second diagnostics were removed after the investigation so
+release builds do not emit noisy monitor/source logs.
 
 ## Live Follow-Up
 

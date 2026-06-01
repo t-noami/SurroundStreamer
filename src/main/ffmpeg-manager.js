@@ -47,9 +47,6 @@ class FFmpegManager extends EventEmitter {
     this.shoutcast1RelaySocket = null
     this.shoutcast1RelayPipe = null
     this.shoutcast1RelayActive = false
-    this.inputPcmStats = this.createInputPcmStats()
-    this.inputPcmStallTimer = null
-    this.lastInputPcmChunkAt = 0
   }
 
   validateBackendSupport(config) {
@@ -85,7 +82,6 @@ class FFmpegManager extends EventEmitter {
     this.ffmpegStderrBuffer = ''
     this.recentFfmpegLines = []
     this.pendingPeaks = {}
-    this.resetInputPcmDiagnostics()
     this.monitorFormat = this.getMonitorFormat(config)
     this.monitorPipeEnabled = this.shouldUseFfmpegMonitor(config)
     this.monitorForwarding =
@@ -110,7 +106,6 @@ class FFmpegManager extends EventEmitter {
       this.status = 'idle'
       this.monitorForwarding = false
       this.monitorPipeEnabled = false
-      this.resetInputPcmDiagnostics()
       throw error
     }
 
@@ -145,7 +140,6 @@ class FFmpegManager extends EventEmitter {
       this.monitorFormat = null
       this.monitorForwarding = false
       this.monitorPipeEnabled = false
-      this.resetInputPcmDiagnostics()
       this.cleanupMonitorPlaybackProcess()
       this.resetMonitorAudioQueue()
       this.emit('monitor-stop')
@@ -242,8 +236,6 @@ class FFmpegManager extends EventEmitter {
       this.status = 'idle'
       this.monitorForwarding = false
       this.monitorPipeEnabled = false
-      this.flushInputPcmDiagnostics('ffmpeg-close')
-      this.resetInputPcmDiagnostics()
       this.cleanupMonitorPlaybackProcess()
       this.resetMonitorAudioQueue()
       this.emit('status', this.getStatus())
@@ -593,118 +585,8 @@ class FFmpegManager extends EventEmitter {
     return true
   }
 
-  createInputPcmStats() {
-    return {
-      windowStartAt: 0,
-      bytes: 0,
-      chunks: 0,
-      frames: 0,
-      peak: 0,
-      nonFinite: 0
-    }
-  }
-
-  resetInputPcmDiagnostics() {
-    if (this.inputPcmStallTimer) {
-      clearTimeout(this.inputPcmStallTimer)
-      this.inputPcmStallTimer = null
-    }
-    this.inputPcmStats = this.createInputPcmStats()
-    this.lastInputPcmChunkAt = 0
-  }
-
-  noteInputPcmChunk(data) {
-    if (!data?.byteLength) return
-
-    const now = Date.now()
-    const previousChunkAt = this.lastInputPcmChunkAt
-    if (previousChunkAt > 0) {
-      const gapMs = now - previousChunkAt
-      if (gapMs >= 1500) {
-        this.emit('log', {
-          type: 'system',
-          message: `Input PCM resumed after ${(gapMs / 1000).toFixed(2)}s without chunks`
-        })
-      }
-    }
-    this.lastInputPcmChunkAt = now
-    this.scheduleInputPcmStallCheck()
-
-    const stats = this.inputPcmStats || this.createInputPcmStats()
-    if (!stats.windowStartAt) {
-      stats.windowStartAt = now
-    }
-
-    stats.bytes += data.byteLength
-    stats.chunks += 1
-    stats.frames += Math.floor(data.byteLength / Math.max(1, this.inputPcmFrameBytes()))
-    this.measureInputPcmChunk(data, stats)
-    this.inputPcmStats = stats
-
-    if (now - stats.windowStartAt >= 1000) {
-      this.emitInputPcmStats('input-pcm')
-      this.inputPcmStats = this.createInputPcmStats()
-      this.inputPcmStats.windowStartAt = now
-    }
-  }
-
-  scheduleInputPcmStallCheck() {
-    if (this.inputPcmStallTimer) {
-      clearTimeout(this.inputPcmStallTimer)
-    }
-    this.inputPcmStallTimer = setTimeout(() => {
-      this.inputPcmStallTimer = null
-      if (!this.process || this.process.killed || this.status !== 'streaming') return
-      const elapsedMs = Date.now() - this.lastInputPcmChunkAt
-      if (this.lastInputPcmChunkAt > 0 && elapsedMs >= 1500) {
-        this.emit('log', {
-          type: 'error',
-          message: `Input PCM stalled: no chunks for ${(elapsedMs / 1000).toFixed(2)}s while streaming`
-        })
-      }
-    }, 1500)
-  }
-
-  measureInputPcmChunk(data, stats) {
-    const sampleBytes = data.byteLength - (data.byteLength % 4)
-    for (let offset = 0; offset < sampleBytes; offset += 4) {
-      const sample = data.readFloatLE(offset)
-      if (!Number.isFinite(sample)) {
-        stats.nonFinite += 1
-        continue
-      }
-      const abs = Math.abs(sample)
-      if (abs > stats.peak) {
-        stats.peak = abs
-      }
-    }
-  }
-
-  emitInputPcmStats(reason) {
-    const stats = this.inputPcmStats
-    if (!stats || stats.chunks === 0) return
-    const elapsedSeconds = Math.max(0.001, (Date.now() - stats.windowStartAt) / 1000)
-    const fps = stats.frames / elapsedSeconds
-    const silent = stats.peak < 1e-7
-    this.emit('log', {
-      type: 'system',
-      message: `Input PCM stats (${reason}): ${stats.frames} frames, ${stats.bytes} bytes, ${stats.chunks} chunks, ${fps.toFixed(0)} fps, peak=${stats.peak.toFixed(7)}, silent=${silent ? 'yes' : 'no'}, nonFinite=${stats.nonFinite}`
-    })
-  }
-
-  flushInputPcmDiagnostics(reason) {
-    this.emitInputPcmStats(reason)
-  }
-
-  inputPcmFrameBytes() {
-    const channels = this.config ? this.getDeviceInputChannels(this.config) : 1
-    return Math.max(1, Number(channels) || 1) * 4
-  }
-
   pipeBackendProcessToFfmpeg(backendProcess, { forwardMonitor = false } = {}) {
     backendProcess.stdout.on('data', (data) => {
-      this.noteInputPcmChunk(data)
-
       if (forwardMonitor && this.monitorForwarding) {
         this.queueMonitorAudio(data)
       }
@@ -825,8 +707,6 @@ class FFmpegManager extends EventEmitter {
           type: code === 0 ? 'system' : 'error',
           message: `Input device capture exited with code ${code}`
         })
-        this.flushInputPcmDiagnostics('input-device-close')
-        this.resetInputPcmDiagnostics()
         this.inputDeviceProcess = null
       })
     })
