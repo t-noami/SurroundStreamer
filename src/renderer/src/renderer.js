@@ -24,6 +24,8 @@ const encodingFormatSelect = document.getElementById('encoding-format')
 const opusBitrateGroup = document.getElementById('opus-bitrate-group')
 const bitrateSelect = document.getElementById('bitrate-select')
 const bitrateActualValue = document.getElementById('bitrate-actual-value')
+const opusBitrateModeGroup = document.getElementById('opus-bitrate-mode-group')
+const opusBitrateModeSelect = document.getElementById('opus-bitrate-mode')
 const sampleRateSelect = document.getElementById('sample-rate-select')
 const channelTemplateSelect = document.getElementById('channel-template-select')
 const channelSelector = document.getElementById('channel-selector')
@@ -80,6 +82,7 @@ const mp3SimulcastDependentFields = [
 const encodingSettingsFields = [
   encodingFormatSelect,
   bitrateSelect,
+  opusBitrateModeSelect,
   sampleRateSelect,
   channelTemplateSelect,
   btnSelectDefaultChannels
@@ -94,6 +97,8 @@ const defaultIcecastSettings = {
   port: '8000',
   mountPoint: '/stream',
   sourcePassword: '',
+  opusBitrateMode: 'cbr',
+  opusBitrateModeVersion: 2,
   mp3ServerType: 'icecast',
   mp3Bitrate: '128k',
   mp3AudioMode: 'stereo',
@@ -232,8 +237,7 @@ function setStreamStartPending(isPending) {
 function showStreamStartError(message) {
   setStreamStartPending(false)
   if (streamStartErrorMessage) {
-    streamStartErrorMessage.textContent =
-      message || 'Could not connect to the streaming server.'
+    streamStartErrorMessage.textContent = message || 'Could not connect to the streaming server.'
   }
   streamStartErrorOverlay?.classList.remove('hidden')
   btnDismissStreamStartError?.focus()
@@ -396,6 +400,8 @@ function currentIcecastSettings() {
     port: String(icecastPortInput.value || '').trim(),
     mountPoint: normalizeMountPoint(mountPointInput.value),
     sourcePassword: sourcePasswordInput.value,
+    opusBitrateMode: opusBitrateMode(),
+    opusBitrateModeVersion: 2,
     mp3ServerType: mp3ServerTypeSelect.value,
     mp3Bitrate: mp3BitrateSelect.value,
     mp3AudioMode: mp3AudioModeSelect.value,
@@ -409,6 +415,20 @@ function currentIcecastSettings() {
 function encodingFormat() {
   const value = encodingFormatSelect.value
   return ['opus', 'opus-mp3', 'mp3'].includes(value) ? value : defaultIcecastSettings.encodingFormat
+}
+
+function opusBitrateMode() {
+  const value = opusBitrateModeSelect.value
+  return ['cbr', 'cvbr', 'vbr'].includes(value) ? value : defaultIcecastSettings.opusBitrateMode
+}
+
+function normalizedStoredOpusBitrateMode(settings) {
+  if (settings?.opusBitrateMode === 'vbr' && settings?.opusBitrateModeVersion !== 2) {
+    return 'cvbr'
+  }
+  return ['cbr', 'cvbr', 'vbr'].includes(settings?.opusBitrateMode)
+    ? settings.opusBitrateMode
+    : defaultIcecastSettings.opusBitrateMode
 }
 
 function isOpusStreamEnabled() {
@@ -434,6 +454,7 @@ function applyIcecastSettings(settings) {
     merged.sourcePassword === undefined
       ? defaultIcecastSettings.sourcePassword
       : merged.sourcePassword
+  opusBitrateModeSelect.value = normalizedStoredOpusBitrateMode(merged)
   mp3ServerTypeSelect.value = merged.mp3ServerType || defaultIcecastSettings.mp3ServerType
   mp3BitrateSelect.value = merged.mp3Bitrate || defaultIcecastSettings.mp3Bitrate
   mp3AudioModeSelect.value = merged.mp3AudioMode || defaultIcecastSettings.mp3AudioMode
@@ -452,7 +473,9 @@ function updateMp3SimulcastControls(isLocked = isStreaming) {
   const opusEnabled = isOpusStreamEnabled()
   const isShoutcast = mp3ServerTypeSelect.value === 'shoutcast1'
   opusBitrateGroup.classList.toggle('hidden', !opusEnabled)
+  opusBitrateModeGroup.classList.toggle('hidden', !opusEnabled)
   bitrateSelect.disabled = isLocked || !opusEnabled
+  opusBitrateModeSelect.disabled = isLocked || !opusEnabled
   opusIcecastSettings.classList.toggle('hidden', !opusEnabled)
   mp3OutputSettings.classList.toggle('hidden', !mp3Enabled)
   icecastHostInput.disabled = isLocked || !opusEnabled
@@ -764,7 +787,10 @@ async function startBackendAsioPreviewMonitor(config, reason = 'settings') {
   updateMonitorRoutingControls()
   monitorMeterState.textContent = isStreaming ? 'LIVE' : 'PREVIEW'
   renderMonitorPeakMeters(2)
-  addLog(`ASIO backend preview monitor active (${monitorModeLabel(config.monitorMode)}, ${reason}).`, 'system')
+  addLog(
+    `ASIO backend preview monitor active (${monitorModeLabel(config.monitorMode)}, ${reason}).`,
+    'system'
+  )
 }
 
 function supportsPreviewMonitor() {
@@ -846,7 +872,10 @@ function selectedMonitorOutputDeviceId() {
 function isAsioInputConfig(config = null) {
   const device = selectedInputDevice()
   const deviceUID = config?.inputDeviceUID || device?.deviceUID || ''
-  return currentInputType === 'device' && (device?.backend === 'asio' || String(deviceUID).startsWith('asio:'))
+  return (
+    currentInputType === 'device' &&
+    (device?.backend === 'asio' || String(deviceUID).startsWith('asio:'))
+  )
 }
 
 function shouldUseBackendAsioOutputMonitor(config = null) {
@@ -939,20 +968,50 @@ async function openBrowserInputMonitorStream(config) {
   const deviceId = await resolveBrowserInputDeviceId(selectedInputDevice())
   const channelCount = Math.max(1, Number(config.inputChannels || 2))
   const sampleRate = Math.max(8000, Number(config.sampleRate || config.inputSampleRate || 48000))
+  const channelCountConstraint = requiresDiscreteBrowserChannels(config)
+    ? { exact: channelCount }
+    : { ideal: channelCount }
   return navigator.mediaDevices.getUserMedia({
     audio: {
       deviceId: { exact: deviceId },
       echoCancellation: false,
       noiseSuppression: false,
       autoGainControl: false,
-      channelCount: { ideal: channelCount },
+      channelCount: channelCountConstraint,
       sampleRate: { ideal: sampleRate }
     },
     video: false
   })
 }
 
+function requiresDiscreteBrowserChannels(config = {}) {
+  const mode = config.monitorMode || monitorMode.value || 'stereo-pair'
+  return mode === 'downmix' || mode === 'binaural'
+}
+
+function requiresProvenBrowserChannels(config = {}) {
+  const mode = config.monitorMode || monitorMode.value || 'stereo-pair'
+  const pairStart = Number(config.monitorPairStart || monitorSourcePair?.value || 0)
+  return requiresDiscreteBrowserChannels(config) || (mode === 'stereo-pair' && pairStart >= 2)
+}
+
+function browserMonitorErrorMessage(error) {
+  return (
+    error?.message ||
+    error?.constraint ||
+    error?.name ||
+    error?.code ||
+    'Browser audio input did not provide the requested channels.'
+  )
+}
+
 async function startBrowserInputMonitor(config, reason = 'settings') {
+  if (requiresDiscreteBrowserChannels(config)) {
+    throw new Error(
+      'Browser direct monitor is disabled for Stereo downmix/Binaural because discrete input channels are not proven.'
+    )
+  }
+
   const key = JSON.stringify({
     source: 'browser-input',
     inputPath: config.inputPath || '',
@@ -976,6 +1035,23 @@ async function startBrowserInputMonitor(config, reason = 'settings') {
   const settings = track?.getSettings?.() || {}
   const browserChannels = Number(settings.channelCount || 0)
   const sourceChannels = Math.max(1, browserChannels, Number(config.inputChannels || 0), 2)
+  const requiredChannels = Number(config.inputChannels || 0)
+  if (requiresProvenBrowserChannels(config) && browserChannels <= 0) {
+    const message = 'Browser direct monitor did not report a usable channel count.'
+    addLog(message, 'error')
+    mediaStream.getTracks().forEach((track) => track.stop())
+    throw new Error(`${message} Falling back to backend PCM monitor.`)
+  }
+  if (
+    browserChannels > 0 &&
+    browserChannels < requiredChannels &&
+    requiresDiscreteBrowserChannels(config)
+  ) {
+    const message = `Browser direct monitor opened ${browserChannels}ch from a ${requiredChannels}ch input.`
+    addLog(message, 'error')
+    mediaStream.getTracks().forEach((track) => track.stop())
+    throw new Error(`${message} Falling back to backend PCM monitor.`)
+  }
   const pairStart = Number(config.monitorPairStart || 0)
   if (browserChannels > 0 && browserChannels < sourceChannels && pairStart >= browserChannels) {
     mediaStream.getTracks().forEach((track) => track.stop())
@@ -997,7 +1073,9 @@ async function startBrowserInputMonitor(config, reason = 'settings') {
     latencyMs: format.latencyMs,
     lowLatency: format.lowLatency,
     sampleRate: format.sampleRate,
-    channels: format.channels
+    channels: format.channels,
+    channelLabels: format.channelLabels,
+    monitorChannelIndexes: format.monitorChannelIndexes
   }
   updateMonitorRoutingControls()
 
@@ -1013,6 +1091,7 @@ async function startBrowserInputMonitor(config, reason = 'settings') {
         sampleRate: format.sampleRate,
         channels: format.channels,
         channelLabels: format.channelLabels,
+        monitorChannelIndexes: format.monitorChannelIndexes,
         volume: monitorVolumePercent(),
         onPeaks: updateMonitorPeakMeters,
         directOutput: true
@@ -1382,32 +1461,42 @@ function monitorOutputPeakAmplitude(inputPeaks, outputChannel, format) {
 
   if (mode === 'downmix') {
     let sum = 0
-    for (let channel = 0; channel < channels; channel += 1) {
-      const gains = downmixGains(channel, channels)
+    for (const channel of monitorChannelIndexesForFormat(format, channels)) {
+      const gains = downmixGains(channel, channels, format.channelLabels?.[channel])
       sum += dbToAmplitude(inputPeaks[channel]) * (outputChannel === 0 ? gains.left : gains.right)
     }
     return sum * 0.707
   }
 
   let sum = 0
-  for (let channel = 0; channel < channels; channel += 1) {
+  for (const channel of monitorChannelIndexesForFormat(format, channels)) {
     sum +=
       dbToAmplitude(inputPeaks[channel]) * hrtfMonitorGain(format.channelLabels?.[channel], channel)
   }
   return sum * 0.35
 }
 
-function downmixGains(channel, totalChannels) {
+function monitorChannelIndexesForFormat(format, channels) {
+  return monitorChannelIndexesForConfig(
+    { selectedChannels: format.monitorChannelIndexes },
+    channels
+  )
+}
+
+function downmixGains(channel, totalChannels, label = null) {
   if (totalChannels === 1) {
     return { left: 1, right: 1 }
   }
+
+  const labelGains = downmixGainsForLabel(label)
+  if (labelGains) return labelGains
 
   const minus3db = 0.707
   const matrix = [
     { left: 1, right: 0 },
     { left: 0, right: 1 },
     { left: minus3db, right: minus3db },
-    { left: 0, right: 0 },
+    { left: minus3db, right: minus3db },
     { left: minus3db, right: 0 },
     { left: 0, right: minus3db },
     { left: minus3db, right: 0 },
@@ -1422,6 +1511,24 @@ function downmixGains(channel, totalChannels) {
   )
 }
 
+function downmixGainsForLabel(label) {
+  const value = String(label || '').toUpperCase()
+  if (!value) return null
+
+  const minus3db = 0.707
+  if (['L', 'FL'].includes(value)) return { left: 1, right: 0 }
+  if (['R', 'FR'].includes(value)) return { left: 0, right: 1 }
+  if (['C', 'FC', 'LFE'].includes(value)) return { left: minus3db, right: minus3db }
+  if (['LS', 'SL', 'LSR', 'BL', 'TFL', 'TBL'].includes(value)) {
+    return { left: minus3db, right: 0 }
+  }
+  if (['RS', 'SR', 'RSR', 'BR', 'TFR', 'TBR'].includes(value)) {
+    return { left: 0, right: minus3db }
+  }
+
+  return null
+}
+
 function hrtfMonitorGain(label, channel) {
   const labelGains = {
     L: 1,
@@ -1430,7 +1537,7 @@ function hrtfMonitorGain(label, channel) {
     FL: 1,
     FR: 1,
     FC: 0.707,
-    LFE: 0,
+    LFE: 0.707,
     LS: 0.707,
     SL: 0.707,
     SR: 0.707,
@@ -1444,7 +1551,7 @@ function hrtfMonitorGain(label, channel) {
     TBR: 0.707
   }
   if (labelGains[label]) return labelGains[label]
-  if (label === 'LFE') return 0
+  if (label === 'LFE') return 0.707
   return channel < 2 ? 1 : 0.7
 }
 
@@ -1470,7 +1577,15 @@ function selectedMonitorFormat() {
     volume: monitorVolumePercent(),
     sampleRate: currentMonitorFormat?.sampleRate || Number(sampleRateSelect.value),
     channels: sourceChannels,
-    channelLabels: selectedTemplateChannelLabels(sourceChannels)
+    channelLabels: selectedTemplateChannelLabels(sourceChannels),
+    monitorChannelIndexes: monitorChannelIndexesForMonitorMode(
+      {
+        inputType: currentInputType,
+        monitorMode: monitorMode.value,
+        selectedChannels: selectedChannelIndexes()
+      },
+      sourceChannels
+    )
   }
 }
 
@@ -1479,8 +1594,8 @@ function selectedBrowserMonitorOutputDeviceId() {
   return option?.dataset.backendOutput === 'true' ? '' : monitorDeviceList.value || ''
 }
 
-function shouldUseLowLatencyMonitor(inputType = currentInputType, mode = monitorMode.value) {
-  return inputType === 'device' && mode === 'stereo-pair'
+function shouldUseLowLatencyMonitor(inputType = currentInputType) {
+  return inputType === 'device'
 }
 
 function effectiveMonitorLatencyMs(inputType = currentInputType, mode = monitorMode.value) {
@@ -1627,7 +1742,16 @@ function applyMonitorSettings(reason = 'settings') {
             addLog(`Native audio input monitor unavailable: ${error.message}`, 'error')
           }
         }
-        await startBrowserInputMonitor(config, reason)
+        try {
+          await startBrowserInputMonitor(config, reason)
+        } catch (error) {
+          addLog(
+            `Direct audio input monitor unavailable: ${browserMonitorErrorMessage(error)}`,
+            'error'
+          )
+          await startBackendPcmInputMonitor(config, selectedChannelIndexes().length)
+          await window.api.setMonitorActive(true)
+        }
         return
       }
 
@@ -1672,7 +1796,10 @@ async function startInitialMonitor(config, channels) {
         try {
           await startBrowserInputMonitor(config, 'stream-start')
         } catch (browserError) {
-          addLog(`Direct audio input monitor unavailable: ${browserError.message}`, 'error')
+          addLog(
+            `Direct audio input monitor unavailable: ${browserMonitorErrorMessage(browserError)}`,
+            'error'
+          )
           await startBackendPcmInputMonitor(config, channels)
         }
       }
@@ -1680,7 +1807,10 @@ async function startInitialMonitor(config, channels) {
       try {
         await startBrowserInputMonitor(config, 'stream-start')
       } catch (error) {
-        addLog(`Direct audio input monitor unavailable: ${error.message}`, 'error')
+        addLog(
+          `Direct audio input monitor unavailable: ${browserMonitorErrorMessage(error)}`,
+          'error'
+        )
         await startBackendPcmInputMonitor(config, channels)
       }
     }
@@ -1695,13 +1825,14 @@ async function startInitialMonitor(config, channels) {
   )
   await webAudioMonitor.start({
     mode: format.mode,
-    deviceId: config.monitorDeviceId,
+    deviceId: monitorWebAudioOutputDeviceId(config),
     pairStart: format.pairStart,
     latencyMs: format.latencyMs,
     lowLatency: format.lowLatency,
     sampleRate: format.sampleRate,
     channels: format.channels,
     channelLabels: format.channelLabels,
+    monitorChannelIndexes: format.monitorChannelIndexes,
     volume: monitorVolumePercent()
   })
   monitorMeterState.textContent = 'LIVE'
@@ -1719,18 +1850,25 @@ async function startBackendPcmInputMonitor(config, channels) {
   )
   await webAudioMonitor.start({
     mode: format.mode,
-    deviceId: config.monitorDeviceId,
+    deviceId: monitorWebAudioOutputDeviceId(config),
     pairStart: format.pairStart,
     latencyMs: format.latencyMs,
     lowLatency: format.lowLatency,
     sampleRate: format.sampleRate,
     channels: format.channels,
     channelLabels: format.channelLabels,
+    monitorChannelIndexes: format.monitorChannelIndexes,
     volume: monitorVolumePercent()
   })
   monitorMeterState.textContent = 'LIVE'
   renderMonitorPeakMeters(2)
   addLog('Falling back to backend PCM monitor output for Audio Input.', 'system')
+}
+
+function monitorWebAudioOutputDeviceId(config = {}) {
+  return (
+    config.monitorDeviceId || config.monitorOutputDeviceId || selectedBrowserMonitorOutputDeviceId()
+  )
 }
 
 async function startPreviewMonitor(reason = 'settings') {
@@ -1776,7 +1914,10 @@ async function startPreviewMonitor(reason = 'settings') {
       await startBrowserInputMonitor(config, reason)
       return
     } catch (error) {
-      addLog(`Direct audio input monitor unavailable: ${error.message}`, 'error')
+      addLog(
+        `Direct audio input monitor unavailable: ${browserMonitorErrorMessage(error)}`,
+        'error'
+      )
     }
   }
 
@@ -1819,6 +1960,7 @@ async function startPreviewMonitor(reason = 'settings') {
       sampleRate: format.sampleRate,
       channels: format.channels,
       channelLabels: format.channelLabels,
+      monitorChannelIndexes: format.monitorChannelIndexes,
       volume: monitorVolumePercent()
     })
     monitorMeterState.textContent = 'PREVIEW'
@@ -1837,10 +1979,41 @@ async function startPreviewMonitor(reason = 'settings') {
 
     previewMonitorKey = key
     previewMonitorSource = 'backend-preview'
+    await syncBackendWebAudioMonitorToFormat('preview-format')
     addLog(`Preview monitor active (${monitorModeLabel(config.monitorMode)}, ${reason}).`, 'system')
   } finally {
     pendingPreviewStart = false
   }
+}
+
+async function syncBackendWebAudioMonitorToFormat(reason = 'format') {
+  if (!monitorEnabled.checked || !currentMonitorFormat) return
+  if (!['backend-preview', 'backend-stream'].includes(previewMonitorSource)) return
+
+  const format = selectedMonitorFormat()
+  if (!webAudioMonitorNeedsFormatSync(format)) return
+
+  await webAudioMonitor.start(format)
+  addLog(
+    `Monitor output synchronized to PCM format (${formatSampleRate(format.sampleRate)}, ${reason}).`,
+    'system'
+  )
+}
+
+function webAudioMonitorNeedsFormatSync(format) {
+  if (!webAudioMonitor.context) return false
+  const contextSampleRate = Math.round(Number(webAudioMonitor.context.sampleRate || 0))
+  const targetSampleRate = Math.round(Number(format.sampleRate || 0))
+  if (contextSampleRate !== targetSampleRate) return true
+  if (Number(webAudioMonitor.channels || 0) !== Number(format.channels || 0)) return true
+  if (webAudioMonitor.mode !== format.mode) return true
+  if (
+    format.mode === 'stereo-pair' &&
+    Number(webAudioMonitor.pairStart || 0) !== Number(format.pairStart || 0)
+  ) {
+    return true
+  }
+  return false
 }
 
 async function stopPreviewMonitor() {
@@ -1912,8 +2085,32 @@ function initialMonitorFormat(config, streamChannels, sampleRateOverride = null)
     channels: isDirectDeviceMonitor ? config.inputChannels || 2 : streamChannels,
     channelLabels: selectedTemplateChannelLabels(
       isDirectDeviceMonitor ? config.inputChannels || 2 : streamChannels
+    ),
+    monitorChannelIndexes: monitorChannelIndexesForMonitorMode(
+      config,
+      isDirectDeviceMonitor ? config.inputChannels || 2 : streamChannels
     )
   }
+}
+
+function monitorChannelIndexesForMonitorMode(config, sourceChannels) {
+  const channels = Math.max(1, Number(sourceChannels || 2))
+  const mode = config?.monitorMode || config?.mode || 'stereo-pair'
+  if (config?.inputType === 'device' && (mode === 'downmix' || mode === 'binaural')) {
+    return Array.from({ length: channels }, (_value, index) => index)
+  }
+  return monitorChannelIndexesForConfig(config, channels)
+}
+
+function monitorChannelIndexesForConfig(config, sourceChannels) {
+  const channels = Math.max(1, Number(sourceChannels || 2))
+  const selected = Array.isArray(config?.selectedChannels) ? config.selectedChannels : []
+  const normalized = selected
+    .map((value) => Number(value))
+    .filter((value) => Number.isInteger(value) && value >= 0 && value < channels)
+  return normalized.length > 0
+    ? [...new Set(normalized)]
+    : Array.from({ length: channels }, (_value, index) => index)
 }
 
 tabFile.addEventListener('click', () => {
@@ -1952,7 +2149,6 @@ icecastSettingsFields.forEach((field) => {
   field.addEventListener('change', saveIcecastSettings)
   field.addEventListener('input', saveIcecastSettings)
 })
-
 ;[
   filePathInput,
   deviceList,
@@ -1975,6 +2171,7 @@ encodingFormatSelect.addEventListener('change', () => {
 })
 mp3ServerTypeSelect.addEventListener('change', () => updateMp3SimulcastControls())
 bitrateSelect.addEventListener('change', updateBitrateActualLabel)
+opusBitrateModeSelect.addEventListener('change', saveIcecastSettings)
 channelTemplateSelect.addEventListener('change', () => {
   updateChannelControls(true, channelTemplateSelect.value)
   applyMonitorSettings('template')
@@ -2040,6 +2237,7 @@ btnStart.addEventListener('click', async () => {
     streamChannelLabels: selectedStreamChannelLabels(),
     sampleRate: inputInfo.sampleRate || Number(sampleRateSelect.value),
     bitrate: actualBitrateValue(),
+    opusBitrateMode: opusBitrateMode(),
     monitorEnabled: isMonitorAvailable() && monitorEnabled.checked,
     directInputMonitor:
       currentInputType === 'device' && isMonitorAvailable() && monitorEnabled.checked,
@@ -2174,6 +2372,9 @@ window.api.onMonitorFormat((format) => {
   updateMonitorRoutingControls()
   renderMonitorPeakMeters(2)
   addLog(`Monitor PCM: ${format.channels}ch @ ${formatSampleRate(format.sampleRate)}`, 'system')
+  syncBackendWebAudioMonitorToFormat('backend-format').catch((error) => {
+    addLog(`Error synchronizing monitor output format: ${error.message}`, 'error')
+  })
   if (isStreaming && monitorEnabled.checked) {
     applyMonitorSettings('format')
   }

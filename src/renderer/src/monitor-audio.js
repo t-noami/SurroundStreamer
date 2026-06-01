@@ -1,5 +1,3 @@
-import { KU100_NEAR_HRIR } from './ku100-near-hrir'
-
 const DEFAULT_CHANNEL_LABELS = [
   'FL',
   'FR',
@@ -22,7 +20,7 @@ const SPEAKER_POSITIONS = {
   FL: { x: -0.55, y: 0, z: -0.85, gain: 1 },
   FR: { x: 0.55, y: 0, z: -0.85, gain: 1 },
   FC: { x: 0, y: 0, z: -1, gain: 0.707 },
-  LFE: { x: 0, y: 0, z: 0, gain: 0 },
+  LFE: { x: 0, y: -0.15, z: -1, gain: 0.707 },
   LS: { x: -0.95, y: 0, z: 0.15, gain: 0.707 },
   SL: { x: -0.95, y: 0, z: 0.15, gain: 0.707 },
   SR: { x: 0.95, y: 0, z: 0.15, gain: 0.707 },
@@ -50,6 +48,7 @@ export class WebAudioMonitor {
     this.mode = 'stereo-pair'
     this.channels = 2
     this.channelLabels = DEFAULT_CHANNEL_LABELS.slice(0, 2)
+    this.monitorChannelIndexes = [0, 1]
     this.pairStart = 0
     this.latencyMs = 80
     this.lowLatency = false
@@ -62,6 +61,7 @@ export class WebAudioMonitor {
     this.mediaProbeBuffer = null
     this.mediaProbeTimer = null
     this.onMediaPeaks = null
+    this.pcmByteRemainder = null
     this.operation = Promise.resolve()
   }
 
@@ -75,6 +75,11 @@ export class WebAudioMonitor {
     this.mode = normalizeMonitorMode(format.mode)
     this.channels = Math.max(1, Number(format.channels || 2))
     this.channelLabels = normalizeChannelLabels(format.channelLabels, this.channels)
+    this.monitorChannelIndexes = normalizeMonitorChannelIndexes(
+      format.monitorChannelIndexes,
+      this.channels
+    )
+    this.pcmByteRemainder = null
     this.deviceId = format.deviceId || ''
     this.pairStart = clampInt(format.pairStart, 0, Math.max(0, this.channels - 1))
     this.lowLatency = !!format.lowLatency
@@ -82,18 +87,23 @@ export class WebAudioMonitor {
     this.volume = clampNumber(format.volume, 0, 1, 1)
 
     this.directOutput = !!format.directOutput
+    const workletOutputMode = shouldUseWorkletStereoMix(this.mode) ? this.mode : 'discrete'
+    const workletOutputs = workletOutputMode === 'discrete' ? this.channels : 2
 
     const sampleRate = Number(format.sampleRate || 48000)
     const context = createMonitorAudioContext(sampleRate)
     this.context = context
-    await context.audioWorklet.addModule('./monitor-worklet.js')
+    await context.audioWorklet.addModule(format.workletUrl || './monitor-worklet.js')
 
     this.source = new AudioWorkletNode(context, 'pcm-monitor-source', {
       numberOfInputs: 0,
-      numberOfOutputs: this.channels,
-      outputChannelCount: Array.from({ length: this.channels }, () => 1),
+      numberOfOutputs: workletOutputs,
+      outputChannelCount: Array.from({ length: workletOutputs }, () => 1),
       processorOptions: {
         channels: this.channels,
+        outputMode: workletOutputMode,
+        channelLabels: this.channelLabels,
+        monitorChannelIndexes: this.monitorChannelIndexes,
         latencyMs: this.latencyMs,
         lowLatency: this.lowLatency
       }
@@ -101,6 +111,9 @@ export class WebAudioMonitor {
     this.source.port.postMessage({
       type: 'format',
       channels: this.channels,
+      outputMode: workletOutputMode,
+      channelLabels: this.channelLabels,
+      monitorChannelIndexes: this.monitorChannelIndexes,
       latencyMs: this.latencyMs,
       lowLatency: this.lowLatency
     })
@@ -108,7 +121,9 @@ export class WebAudioMonitor {
     this.outputGain = context.createGain()
     this.outputGain.gain.value = this.volume
 
-    if (this.mode === 'binaural') {
+    if (workletOutputMode !== 'discrete') {
+      this.connectRenderedStereoGraph()
+    } else if (this.mode === 'binaural') {
       this.connectBinauralGraph()
     } else if (this.mode === 'downmix') {
       this.connectDownmixGraph()
@@ -133,6 +148,11 @@ export class WebAudioMonitor {
     this.mode = normalizeMonitorMode(format.mode)
     this.channels = Math.max(1, Number(format.channels || 2))
     this.channelLabels = normalizeChannelLabels(format.channelLabels, this.channels)
+    this.monitorChannelIndexes = normalizeMonitorChannelIndexes(
+      format.monitorChannelIndexes,
+      this.channels
+    )
+    this.pcmByteRemainder = null
     this.deviceId = format.deviceId || ''
     this.pairStart = clampInt(format.pairStart, 0, Math.max(0, this.channels - 1))
     this.lowLatency = !!format.lowLatency
@@ -229,7 +249,28 @@ export class WebAudioMonitor {
     if (!this.source || !this.source.port || !chunk) return
 
     const view = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk)
-    const buffer = view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength)
+    const frameBytes = Math.max(4, this.channels * 4)
+    let bytes = view
+
+    if (this.pcmByteRemainder?.byteLength > 0) {
+      bytes = new Uint8Array(this.pcmByteRemainder.byteLength + view.byteLength)
+      bytes.set(this.pcmByteRemainder, 0)
+      bytes.set(view, this.pcmByteRemainder.byteLength)
+    }
+
+    const usableLength = Math.floor(bytes.byteLength / frameBytes) * frameBytes
+    if (usableLength <= 0) {
+      this.pcmByteRemainder = bytes.slice()
+      return
+    }
+
+    this.pcmByteRemainder =
+      usableLength < bytes.byteLength ? bytes.slice(usableLength, bytes.byteLength) : null
+    const alignedBytes = usableLength === bytes.byteLength ? bytes : bytes.slice(0, usableLength)
+    const buffer = alignedBytes.buffer.slice(
+      alignedBytes.byteOffset,
+      alignedBytes.byteOffset + alignedBytes.byteLength
+    )
     this.source.port.postMessage({ type: 'chunk', chunk: buffer }, [buffer])
   }
 
@@ -250,6 +291,7 @@ export class WebAudioMonitor {
 
     this.mediaProbeBuffer = null
     this.onMediaPeaks = null
+    this.pcmByteRemainder = null
 
     if (this.mediaSource) {
       this.mediaSource.disconnect()
@@ -296,6 +338,13 @@ export class WebAudioMonitor {
     merger.connect(this.outputGain)
   }
 
+  connectRenderedStereoGraph() {
+    const merger = this.context.createChannelMerger(2)
+    this.source.connect(merger, 0, 0)
+    this.source.connect(merger, 1, 1)
+    merger.connect(this.outputGain)
+  }
+
   connectMediaProbe(onPeaks) {
     this.onMediaPeaks = onPeaks
     this.mediaProbe = this.context.createAnalyser()
@@ -331,8 +380,8 @@ export class WebAudioMonitor {
     merger.connect(master)
     master.connect(this.outputGain)
 
-    for (let channel = 0; channel < this.channels; channel += 1) {
-      const { left, right } = downmixGains(channel, this.channels)
+    for (const channel of this.monitorChannelIndexes) {
+      const { left, right } = downmixGains(channel, this.channels, this.channelLabels[channel])
       if (left > 0) {
         const gain = this.context.createGain()
         gain.gain.value = left
@@ -354,7 +403,7 @@ export class WebAudioMonitor {
 
     master.connect(this.outputGain)
 
-    for (let channel = 0; channel < this.channels; channel += 1) {
+    for (const channel of this.monitorChannelIndexes) {
       const label = this.channelLabels[channel]
       const position = speakerPositionFor(label, channel, this.channels)
       const gain = this.context.createGain()
@@ -362,24 +411,26 @@ export class WebAudioMonitor {
 
       this.source.connect(gain, channel, 0)
 
-      const hrir = hrirResponseFor(label)
-      if (hrir) {
-        const convolver = this.context.createConvolver()
-        convolver.normalize = false
-        convolver.buffer = createHrirBuffer(this.context, hrir)
-        gain.connect(convolver)
-        convolver.connect(master)
-        continue
-      }
-
       const panner = this.context.createPanner()
       panner.panningModel = 'HRTF'
       panner.distanceModel = 'inverse'
       panner.refDistance = 1
-      panner.maxDistance = 10000
-      panner.rolloffFactor = 0
+      panner.maxDistance = 30
+      panner.rolloffFactor = 0.18
+      panner.coneInnerAngle = 360
+      panner.coneOuterAngle = 360
       setPannerPosition(panner, position.x, position.y, position.z)
-      gain.connect(panner)
+
+      if (isLfeLabel(label)) {
+        const lfeFilter = this.context.createBiquadFilter()
+        lfeFilter.type = 'lowpass'
+        lfeFilter.frequency.value = 120
+        lfeFilter.Q.value = 0.707
+        gain.connect(lfeFilter)
+        lfeFilter.connect(panner)
+      } else {
+        gain.connect(panner)
+      }
       panner.connect(master)
     }
   }
@@ -388,6 +439,10 @@ export class WebAudioMonitor {
 function normalizeMonitorMode(mode) {
   if (mode === 'stereo') return 'stereo-pair'
   return mode || 'stereo-pair'
+}
+
+function shouldUseWorkletStereoMix(mode) {
+  return mode === 'downmix' || mode === 'binaural'
 }
 
 function createMonitorAudioContext(sampleRate) {
@@ -401,17 +456,33 @@ function normalizeChannelLabels(labels, channels) {
   })
 }
 
-function downmixGains(channel, totalChannels) {
+function normalizeMonitorChannelIndexes(indexes, channels) {
+  if (!Array.isArray(indexes) || indexes.length === 0) {
+    return Array.from({ length: channels }, (_value, index) => index)
+  }
+
+  const normalized = indexes
+    .map((value) => Number(value))
+    .filter((value) => Number.isInteger(value) && value >= 0 && value < channels)
+  return normalized.length > 0
+    ? [...new Set(normalized)]
+    : Array.from({ length: channels }, (_value, index) => index)
+}
+
+function downmixGains(channel, totalChannels, label = null) {
   if (totalChannels === 1) {
     return { left: 1, right: 1 }
   }
+
+  const labelGains = downmixGainsForLabel(label)
+  if (labelGains) return labelGains
 
   const minus3db = 0.707
   const matrix = [
     { left: 1, right: 0 },
     { left: 0, right: 1 },
     { left: minus3db, right: minus3db },
-    { left: 0, right: 0 },
+    { left: minus3db, right: minus3db },
     { left: minus3db, right: 0 },
     { left: 0, right: minus3db },
     { left: minus3db, right: 0 },
@@ -424,6 +495,24 @@ function downmixGains(channel, totalChannels) {
       right: channel % 2 === 0 ? 0 : 0.45
     }
   )
+}
+
+function downmixGainsForLabel(label) {
+  const value = String(label || '').toUpperCase()
+  if (!value) return null
+
+  const minus3db = 0.707
+  if (['L', 'FL'].includes(value)) return { left: 1, right: 0 }
+  if (['R', 'FR'].includes(value)) return { left: 0, right: 1 }
+  if (['C', 'FC', 'LFE'].includes(value)) return { left: minus3db, right: minus3db }
+  if (['LS', 'SL', 'LSR', 'BL', 'TFL', 'TBL'].includes(value)) {
+    return { left: minus3db, right: 0 }
+  }
+  if (['RS', 'SR', 'RSR', 'BR', 'TFR', 'TBR'].includes(value)) {
+    return { left: 0, right: minus3db }
+  }
+
+  return null
 }
 
 function fallbackPosition(index, total) {
@@ -440,16 +529,8 @@ function speakerPositionFor(label, index, total) {
   return SPEAKER_POSITIONS[label] || fallbackPosition(index, total)
 }
 
-function hrirResponseFor(label) {
-  return KU100_NEAR_HRIR.responses[label] || null
-}
-
-function createHrirBuffer(context, hrir) {
-  const length = Math.min(hrir.left.length, hrir.right.length)
-  const buffer = context.createBuffer(2, length, KU100_NEAR_HRIR.sampleRate)
-  buffer.copyToChannel(Float32Array.from(hrir.left.slice(0, length)), 0)
-  buffer.copyToChannel(Float32Array.from(hrir.right.slice(0, length)), 1)
-  return buffer
+function isLfeLabel(label) {
+  return String(label || '').toUpperCase() === 'LFE'
 }
 
 function setPannerPosition(panner, x, y, z) {
