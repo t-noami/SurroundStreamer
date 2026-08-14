@@ -1,6 +1,6 @@
 # Build On macOS
 
-This is the primary supported build path for SurroundStreamer.
+This is the primary supported build path for SurroundStreamer. The v0.1.2 release updates only the macOS artifact; Windows and Linux artifacts remain on v0.1.1 and must not be rebuilt or attached as v0.1.2 assets.
 
 ## Requirements
 
@@ -133,14 +133,14 @@ Outputs:
 
 ```text
 dist/mac-arm64/SurroundStreamer.app
-dist/SurroundStreamer-0.1.1.dmg
-dist/SurroundStreamer-0.1.1-arm64-mac.zip
+dist/SurroundStreamer-0.1.2.dmg
+dist/SurroundStreamer-0.1.2-arm64-mac.zip
 ```
 
 For public release downloads, use the DMG artifact:
 
 ```text
-dist/SurroundStreamer-0.1.1.dmg
+dist/SurroundStreamer-0.1.2.dmg
 ```
 
 ## Build Beta App
@@ -182,13 +182,13 @@ codesign --verify --deep --strict --verbose=2 dist/mac-arm64/SurroundStreamer.ap
 Verify the DMG before attaching it to a GitHub Release:
 
 ```bash
-hdiutil verify dist/SurroundStreamer-0.1.1.dmg
+hdiutil verify dist/SurroundStreamer-0.1.2.dmg
 ```
 
 Generate a checksum for release notes or support:
 
 ```bash
-shasum -a 256 dist/SurroundStreamer-0.1.1.dmg
+shasum -a 256 dist/SurroundStreamer-0.1.2.dmg
 ```
 
 Confirm the packaged app did not accidentally include `ffmpeg-static` and that the FFmpeg binary

@@ -7,7 +7,7 @@
 SurroundStreamer is a desktop streaming tool for musicians, engineers, and spatial-audio creators who want to deliver live music and multichannel audio in surround.
 It sends audio from an audio interface or audio file to an Icecast/Shoutcast-compatible streaming server as Ogg Opus surround audio, stereo MP3, or both.
 Monitor output, channel templates up to 7.1, and KU100 near-field HRIR preview help you check the stream before and during playback.
-The current release supports macOS Apple Silicon, Windows x64, and a Linux x64 AppImage.
+The current macOS release supports Apple Silicon. Windows x64 and Linux x64 AppImage downloads remain on v0.1.1.
 
 ## Who It Is For
 
@@ -24,9 +24,11 @@ Non-REM Studio and Tia Rungray usage notes and case-study materials are in prepa
 
 | Platform            | Download                                                                                             |
 | ------------------- | ---------------------------------------------------------------------------------------------------- |
-| macOS Apple Silicon | [SurroundStreamer-0.1.1.dmg](https://github.com/t-noami/SurroundStreamer/releases/tag/v0.1.1)        |
+| macOS Apple Silicon | [SurroundStreamer-0.1.2.dmg](https://github.com/t-noami/SurroundStreamer/releases/tag/v0.1.2)        |
 | Windows x64         | [surround-streamer-0.1.1-setup.exe](https://github.com/t-noami/SurroundStreamer/releases/tag/v0.1.1) |
 | Linux x64 AppImage  | [surround-streamer-0.1.1.AppImage](https://github.com/t-noami/SurroundStreamer/releases/tag/v0.1.1)  |
+
+macOS v0.1.2 is the only artifact updated in this release. Windows and Linux artifacts were not rebuilt or reattached; use their existing v0.1.1 downloads.
 
 ## System Requirements
 
@@ -80,7 +82,7 @@ real input channels for the selected stream layout.
 - 7.1.2 and 7.1.4 are not part of the standard build. The current production target is up to 7.1 because that maps cleanly to common Opus channel mapping support.
 - KU100 near-field HRIR data is included under CC BY 4.0. Attribution is listed below.
 - For Windows surround input, use an ASIO-capable audio interface or ASIO virtual audio device with 6 or more input/output channels.
-- Linux x64 AppImage is available in v0.1.1. The current Linux path has been smoke-tested on Ubuntu 24.04 with PipeWire/PulseAudio, but broader distribution and device validation is still in progress.
+- Linux x64 AppImage remains available in v0.1.1. The current Linux path has been smoke-tested on Ubuntu 24.04 with PipeWire/PulseAudio, but broader distribution and device validation is still in progress.
 
 ## User Manual
 
@@ -261,7 +263,7 @@ Build instructions are split by operating system:
 - [Windows Backend Development Guide](docs/windows-backend-development.md)
 - [Windows / Linux Portability Assessment](docs/windows-linux-portability-assessment.md)
 
-macOS, Windows, and Linux x64 AppImage are the current release artifacts. Linux AppImage/PipeWire validation notes remain in [Build on Linux](docs/build-linux.md).
+macOS v0.1.2 is the current release artifact. The Windows installer and Linux x64 AppImage remain v0.1.1 artifacts and are not rebuilt or reattached for v0.1.2. Linux AppImage/PipeWire validation notes remain in [Build on Linux](docs/build-linux.md).
 
 ## Test Stream Config
 
