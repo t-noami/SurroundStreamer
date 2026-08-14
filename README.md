@@ -265,10 +265,6 @@ Build instructions are split by operating system:
 
 macOS v0.1.2 is the current release artifact. The Windows installer and Linux x64 AppImage remain v0.1.1 artifacts and are not rebuilt or reattached for v0.1.2. Linux AppImage/PipeWire validation notes remain in [Build on Linux](docs/build-linux.md).
 
-## Test Stream Config
-
-`test_streamconfig.txt` is a local convenience note for stream testing. Treat it as sensitive operational data and do not publish it.
-
 ## License
 
 SurroundStreamer is released under the MIT License. See [LICENSE](LICENSE).
